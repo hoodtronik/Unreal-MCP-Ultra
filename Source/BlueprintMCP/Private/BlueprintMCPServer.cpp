@@ -863,6 +863,16 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 	Router->BindRoute(FHttpPath(TEXT("/api/scene-digest")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("sceneDigest")));
 
+	// Lighting
+	Router->BindRoute(FHttpPath(TEXT("/api/list-lights")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("listLights")));
+	Router->BindRoute(FHttpPath(TEXT("/api/spawn-light")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("spawnLight")));
+	Router->BindRoute(FHttpPath(TEXT("/api/set-light-property")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("setLightProperty")));
+	Router->BindRoute(FHttpPath(TEXT("/api/get-renderer-state")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("getRendererState")));
+
 	// PIE control
 	Router->BindRoute(FHttpPath(TEXT("/api/start-pie")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("startPie")));
@@ -1257,6 +1267,9 @@ void FBlueprintMCPServer::RegisterHandlers()
 		TEXT("setActorProperty"),
 		TEXT("spawnActor"),
 		TEXT("deleteActor"),
+		// Lighting mutations — also what vision_mode keys off to attach a frame after the change.
+		TEXT("spawnLight"),
+		TEXT("setLightProperty"),
 		// Niagara mutations (Tier 1)
 		TEXT("createNiagaraSystem"),
 		TEXT("createNiagaraEmitter"),
@@ -1424,6 +1437,10 @@ void FBlueprintMCPServer::RegisterHandlers()
 	HandlerMap.Add(TEXT("takeHighResScreenshot"),   [this](const TMap<FString, FString>&, const FString& B) { return HandleTakeHighResScreenshot(B); });
 	HandlerMap.Add(TEXT("viewportCapture"),         [this](const TMap<FString, FString>&, const FString& B) { return HandleViewportCapture(B); });
 	HandlerMap.Add(TEXT("sceneDigest"),             [this](const TMap<FString, FString>&, const FString& B) { return HandleSceneDigest(B); });
+	HandlerMap.Add(TEXT("listLights"),              [this](const TMap<FString, FString>&, const FString& B) { return HandleListLights(B); });
+	HandlerMap.Add(TEXT("spawnLight"),              [this](const TMap<FString, FString>&, const FString& B) { return HandleSpawnLight(B); });
+	HandlerMap.Add(TEXT("setLightProperty"),        [this](const TMap<FString, FString>&, const FString& B) { return HandleSetLightProperty(B); });
+	HandlerMap.Add(TEXT("getRendererState"),        [this](const TMap<FString, FString>&, const FString& B) { return HandleGetRendererState(B); });
 
 	// PIE control
 	HandlerMap.Add(TEXT("startPie"),                [this](const TMap<FString, FString>&, const FString& B) { return HandleStartPIE(B); });

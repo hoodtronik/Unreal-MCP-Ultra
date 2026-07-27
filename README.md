@@ -151,6 +151,7 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 - View: `set_view_mode` · `set_show_flags` · `set_viewport_type` · `set_realtime_rendering` · `set_game_view`
 - Screenshots: `take_screenshot` · `take_high_res_screenshot` (both write a PNG to `Saved/Screenshots`)
 - Vision: `viewport_capture` · `vision_mode` · `scene_digest`
+- Lighting: `list_lights` · `spawn_light` · `set_light_property` · `get_renderer_state`
 - Output log: `get_output_log` · `clear_output_log`
 - CVars: `get_cvar` · `set_cvar` · `list_cvars`
 - Profiling: `get_frame_timing`
@@ -174,6 +175,23 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 
 > Requires a running editor. A headless commandlet is spawned with `-nullrhi` and has no render
 > device at all, so all three capture targets report that explicitly rather than failing obscurely.
+
+**Lighting**
+- `list_lights` — every light in the level with type, mobility, intensity, colour, temperature and
+  type-specific settings. The entry point for assessing or fixing a lighting setup; `list_actors`
+  only returns names and classes.
+- `spawn_light` — create a directional / point / spot / rect / sky light and configure it in one
+  call. Applies mobility first (a Static light rejects later writes) and recaptures sky lights.
+- `set_light_property` — typed setters on an existing light by label, with per-type validation
+  (`innerConeAngle` on a point light is an error, not a silent no-op).
+- `get_renderer_state` — GI method, reflection method, shadow-map method, and whether path tracing,
+  Lumen hardware RT, MegaLights or auto-exposure are on. Reads live console variables, so it
+  reflects what is actually in force rather than what the project `.ini` says.
+
+> These write light properties directly rather than through the engine's `Set*` light functions,
+> which are runtime APIs that silently no-op on Static lights — and, for attenuation radius and
+> spot cone angles, on Stationary lights too, which is the default mobility for a newly placed
+> light. Pairs well with `set_view_mode("LightingOnly")` and `viewport_capture`.
 
 **Play In Editor (PIE)**
 - `start_pie` · `stop_pie` · `pie_pause` · `is_pie_running`

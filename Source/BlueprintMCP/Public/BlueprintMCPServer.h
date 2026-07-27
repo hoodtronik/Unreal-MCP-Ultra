@@ -421,6 +421,14 @@ private:
 	FString HandleViewportCapture(const FString& Body);
 	FString HandleSceneDigest(const FString& Body);
 
+	// Lighting
+	FString HandleListLights(const FString& Body);
+	FString HandleSpawnLight(const FString& Body);
+	FString HandleSetLightProperty(const FString& Body);
+	FString HandleGetRendererState(const FString& Body);
+	bool ApplyLightProperties(AActor* Actor, const TSharedPtr<FJsonObject>& Json,
+		TArray<FString>& OutApplied, FString& OutError);
+
 	// ----- Output log / undo-redo / editor utils -----
 	FString HandleGetOutputLog(const FString& Body);
 	FString HandleClearOutputLog(const FString& Body);

@@ -45,6 +45,7 @@ import { registerPcgAuthoringTools } from "./tools/pcg-authoring.js";
 import { registerDataAssetTools } from "./tools/data-assets.js";
 import { registerProfilingTools } from "./tools/profiling.js";
 import { registerVisionTools } from "./tools/vision.js";
+import { registerLightingTools } from "./tools/lighting.js";
 
 // CLAUDE-NOTE: single source of truth for "every tool-registration function + a human-friendly
 // category label", consumed by index.ts (real registration), batch-schema-invariant.test.ts
@@ -103,4 +104,5 @@ export const TOOL_REGISTRATIONS: ToolRegistration[] = [
   { register: registerDataAssetTools, category: "Asset Creation" },
   { register: registerProfilingTools, category: "Profiling" },
   { register: registerVisionTools, category: "Vision" },
+  { register: registerLightingTools, category: "Lighting" },
 ];
