@@ -430,6 +430,11 @@ private:
 	FString HandleConfigurePostProcess(const FString& Body);
 	FString HandleSpawnSky(const FString& Body);
 	FString HandleValidateLighting(const FString& Body);
+
+	// Level open / create
+	FString HandleOpenLevel(const FString& Body);
+	FString HandleNewLevel(const FString& Body);
+	FString ResolveMapAssetPath(const FString& NameOrPath) const;
 	bool ApplyLightProperties(AActor* Actor, const TSharedPtr<FJsonObject>& Json,
 		TArray<FString>& OutApplied, FString& OutError);
 

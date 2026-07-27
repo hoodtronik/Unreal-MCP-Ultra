@@ -146,6 +146,9 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
   · `refresh_agent_config`
 - `save_all` · `get_dirty_packages` · `undo` · `redo` · `begin_transaction` · `end_transaction`
   · `reset_transaction_buffer`
+- Levels: `open_level` · `new_level` — switch to or create a level. Both refuse to run while
+  packages are unsaved, because the underlying load runs under `GIsRunningUnattendedScript` and
+  would discard them silently; pass `saveFirst` or `discardUnsaved` to say which you want.
 - `navigate_content_browser` · `open_asset_editor`
 - Camera: `get_viewport_camera` · `set_viewport_camera`
 - View: `set_view_mode` · `set_show_flags` · `set_viewport_type` · `set_realtime_rendering` · `set_game_view`

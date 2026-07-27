@@ -20,8 +20,12 @@ export function registerVisionTools(server: McpServer): void {
       saveToDisk: z.boolean().optional()
         .describe("Also write the PNG to Saved/Screenshots (default false — the image is already in this result)."),
       filename: z.string().optional().describe("Output filename, only used when saveToDisk is true."),
+      settle: z.boolean().optional()
+        .describe("Wait for the render to stop changing before returning. Use after anything involving sky, atmosphere, volumetric clouds, Lumen or a sky-light recapture — those converge over seconds, not one frame, and an immediate capture shows the pre-change image."),
+      settleTimeoutMs: z.number().min(500).max(60000).optional()
+        .describe("Give up settling after this long and return the latest frame anyway (default 8000)."),
     },
-    async ({ target, blueprint, graph, maxSize, saveToDisk, filename }) => {
+    async ({ target, blueprint, graph, maxSize, saveToDisk, filename, settle, settleTimeoutMs }) => {
       const err = await ensureUE();
       if (err) return { content: [{ type: "text" as const, text: err }] };
 
@@ -32,6 +36,42 @@ export function registerVisionTools(server: McpServer): void {
       if (saveToDisk !== undefined) body.saveToDisk = saveToDisk;
       if (filename) body.filename = filename;
 
+      // CLAUDE-NOTE: settling has to happen ACROSS requests, not inside one. The C++ handler runs
+      // on the game thread, so sleeping in it would block the very ticks the renderer needs to
+      // converge — the editor would sit frozen and the frame would never change. Polling from here
+      // lets the editor tick between calls. Found the hard way: back-to-back captures after
+      // spawn_sky all returned a byte-identical unconverged frame, which looked exactly like a
+      // broken capture until the editor was left alone for a few seconds.
+      let settleInfo = "";
+      if (settle) {
+        // CLAUDE-NOTE: compare via the backend's sinceDigest rather than string equality. Exact
+        // matching never converges on a scene with volumetric clouds — they animate continuously,
+        // so consecutive frames always differ slightly and settling would always hit the timeout
+        // (measured: 3 of 4 sky presets never "settled" in 25s under exact comparison). Passing
+        // sinceDigest reuses the tolerant per-cell luma comparison the C++ side already tunes.
+        const deadline = Date.now() + (settleTimeoutMs ?? 8000);
+        let previous = "";
+        let stableFor = 0;
+        let polls = 0;
+        while (Date.now() < deadline) {
+          const probe = await uePost("/api/viewport-capture", {
+            ...body, maxSize: 128, ...(previous ? { sinceDigest: previous } : {}),
+          });
+          polls++;
+          if (probe.error) break;
+          if (previous && probe.unchanged) {
+            if (++stableFor >= 2) break;
+          } else {
+            stableFor = 0;
+          }
+          previous = probe.digest;
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        settleInfo = stableFor >= 2
+          ? `  Settled after ${polls} probe(s)`
+          : `  ⚠ Still changing after ${polls} probe(s) — returning the latest frame anyway (animated content such as volumetric clouds never fully settles)`;
+      }
+
       const data = await uePost("/api/viewport-capture", body);
       if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
 
@@ -41,6 +81,7 @@ export function registerVisionTools(server: McpServer): void {
         `  Digest: ${data.digest}`,
         `  ${Math.round(data.bytes / 1024)} KB PNG in ${data.elapsedMs} ms`,
       ];
+      if (settleInfo) lines.push(settleInfo);
       if (data.fullPath) lines.push(`  Saved: ${data.fullPath}`);
 
       // The backend omits the payload when it matches a supplied sinceDigest. This tool never

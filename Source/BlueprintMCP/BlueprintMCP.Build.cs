@@ -64,7 +64,12 @@ public class BlueprintMCP : ModuleRules
 			// UnrealEd/Public/GraphEditor.h), but SGraphPanel::Update() lives in the separate
 			// GraphEditor module and wasn't linkable without this — screenshot_graph (#65) needs it
 			// to force the panel to build its node widgets before an off-screen render.
-			"GraphEditor"
+			"GraphEditor",
+			// CLAUDE-NOTE: ULevelEditorSubsystem (open_level / new_level). Its LoadLevel/NewLevel
+			// wrap themselves in GIsRunningUnattendedScript, which is what makes them safe to call
+			// from an MCP request — the raw FEditorFileUtils path can raise a modal save dialog and
+			// deadlock the game thread the handler runs on.
+			"LevelEditor"
 		});
 	}
 }

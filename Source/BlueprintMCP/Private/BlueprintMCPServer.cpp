@@ -880,6 +880,10 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 		QueuedHandler(TEXT("spawnSky")));
 	Router->BindRoute(FHttpPath(TEXT("/api/validate-lighting")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("validateLighting")));
+	Router->BindRoute(FHttpPath(TEXT("/api/open-level")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("openLevel")));
+	Router->BindRoute(FHttpPath(TEXT("/api/new-level")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("newLevel")));
 
 	// PIE control
 	Router->BindRoute(FHttpPath(TEXT("/api/start-pie")), EHttpServerRequestVerbs::VERB_POST,
@@ -1280,6 +1284,10 @@ void FBlueprintMCPServer::RegisterHandlers()
 		TEXT("setLightProperty"),
 		TEXT("configurePostProcess"),
 		TEXT("spawnSky"),
+		// CLAUDE-NOTE: openLevel and newLevel are deliberately NOT here. Wrapping them in an undo
+		// transaction would leave the transaction buffer holding references into a UWorld that the
+		// level load has already torn down — the same "World Leak" failure documented above for
+		// widget mutations, and not something Ctrl+Z could meaningfully undo anyway.
 		// Niagara mutations (Tier 1)
 		TEXT("createNiagaraSystem"),
 		TEXT("createNiagaraEmitter"),
@@ -1455,6 +1463,8 @@ void FBlueprintMCPServer::RegisterHandlers()
 	HandlerMap.Add(TEXT("configurePostProcess"),    [this](const TMap<FString, FString>&, const FString& B) { return HandleConfigurePostProcess(B); });
 	HandlerMap.Add(TEXT("spawnSky"),                [this](const TMap<FString, FString>&, const FString& B) { return HandleSpawnSky(B); });
 	HandlerMap.Add(TEXT("validateLighting"),        [this](const TMap<FString, FString>&, const FString& B) { return HandleValidateLighting(B); });
+	HandlerMap.Add(TEXT("openLevel"),               [this](const TMap<FString, FString>&, const FString& B) { return HandleOpenLevel(B); });
+	HandlerMap.Add(TEXT("newLevel"),                [this](const TMap<FString, FString>&, const FString& B) { return HandleNewLevel(B); });
 
 	// PIE control
 	HandlerMap.Add(TEXT("startPie"),                [this](const TMap<FString, FString>&, const FString& B) { return HandleStartPIE(B); });

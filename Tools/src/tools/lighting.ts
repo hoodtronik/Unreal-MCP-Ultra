@@ -322,7 +322,7 @@ export function registerLightingTools(server: McpServer): void {
       "looked like when it was last captured).",
     {
       preset: z.enum(["daylight", "sunset", "overcast", "night"]).optional()
-        .describe("Sets sun angle, intensity, colour temperature and sky-light intensity. Default 'daylight'."),
+        .describe("Sets sun angle, intensity, colour temperature and sky-light intensity. Default 'daylight'. Measured against a locked EV100=1 exposure these land at roughly 100% / 60% / 38% / 4% of daylight brightness — 'night' is deliberately very dark and needs an exposure change (configure_post_process) or practical lights to be workable; raising its sky light does not help, because real-time sky capture of a night atmosphere is essentially black."),
       sunPitch: z.number().optional().describe("Overrides the preset. Negative points downward; -45 is mid-morning, -4 is near the horizon."),
       sunYaw: z.number().optional().describe("Compass direction of the sun."),
       sunIntensity: z.number().optional().describe("Overrides the preset, in lux."),
@@ -352,9 +352,11 @@ export function registerLightingTools(server: McpServer): void {
         `Sky light: ${data.skyLightIntensity} (real-time capture on)`,
         "",
         "Next steps:",
-        "  1. viewport_capture() to see it",
+        "  1. viewport_capture(settle=true) to see it — the atmosphere, volumetric clouds and",
+        "     sky-light capture converge over SECONDS, so an immediate capture returns the",
+        "     pre-change frame and looks like nothing happened",
         "  2. validate_lighting() to check for problems",
-        "  3. configure_post_process(lockExposure=...) before tuning intensities",
+        "  3. configure_post_process(lockExposure=...) before comparing intensities",
       );
 
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };

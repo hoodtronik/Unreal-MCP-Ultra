@@ -1249,11 +1249,23 @@ FString FBlueprintMCPServer::HandleSpawnSky(const FString& Body)
 	}
 	else if (Preset == TEXT("overcast"))
 	{
-		SunPitch = -60.0f; SunIntensity = 3.0f;  SunTemperature = 7200.0f; SkyIntensity = 1.6f;
+		// CLAUDE-NOTE: measured against a locked EV100=1 exposure, the original 3 lux / 1.6 sky put
+		// overcast at 56% of daylight and sunset at 60% — near-identical brightness, so the two
+		// presets were distinguishable only by colour temperature. Overcast's defining quality is
+		// FLATNESS, not dimness: cut the sun further and raise the ambient so shadows fill in.
+		SunPitch = -60.0f; SunIntensity = 1.5f;  SunTemperature = 7200.0f; SkyIntensity = 2.6f;
 	}
 	else if (Preset == TEXT("night"))
 	{
-		SunPitch = -12.0f; SunIntensity = 0.15f; SunTemperature = 9000.0f; SkyIntensity = 0.25f;
+		// CLAUDE-NOTE: night sits at ~4% of daylight brightness and geometry reads as black
+		// silhouettes at a daylight exposure. That is physically correct, not a bug — but note that
+		// SKY LIGHT INTENSITY IS THE WRONG LEVER TO FIX IT. Measured: raising it from 0.25 to 0.9
+		// (3.6x) moved mean frame luma from 5.6 to 5.9 out of 255, i.e. nothing. The sky light uses
+		// real-time capture, so it derives its colour from the atmosphere — which at night is very
+		// nearly black, and any multiple of black is still black. To actually see a night scene,
+		// raise exposure (configure_post_process) or add practical lights; do not reach for the sky
+		// light. 0.6 is kept as a mild ambient that pays off once exposure is raised.
+		SunPitch = -12.0f; SunIntensity = 0.15f; SunTemperature = 9000.0f; SkyIntensity = 0.6f;
 	}
 	else
 	{

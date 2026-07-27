@@ -13,6 +13,10 @@
 #include "Misc/Paths.h"
 #include "Misc/PackageName.h"
 #include "UObject/SavePackage.h"
+#include "UObject/Package.h"
+#include "LevelEditorSubsystem.h"
+#include "FileHelpers.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 
 // ============================================================
 // FindActorByLabel — find an actor by its editor display label
@@ -599,11 +603,52 @@ FString FBlueprintMCPServer::HandleSetActorProperty(const TMap<FString, FString>
 				break;
 			}
 		}
+
+		// CLAUDE-NOTE: fall back to matching by component CLASS. UE suffixes default subobject
+		// instances with an index, so a freshly spawned AStaticMeshActor carries a component named
+		// "StaticMeshComponent0" — meaning the obvious
+		// set_actor_property(label, "StaticMeshComponent.StaticMesh", ...) failed, and there was no
+		// way to discover the "0" short of calling get_actor_properties first. Since the whole point
+		// of the dotted syntax is to address a component by what it IS, resolve by class when the
+		// literal name misses. Ambiguity is reported rather than guessed at.
 		if (!TargetComp)
 		{
+			TArray<UActorComponent*> ClassMatches;
+			for (UActorComponent* Comp : Components)
+			{
+				if (Comp && Comp->GetClass()->GetName().Equals(ComponentName, ESearchCase::IgnoreCase))
+				{
+					ClassMatches.Add(Comp);
+				}
+			}
+			if (ClassMatches.Num() == 1)
+			{
+				TargetComp = ClassMatches[0];
+			}
+			else if (ClassMatches.Num() > 1)
+			{
+				TArray<FString> Names;
+				for (UActorComponent* Comp : ClassMatches) { Names.Add(Comp->GetName()); }
+				return MakeErrorJson(FString::Printf(
+					TEXT("Actor '%s' has %d components of class '%s' (%s). Name the one you mean."),
+					*Label, ClassMatches.Num(), *ComponentName, *FString::Join(Names, TEXT(", "))));
+			}
+		}
+
+		if (!TargetComp)
+		{
+			TArray<FString> Available;
+			for (UActorComponent* Comp : Components)
+			{
+				if (Comp)
+				{
+					Available.Add(FString::Printf(TEXT("%s (%s)"), *Comp->GetName(), *Comp->GetClass()->GetName()));
+				}
+			}
 			return MakeErrorJson(FString::Printf(
-				TEXT("Component '%s' not found on actor '%s'. Use get_actor_properties(label) to list available components."),
-				*ComponentName, *Label));
+				TEXT("Component '%s' not found on actor '%s'. Available: %s."),
+				*ComponentName, *Label,
+				Available.Num() > 0 ? *FString::Join(Available, TEXT(", ")) : TEXT("none")));
 		}
 
 		FProperty* Prop = FindFProperty<FProperty>(TargetComp->GetClass(), *ActualPropertyName);
@@ -862,3 +907,279 @@ FString FBlueprintMCPServer::HandleDeleteActor(const TMap<FString, FString>&, co
 	Result->SetStringField(TEXT("class"), ActorClass);
 	return JsonToString(Result);
 }
+
+// ============================================================
+// Level open / create
+// ============================================================
+// CLAUDE-NOTE: before these, the MCP could inspect the current level and manage sublevels but had
+// no way to SWITCH levels or make a new one â€” an agent was stuck with whatever map happened to be
+// open when the editor started, which makes any level-authoring or lighting workflow a dead end.
+//
+// Both go through ULevelEditorSubsystem, which wraps its work in
+// TGuardValue<bool>(GIsRunningUnattendedScript, true). That is what makes them safe to call from an
+// MCP request at all: without it UE would raise a modal "save these assets?" dialog, which would
+// block the HTTP handler on the game thread and freeze the whole editor with no way out.
+//
+// The flip side is that the same guard makes unsaved changes disappear SILENTLY. So these refuse to
+// run while packages are dirty unless the caller explicitly says what to do about it â€” losing an
+// hour of someone's unsaved level work because an agent decided to look at a different map is not
+// an acceptable default.
+
+namespace
+{
+	/** Collect dirty package names, so the refusal can name them. */
+	TArray<FString> GetDirtyPackageNames()
+	{
+		TArray<UPackage*> DirtyPackages;
+		FEditorFileUtils::GetDirtyPackages(DirtyPackages);
+		TArray<FString> Names;
+		for (UPackage* Package : DirtyPackages)
+		{
+			if (Package)
+			{
+				Names.Add(Package->GetName());
+			}
+		}
+		Names.Sort();
+		return Names;
+	}
+}
+
+FString FBlueprintMCPServer::ResolveMapAssetPath(const FString& NameOrPath) const
+{
+	// An explicit package path is taken at face value.
+	if (NameOrPath.StartsWith(TEXT("/")))
+	{
+		return NameOrPath;
+	}
+	for (const FAssetData& Asset : AllMapAssets)
+	{
+		if (Asset.AssetName.ToString().Equals(NameOrPath, ESearchCase::IgnoreCase))
+		{
+			return Asset.PackageName.ToString();
+		}
+	}
+	return FString();
+}
+
+FString FBlueprintMCPServer::HandleOpenLevel(const FString& Body)
+{
+	TSharedPtr<FJsonObject> Json = ParseBodyJson(Body);
+	if (!Json.IsValid())
+	{
+		return MakeErrorJson(TEXT("Invalid JSON body."), MCPErrorCodes::InvalidInput);
+	}
+
+	FString Level;
+	if (!Json->TryGetStringField(TEXT("level"), Level) || Level.IsEmpty())
+	{
+		return MakeErrorJson(TEXT("Missing required field: level"), MCPErrorCodes::InvalidInput);
+	}
+
+	if (!GEditor)
+	{
+		return MakeErrorJson(TEXT("open_level requires editor mode."), MCPErrorCodes::OperationFailed);
+	}
+
+	if (GEditor->PlayWorld)
+	{
+		return MakeErrorJson(
+			TEXT("Cannot change level while Play In Editor is running. Call stop_pie first."),
+			MCPErrorCodes::OperationFailed);
+	}
+
+	const FString AssetPath = ResolveMapAssetPath(Level);
+	if (AssetPath.IsEmpty())
+	{
+		return MakeErrorJson(
+			FString::Printf(TEXT("No level named '%s' found. Pass a full package path like ")
+				TEXT("'/Game/Maps/MyLevel', or a map asset name that exists in the project."), *Level),
+			MCPErrorCodes::NotFound);
+	}
+
+	bool bSaveFirst = false;
+	bool bDiscardUnsaved = false;
+	Json->TryGetBoolField(TEXT("saveFirst"), bSaveFirst);
+	Json->TryGetBoolField(TEXT("discardUnsaved"), bDiscardUnsaved);
+
+	TArray<FString> Dirty = GetDirtyPackageNames();
+	TArray<FString> Saved;
+	if (Dirty.Num() > 0)
+	{
+		if (bSaveFirst)
+		{
+			FEditorFileUtils::SaveDirtyPackages(
+				/*bPromptUserToSave=*/false, /*bSaveMapPackages=*/true, /*bSaveContentPackages=*/true);
+			Saved = Dirty;
+			Dirty = GetDirtyPackageNames();
+		}
+		else if (!bDiscardUnsaved)
+		{
+			return MakeErrorJson(
+				FString::Printf(
+					TEXT("%d unsaved package(s) would be silently discarded by switching level: %s. ")
+					TEXT("Pass saveFirst=true to save them, or discardUnsaved=true to throw them away."),
+					Dirty.Num(), *FString::Join(Dirty, TEXT(", "))),
+				MCPErrorCodes::OperationFailed);
+		}
+	}
+
+	ULevelEditorSubsystem* LevelSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
+	if (!LevelSubsystem)
+	{
+		return MakeErrorJson(TEXT("LevelEditorSubsystem unavailable."), MCPErrorCodes::OperationFailed);
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: open_level('%s')"), *AssetPath);
+
+	if (!LevelSubsystem->LoadLevel(AssetPath))
+	{
+		return MakeErrorJson(
+			FString::Printf(TEXT("Failed to load level '%s'. It may be corrupt or from an incompatible engine version."), *AssetPath),
+			MCPErrorCodes::OperationFailed);
+	}
+
+	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("level"), AssetPath);
+
+	if (UWorld* World = GEditor->GetEditorWorldContext().World())
+	{
+		Result->SetStringField(TEXT("currentLevel"), World->GetMapName());
+		int32 ActorCount = 0;
+		for (ULevel* Lvl : World->GetLevels())
+		{
+			if (Lvl) { ActorCount += Lvl->Actors.Num(); }
+		}
+		Result->SetNumberField(TEXT("actorCount"), ActorCount);
+	}
+
+	if (Saved.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> SavedArr;
+		for (const FString& S : Saved) { SavedArr.Add(MakeShared<FJsonValueString>(S)); }
+		Result->SetArrayField(TEXT("savedBeforeSwitch"), SavedArr);
+	}
+	if (bDiscardUnsaved && Dirty.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> DiscardedArr;
+		for (const FString& D : Dirty) { DiscardedArr.Add(MakeShared<FJsonValueString>(D)); }
+		Result->SetArrayField(TEXT("discarded"), DiscardedArr);
+	}
+
+	return JsonToString(Result);
+}
+
+FString FBlueprintMCPServer::HandleNewLevel(const FString& Body)
+{
+	TSharedPtr<FJsonObject> Json = ParseBodyJson(Body);
+	if (!Json.IsValid())
+	{
+		return MakeErrorJson(TEXT("Invalid JSON body."), MCPErrorCodes::InvalidInput);
+	}
+
+	FString AssetPath;
+	if (!Json->TryGetStringField(TEXT("path"), AssetPath) || AssetPath.IsEmpty())
+	{
+		return MakeErrorJson(
+			TEXT("Missing required field: path (e.g. '/Game/Maps/MyNewLevel')"),
+			MCPErrorCodes::InvalidInput);
+	}
+	if (!AssetPath.StartsWith(TEXT("/")))
+	{
+		return MakeErrorJson(
+			FString::Printf(TEXT("path must be a full package path starting with '/', got '%s'."), *AssetPath),
+			MCPErrorCodes::InvalidInput);
+	}
+
+	if (!GEditor)
+	{
+		return MakeErrorJson(TEXT("new_level requires editor mode."), MCPErrorCodes::OperationFailed);
+	}
+
+	if (GEditor->PlayWorld)
+	{
+		return MakeErrorJson(
+			TEXT("Cannot create a level while Play In Editor is running. Call stop_pie first."),
+			MCPErrorCodes::OperationFailed);
+	}
+
+	bool bSaveFirst = false;
+	bool bDiscardUnsaved = false;
+	bool bPartitioned = false;
+	Json->TryGetBoolField(TEXT("saveFirst"), bSaveFirst);
+	Json->TryGetBoolField(TEXT("discardUnsaved"), bDiscardUnsaved);
+	Json->TryGetBoolField(TEXT("worldPartition"), bPartitioned);
+
+	TArray<FString> Dirty = GetDirtyPackageNames();
+	TArray<FString> Saved;
+	if (Dirty.Num() > 0)
+	{
+		if (bSaveFirst)
+		{
+			FEditorFileUtils::SaveDirtyPackages(false, true, true);
+			Saved = Dirty;
+			Dirty = GetDirtyPackageNames();
+		}
+		else if (!bDiscardUnsaved)
+		{
+			return MakeErrorJson(
+				FString::Printf(
+					TEXT("%d unsaved package(s) would be silently discarded by creating a new level: %s. ")
+					TEXT("Pass saveFirst=true to save them, or discardUnsaved=true to throw them away."),
+					Dirty.Num(), *FString::Join(Dirty, TEXT(", "))),
+				MCPErrorCodes::OperationFailed);
+		}
+	}
+
+	ULevelEditorSubsystem* LevelSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
+	if (!LevelSubsystem)
+	{
+		return MakeErrorJson(TEXT("LevelEditorSubsystem unavailable."), MCPErrorCodes::OperationFailed);
+	}
+
+	FString Template;
+	Json->TryGetStringField(TEXT("template"), Template);
+
+	UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: new_level('%s', template='%s')"), *AssetPath, *Template);
+
+	const bool bOk = Template.IsEmpty()
+		? LevelSubsystem->NewLevel(AssetPath, bPartitioned)
+		: LevelSubsystem->NewLevelFromTemplate(AssetPath, Template);
+
+	if (!bOk)
+	{
+		return MakeErrorJson(
+			FString::Printf(
+				TEXT("Failed to create level at '%s'%s. The path may already exist or its directory may not be writable."),
+				*AssetPath,
+				Template.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" from template '%s'"), *Template)),
+			MCPErrorCodes::OperationFailed);
+	}
+
+	// Keep the cached map list current so the new level is immediately resolvable by name.
+	FAssetRegistryModule& ARM = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	ARM.Get().GetAssetsByClass(UWorld::StaticClass()->GetClassPathName(), AllMapAssets, false);
+
+	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("path"), AssetPath);
+	Result->SetBoolField(TEXT("worldPartition"), bPartitioned);
+	if (!Template.IsEmpty())
+	{
+		Result->SetStringField(TEXT("template"), Template);
+	}
+	if (UWorld* World = GEditor->GetEditorWorldContext().World())
+	{
+		Result->SetStringField(TEXT("currentLevel"), World->GetMapName());
+	}
+	if (Saved.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> SavedArr;
+		for (const FString& S : Saved) { SavedArr.Add(MakeShared<FJsonValueString>(S)); }
+		Result->SetArrayField(TEXT("savedBeforeSwitch"), SavedArr);
+	}
+
+	return JsonToString(Result);
+}
+

@@ -314,4 +314,88 @@ export function registerLevelTools(server: McpServer): void {
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     }
   );
+
+  server.tool(
+    "open_level",
+    "Open a different level in the editor. Accepts a map asset name ('MyLevel') or a full package " +
+      "path ('/Game/Maps/MyLevel'). Refuses to run while there are unsaved packages, because the " +
+      "load discards them silently — pass saveFirst or discardUnsaved to say which you want. " +
+      "This is NOT undoable.",
+    {
+      level: z.string().describe("Map asset name or full package path."),
+      saveFirst: z.boolean().optional().describe("Save all dirty packages before switching."),
+      discardUnsaved: z.boolean().optional().describe("Throw away unsaved changes and switch anyway."),
+    },
+    async ({ level, saveFirst, discardUnsaved }) => {
+      const err = await ensureUE();
+      if (err) return { content: [{ type: "text" as const, text: err }] };
+
+      const body: Record<string, unknown> = { level };
+      if (saveFirst !== undefined) body.saveFirst = saveFirst;
+      if (discardUnsaved !== undefined) body.discardUnsaved = discardUnsaved;
+
+      const data = await uePost("/api/open-level", body);
+      if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
+
+      const lines = [`Opened level '${data.level}'.`, `Current: ${data.currentLevel} (${data.actorCount} actors)`];
+      if (data.savedBeforeSwitch?.length) {
+        lines.push(``, `Saved first: ${data.savedBeforeSwitch.join(", ")}`);
+      }
+      if (data.discarded?.length) {
+        lines.push(``, `⚠ Discarded unsaved: ${data.discarded.join(", ")}`);
+      }
+      lines.push(
+        ``,
+        `Next steps:`,
+        `  list_actors() / list_lights() — see what is in it`,
+        `  validate_lighting() — check the lighting setup`,
+      );
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    }
+  );
+
+  server.tool(
+    "new_level",
+    "Create a new level and open it. Pass a full package path. Optionally seed it from a template " +
+      "map. Same unsaved-package guard as open_level, and equally not undoable.",
+    {
+      path: z.string().describe("Full package path for the new level, e.g. '/Game/Maps/MyNewLevel'."),
+      template: z.string().optional()
+        .describe("Package path of a map to copy as the starting point. Omit for an empty level."),
+      worldPartition: z.boolean().optional().describe("Create as a World Partition level (default false)."),
+      saveFirst: z.boolean().optional(),
+      discardUnsaved: z.boolean().optional(),
+    },
+    async ({ path, template, worldPartition, saveFirst, discardUnsaved }) => {
+      const err = await ensureUE();
+      if (err) return { content: [{ type: "text" as const, text: err }] };
+
+      const body: Record<string, unknown> = { path };
+      if (template) body.template = template;
+      if (worldPartition !== undefined) body.worldPartition = worldPartition;
+      if (saveFirst !== undefined) body.saveFirst = saveFirst;
+      if (discardUnsaved !== undefined) body.discardUnsaved = discardUnsaved;
+
+      const data = await uePost("/api/new-level", body);
+      if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
+
+      const lines = [
+        `Created level '${data.path}'${data.template ? ` from template '${data.template}'` : ""}.`,
+        `Current: ${data.currentLevel}${data.worldPartition ? " (World Partition)" : ""}`,
+      ];
+      if (data.savedBeforeSwitch?.length) {
+        lines.push(``, `Saved first: ${data.savedBeforeSwitch.join(", ")}`);
+      }
+      lines.push(
+        ``,
+        `Next steps:`,
+        `  spawn_sky() — give it lighting`,
+        `  spawn_actor() — add geometry`,
+        `  save_all() — write it to disk`,
+      );
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    }
+  );
 }
