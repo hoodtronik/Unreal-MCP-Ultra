@@ -23,6 +23,7 @@
 #include "EdGraph/EdGraphPin.h"
 #include "Misc/Base64.h"
 #include "Misc/Crc.h"
+#include "Misc/Parse.h"
 #include "Misc/App.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
@@ -34,6 +35,85 @@
 // ============================================================
 // HandleTakeScreenshot — capture a viewport screenshot
 // ============================================================
+
+namespace
+{
+	// CLAUDE-NOTE: GEditor->GetLevelViewportClients()[0] is NOT reliably a realized, sized viewport.
+	// The array holds every level viewport client, including ones that are not currently laid out
+	// (hidden panes of a split layout, clients for tabs that are not the active one), and those
+	// report GetSizeXY() as 0x0. Verified live 2026-07-27 against TestProject56: the editor window
+	// was open and visible, yet index 0 had zero dimensions, so both take_screenshot and the new
+	// viewport_capture failed with "Viewport has invalid dimensions". The graph capture path was
+	// unaffected because FWidgetRenderer never touches a level viewport.
+	//
+	// Scan for a viewport that actually has a size, preferring the active one, and fall back to
+	// GEditor->GetActiveViewport() if no level client qualifies. The diagnostic string lists what
+	// was found so a failure says WHY rather than just restating the symptom.
+	FViewport* ResolveSizedLevelViewport(FLevelEditorViewportClient*& OutClient, FString& OutDiagnostic)
+	{
+		OutClient = nullptr;
+
+		FViewport* const ActiveViewport = GEditor ? GEditor->GetActiveViewport() : nullptr;
+		FViewport* Fallback = nullptr;
+		FLevelEditorViewportClient* FallbackClient = nullptr;
+		TArray<FString> Seen;
+
+		if (GEditor)
+		{
+			for (FLevelEditorViewportClient* Client : GEditor->GetLevelViewportClients())
+			{
+				if (!Client || !Client->Viewport)
+				{
+					Seen.Add(TEXT("<no viewport>"));
+					continue;
+				}
+
+				const FIntPoint Size = Client->Viewport->GetSizeXY();
+				Seen.Add(FString::Printf(TEXT("%dx%d"), Size.X, Size.Y));
+
+				if (Size.X <= 0 || Size.Y <= 0)
+				{
+					continue;
+				}
+
+				// An exact match on the active viewport is the one the user is looking at.
+				if (Client->Viewport == ActiveViewport)
+				{
+					OutClient = Client;
+					return Client->Viewport;
+				}
+				if (!Fallback)
+				{
+					Fallback = Client->Viewport;
+					FallbackClient = Client;
+				}
+			}
+		}
+
+		if (Fallback)
+		{
+			OutClient = FallbackClient;
+			return Fallback;
+		}
+
+		// Last resort: the active viewport may not belong to a level editor client at all (a
+		// Blueprint or material preview, say). Better a real frame than none, but there is no
+		// client to invalidate through.
+		if (ActiveViewport)
+		{
+			const FIntPoint Size = ActiveViewport->GetSizeXY();
+			if (Size.X > 0 && Size.Y > 0)
+			{
+				return ActiveViewport;
+			}
+		}
+
+		OutDiagnostic = Seen.Num() > 0
+			? FString::Printf(TEXT("%d level viewport client(s), sizes: %s"), Seen.Num(), *FString::Join(Seen, TEXT(", ")))
+			: TEXT("no level viewport clients at all");
+		return nullptr;
+	}
+}
 
 FString FBlueprintMCPServer::HandleTakeScreenshot(const FString& Body)
 {
@@ -78,14 +158,17 @@ FString FBlueprintMCPServer::HandleTakeScreenshot(const FString& Body)
 	{
 		Viewport = GEngine->GameViewport->Viewport;
 	}
-	else if (GEditor->GetLevelViewportClients().Num() > 0 && GEditor->GetLevelViewportClients()[0])
+	else
 	{
-		Viewport = GEditor->GetLevelViewportClients()[0]->Viewport;
-	}
-
-	if (!Viewport)
-	{
-		return MakeErrorJson(TEXT("No active viewport found."));
+		FLevelEditorViewportClient* Client = nullptr;
+		FString Diagnostic;
+		Viewport = ResolveSizedLevelViewport(Client, Diagnostic);
+		if (!Viewport)
+		{
+			return MakeErrorJson(FString::Printf(
+				TEXT("No level editor viewport with a usable size (%s). Make sure a Level Editor ")
+				TEXT("viewport tab is open and visible."), *Diagnostic));
+		}
 	}
 
 	// Read pixels from viewport
@@ -454,6 +537,13 @@ namespace
 	constexpr int32 MinCaptureSize = 64;
 	constexpr int32 MaxCaptureSize = 2048;
 
+	/** Digest is an NxN grid of downsampled luma values. */
+	constexpr int32 DigestCells = 8;
+	/** No single cell may move more than this (0-255) for two frames to count as the same. */
+	constexpr int32 DigestMaxCellDelta = 6;
+	/** ...and the average movement across all cells must stay under this. */
+	constexpr int32 DigestMeanDelta = 2;
+
 	/**
 	 * Downscale (never upscale) to fit MaxSize on the longest edge, force opaque, PNG-compress,
 	 * base64-encode, and fingerprint the resulting pixels.
@@ -503,10 +593,36 @@ namespace
 		const int32 PixelCount = OutWidth * OutHeight;
 		const TArrayView64<const FColor> View(FinalPixels, PixelCount);
 
-		// Fingerprint the pixels actually about to be sent. This catches "the mutation ran but
-		// changed nothing visible", which no amount of scene-state hashing can tell you.
-		const uint32 PixelCrc = FCrc::MemCrc32(FinalPixels, PixelCount * sizeof(FColor));
-		OutDigest = FString::Printf(TEXT("%dx%d-%08x"), OutWidth, OutHeight, PixelCrc);
+		// CLAUDE-NOTE: this started as an exact CRC of the pixels, which was wrong and only surfaced
+		// when run against a real editor. Two consecutive captures of a completely unchanged scene
+		// do NOT produce identical pixels: TAA/TSR jitters the sample pattern every frame, and with
+		// Lumen or path tracing the viewport is still accumulating temporal samples. An exact hash
+		// essentially never matched, so duplicate-frame suppression never fired once.
+		//
+		// The second attempt was a 64-bit average hash (8x8 cells thresholded against the mean).
+		// That was also wrong, and in the more dangerous direction: measured live, spawning a whole
+		// sky moved only 2 of 64 bits, because a mid-grey plume appearing over a dark scene barely
+		// crosses the mean in any cell. Any tolerance loose enough to absorb render noise would
+		// therefore have suppressed real changes.
+		//
+		// So: keep the downsampled luma itself rather than thresholding it. Comparison is then in
+		// actual brightness units, which is a quantity worth reasoning about — an 8x8 box average
+		// over a 512px frame averages thousands of pixels per cell, so render noise moves a cell by
+		// a level or two, while anything visible moves it by tens.
+		TArray<FColor> Tiny;
+		Tiny.SetNumUninitialized(DigestCells * DigestCells);
+		FImageUtils::ImageResize(OutWidth, OutHeight, TArrayView<const FColor>(FinalPixels, PixelCount),
+			DigestCells, DigestCells, Tiny, /*bResizeSRGBinLinearSpace=*/false, /*bForceOpaqueOutput=*/true);
+
+		FString LumaHex;
+		LumaHex.Reserve(DigestCells * DigestCells * 2);
+		for (int32 i = 0; i < DigestCells * DigestCells; ++i)
+		{
+			// Rec.601 luma, integer weights summing to 256.
+			const uint8 Luma = (uint8)((Tiny[i].R * 77 + Tiny[i].G * 150 + Tiny[i].B * 29) >> 8);
+			LumaHex += FString::Printf(TEXT("%02x"), Luma);
+		}
+		OutDigest = FString::Printf(TEXT("%dx%d-v%s"), OutWidth, OutHeight, *LumaHex);
 
 		TArray64<uint8> PngData;
 		FImageUtils::PNGCompressImageArray(OutWidth, OutHeight, View, PngData);
@@ -527,6 +643,55 @@ namespace
 
 		OutBase64 = FBase64::Encode(PngData.GetData(), (uint32)PngData.Num());
 		return !OutBase64.IsEmpty();
+	}
+
+	/**
+	 * True when two digests describe visually the same frame.
+	 *
+	 * Requires identical dimensions first, so a resolution change is never mistaken for "no
+	 * change". Then compares the per-cell luma with both a per-cell ceiling (catches a small
+	 * bright thing appearing in one corner) and a mean (catches a broad, subtle shift such as an
+	 * exposure change) — either one alone misses half the cases.
+	 */
+	bool DigestsMatch(const FString& A, const FString& B)
+	{
+		if (A.IsEmpty() || B.IsEmpty())
+		{
+			return false;
+		}
+		if (A == B)
+		{
+			return true;
+		}
+
+		FString DimsA, HexA, DimsB, HexB;
+		if (!A.Split(TEXT("-v"), &DimsA, &HexA) || !B.Split(TEXT("-v"), &DimsB, &HexB))
+		{
+			return false;
+		}
+
+		constexpr int32 ExpectedLen = DigestCells * DigestCells * 2;
+		if (DimsA != DimsB || HexA.Len() != ExpectedLen || HexB.Len() != ExpectedLen)
+		{
+			return false;
+		}
+
+		auto HexPair = [](const FString& S, int32 Index) -> int32
+		{
+			return FParse::HexDigit(S[Index * 2]) * 16 + FParse::HexDigit(S[Index * 2 + 1]);
+		};
+
+		int32 MaxDelta = 0;
+		int32 SumDelta = 0;
+		for (int32 i = 0; i < DigestCells * DigestCells; ++i)
+		{
+			const int32 Delta = FMath::Abs(HexPair(HexA, i) - HexPair(HexB, i));
+			MaxDelta = FMath::Max(MaxDelta, Delta);
+			SumDelta += Delta;
+		}
+
+		const int32 MeanDelta = SumDelta / (DigestCells * DigestCells);
+		return MaxDelta <= DigestMaxCellDelta && MeanDelta <= DigestMeanDelta;
 	}
 }
 
@@ -659,16 +824,18 @@ FString FBlueprintMCPServer::HandleViewportCapture(const FString& Body)
 		}
 		else
 		{
-			FLevelEditorViewportClient* ViewportClient =
-				GEditor->GetLevelViewportClients().Num() > 0 ? GEditor->GetLevelViewportClients()[0] : nullptr;
-			if (!ViewportClient || !ViewportClient->Viewport)
+			FLevelEditorViewportClient* ViewportClient = nullptr;
+			FString Diagnostic;
+			Viewport = ResolveSizedLevelViewport(ViewportClient, Diagnostic);
+			if (!Viewport)
 			{
 				return MakeErrorJson(
-					TEXT("No level editor viewport is open. Open a Level Editor viewport tab, or use ")
-					TEXT("target='graph' to capture a Blueprint graph without one."),
+					FString::Printf(
+						TEXT("No level editor viewport with a usable size (%s). Open a Level Editor ")
+						TEXT("viewport tab and make sure it is visible, or use target='graph' to ")
+						TEXT("capture a Blueprint graph, which needs no viewport."), *Diagnostic),
 					MCPErrorCodes::OperationFailed);
 			}
-			Viewport = ViewportClient->Viewport;
 
 			// CLAUDE-NOTE: the editor viewport only redraws when something invalidates it. With
 			// realtime rendering off (the default for an idle editor) ReadPixels hands back
@@ -676,7 +843,10 @@ FString FBlueprintMCPServer::HandleViewportCapture(const FString& Body)
 			// pre-spawn frame, and the agent concludes its edit silently failed. Force a redraw
 			// first. This is the most confusing failure mode in the feature and it is invisible in
 			// a realtime-enabled editor, which is exactly how it survives testing.
-			ViewportClient->Invalidate();
+			if (ViewportClient)
+			{
+				ViewportClient->Invalidate();
+			}
 			Viewport->Draw();
 
 			Method = TEXT("FViewport::ReadPixels (level)");
@@ -724,9 +894,9 @@ FString FBlueprintMCPServer::HandleViewportCapture(const FString& Body)
 	Result->SetNumberField(TEXT("nativeHeight"), SrcHeight);
 	Result->SetNumberField(TEXT("elapsedMs"), FMath::RoundToInt(ElapsedMs));
 
-	// Pixel-identical to what the caller already has: skip the payload, keep the metadata. Saves
+	// Visually the same as what the caller already has: skip the payload, keep the metadata. Saves
 	// the tokens, not the game-thread stall — the frame had to be rendered to know this.
-	if (!SinceDigest.IsEmpty() && SinceDigest == Digest)
+	if (DigestsMatch(SinceDigest, Digest))
 	{
 		Result->SetBoolField(TEXT("unchanged"), true);
 		Result->SetNumberField(TEXT("bytes"), 0);
