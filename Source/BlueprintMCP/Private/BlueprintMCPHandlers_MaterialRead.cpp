@@ -398,6 +398,51 @@ FString FBlueprintMCPServer::HandleGetMaterialGraph(const TMap<FString, FString>
 	GraphJson->SetStringField(TEXT("material"), Material->GetName());
 	GraphJson->SetStringField(TEXT("materialPath"), Material->GetPathName());
 
+	// CLAUDE-NOTE: SerializeGraph is shared with Blueprint graphs, so it reports every expression
+	// node's UEdGraphNode class — which is the same string, "MaterialGraphNode", for all of them.
+	// The only clue to what a node actually IS came back in the free-text title ("Substrate Slab
+	// BSDF - Simple", "0,0,0"), which is not something a caller can branch on. Verified live
+	// 2026-07-27 while checking Substrate support. add_material_expression already reports the real
+	// class, so reading a graph told you strictly less than writing to it did.
+	//
+	// Enrich each node with the underlying UMaterialExpression class, plus the prefix-stripped short
+	// form that add_material_expression accepts, so read -> modify round-trips without the caller
+	// having to guess. The root node has no expression and keeps its existing class label.
+	const TArray<TSharedPtr<FJsonValue>>* NodesArray = nullptr;
+	if (GraphJson->TryGetArrayField(TEXT("nodes"), NodesArray) && NodesArray)
+	{
+		TMap<FString, UMaterialExpression*> ExpressionByNodeId;
+		for (UEdGraphNode* GraphNode : Material->MaterialGraph->Nodes)
+		{
+			if (UMaterialGraphNode* MatNode = Cast<UMaterialGraphNode>(GraphNode))
+			{
+				if (MatNode->MaterialExpression)
+				{
+					ExpressionByNodeId.Add(MatNode->NodeGuid.ToString(), MatNode->MaterialExpression);
+				}
+			}
+		}
+
+		for (const TSharedPtr<FJsonValue>& NodeValue : *NodesArray)
+		{
+			const TSharedPtr<FJsonObject> NodeObj = NodeValue.IsValid() ? NodeValue->AsObject() : nullptr;
+			FString NodeId;
+			if (!NodeObj.IsValid() || !NodeObj->TryGetStringField(TEXT("id"), NodeId))
+			{
+				continue;
+			}
+			if (UMaterialExpression** Found = ExpressionByNodeId.Find(NodeId))
+			{
+				const FString ExpressionClass = (*Found)->GetClass()->GetName();
+				NodeObj->SetStringField(TEXT("expressionClass"), ExpressionClass);
+
+				FString ShortType = ExpressionClass;
+				ShortType.RemoveFromStart(TEXT("MaterialExpression"));
+				NodeObj->SetStringField(TEXT("expressionType"), ShortType);
+			}
+		}
+	}
+
 	return JsonToString(GraphJson.ToSharedRef());
 }
 

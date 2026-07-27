@@ -1583,20 +1583,34 @@ FString FBlueprintMCPServer::HandleValidateLighting(const FString& Body)
 
 	// UE packs stationary-light shadows into a limited set of channels; above four overlapping
 	// stationary lights the extras fall back to fully dynamic shadows, silently.
+	//
+	// CLAUDE-NOTE: use ULightComponent::GetBoundingSphere() rather than the raw attenuation radius.
+	// USpotLightComponent overrides it to bound the CONE, which for a narrow spot is dramatically
+	// smaller than its attenuation sphere — comparing raw radii reported overlaps between spots
+	// that cannot physically illuminate the same surface. This is also the bound the engine's own
+	// stationary-light overlap accounting works from, so the answer now agrees with the editor's
+	// "Stationary Light Overlap" view mode instead of being a looser guess.
 	constexpr int32 OverlapScanLimit = 200;
 	if (StationaryLocals.Num() > 1 && StationaryLocals.Num() <= OverlapScanLimit)
 	{
+		TArray<FSphere> Bounds;
+		Bounds.Reserve(StationaryLocals.Num());
+		for (ULocalLightComponent* Light : StationaryLocals)
+		{
+			Bounds.Add(Light->GetBoundingSphere());
+		}
+
 		for (int32 i = 0; i < StationaryLocals.Num(); ++i)
 		{
 			int32 Overlaps = 0;
-			const FVector Pi = StationaryLocals[i]->GetComponentLocation();
-			const float Ri = StationaryLocals[i]->AttenuationRadius;
 			for (int32 j = 0; j < StationaryLocals.Num(); ++j)
 			{
 				if (i == j) { continue; }
-				const FVector Pj = StationaryLocals[j]->GetComponentLocation();
-				const float Rj = StationaryLocals[j]->AttenuationRadius;
-				if (FVector::DistSquared(Pi, Pj) < FMath::Square(Ri + Rj)) { ++Overlaps; }
+				const double RadiusSum = Bounds[i].W + Bounds[j].W;
+				if (FVector::DistSquared(Bounds[i].Center, Bounds[j].Center) < RadiusSum * RadiusSum)
+				{
+					++Overlaps;
+				}
 			}
 			if (Overlaps >= 4)
 			{

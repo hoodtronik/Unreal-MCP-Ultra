@@ -49,7 +49,7 @@ export function registerMaterialReadTools(server: McpServer): void {
 
   server.tool(
     "get_material_graph",
-    "Get the material editor graph for a Material, with all expression nodes and connections.",
+    "Get the material editor graph for a Material, with all expression nodes and connections. Each node reports 'expressionClass' (e.g. 'MaterialExpressionSubstrateSlabBSDF') and 'expressionType' — the short form that can be fed straight back to add_material_expression — alongside the generic graph-node class. This is also the authoritative source of node ids for connect_material_pins.",
     {
       name: z.string().describe("Material name or package path"),
     },

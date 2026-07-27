@@ -105,7 +105,8 @@ export function registerMaterialMutationTools(server: McpServer): void {
 
   server.tool(
     "add_material_expression",
-    "Add a new expression node to a Material or Material Function graph. Supports any UMaterialExpression subclass — use the class name without the 'MaterialExpression' prefix (e.g. 'Constant', 'Add', 'Subtract', 'Fresnel', 'Comment', 'If', 'Lerp').",
+    "Add a new expression node to a Material or Material Function graph. Supports ANY UMaterialExpression subclass — use the class name without the 'MaterialExpression' prefix (e.g. 'Constant', 'Add', 'Fresnel', 'Lerp'). This includes Substrate nodes ('SubstrateSlabBSDF', 'SubstrateHorizontalMixing', 'SubstrateAdd', …), which wire into the material root's 'Front Material' pin; the class is resolved dynamically, so anything the engine defines works. " +
+      "IMPORTANT: adding an expression REGENERATES the graph node GUIDs of previously added nodes, so a nodeId from an earlier call goes stale. Always re-read get_material_graph after your last add and use the ids from that response when calling connect_material_pins — those stay stable across connects.",
     {
       material: z.string().optional().describe("Material name or package path (e.g. 'M_MyMaterial'). Provide either material or materialFunction."),
       materialFunction: z.string().optional().describe("Material Function name or package path (e.g. 'MF_MyFunction'). Provide either material or materialFunction."),
@@ -202,7 +203,7 @@ export function registerMaterialMutationTools(server: McpServer): void {
     {
       material: z.string().optional().describe("Material name or package path. Provide either material or materialFunction."),
       materialFunction: z.string().optional().describe("Material Function name or package path. Provide either material or materialFunction."),
-      sourceNodeId: z.string().describe("GUID of the source expression node"),
+      sourceNodeId: z.string().describe("GUID of the source expression node, from get_material_graph. Do NOT reuse a nodeId returned by an add_material_expression call that was followed by further adds — those GUIDs are regenerated on each add."),
       sourcePinName: z.string().describe("Name of the output pin on the source node"),
       targetNodeId: z.string().describe("GUID of the target expression node (or 'Result' for the material result node)"),
       targetPinName: z.string().describe("Name of the input pin on the target node"),
