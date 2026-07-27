@@ -36,70 +36,85 @@
 // HandleTakeScreenshot — capture a viewport screenshot
 // ============================================================
 
-namespace
+// CLAUDE-NOTE: GEditor->GetLevelViewportClients()[0] is NOT reliably a realized, sized viewport.
+// The array holds every level viewport client, including ones that are not currently laid out
+// (hidden panes of a split layout, clients for tabs that are not the active one), and those report
+// GetSizeXY() as 0x0. Verified live 2026-07-27 against TestProject56: the editor window was open
+// and visible, yet index 0 had zero dimensions, so both take_screenshot and viewport_capture failed
+// with "Viewport has invalid dimensions". The graph capture path was unaffected because
+// FWidgetRenderer never touches a level viewport.
+//
+// This is a MEMBER rather than a file-local helper because index 0 was assumed in five separate
+// places — camera get/set, the view-mode helper behind set_view_mode / set_show_flags /
+// set_realtime_rendering / set_game_view / set_viewport_type, take_high_res_screenshot, and the two
+// capture paths. Beyond each being individually wrong when index 0 is unrealized, having capture
+// resolve one viewport while set_view_mode resolved another meant those tools could silently act on
+// a viewport nobody was looking at, and report success for it. One resolver keeps them consistent.
+//
+// Prefers the active viewport, else the first with a real size. The diagnostic lists what was found
+// so a failure says WHY rather than restating the symptom.
+FLevelEditorViewportClient* FBlueprintMCPServer::ResolveSizedLevelViewportClient(FString& OutDiagnostic) const
 {
-	// CLAUDE-NOTE: GEditor->GetLevelViewportClients()[0] is NOT reliably a realized, sized viewport.
-	// The array holds every level viewport client, including ones that are not currently laid out
-	// (hidden panes of a split layout, clients for tabs that are not the active one), and those
-	// report GetSizeXY() as 0x0. Verified live 2026-07-27 against TestProject56: the editor window
-	// was open and visible, yet index 0 had zero dimensions, so both take_screenshot and the new
-	// viewport_capture failed with "Viewport has invalid dimensions". The graph capture path was
-	// unaffected because FWidgetRenderer never touches a level viewport.
-	//
-	// Scan for a viewport that actually has a size, preferring the active one, and fall back to
-	// GEditor->GetActiveViewport() if no level client qualifies. The diagnostic string lists what
-	// was found so a failure says WHY rather than just restating the symptom.
-	FViewport* ResolveSizedLevelViewport(FLevelEditorViewportClient*& OutClient, FString& OutDiagnostic)
+	if (!GEditor)
 	{
-		OutClient = nullptr;
+		OutDiagnostic = TEXT("no editor");
+		return nullptr;
+	}
 
-		FViewport* const ActiveViewport = GEditor ? GEditor->GetActiveViewport() : nullptr;
-		FViewport* Fallback = nullptr;
-		FLevelEditorViewportClient* FallbackClient = nullptr;
-		TArray<FString> Seen;
+	FViewport* const ActiveViewport = GEditor->GetActiveViewport();
+	FLevelEditorViewportClient* FallbackClient = nullptr;
+	TArray<FString> Seen;
 
-		if (GEditor)
+	for (FLevelEditorViewportClient* Client : GEditor->GetLevelViewportClients())
+	{
+		if (!Client || !Client->Viewport)
 		{
-			for (FLevelEditorViewportClient* Client : GEditor->GetLevelViewportClients())
-			{
-				if (!Client || !Client->Viewport)
-				{
-					Seen.Add(TEXT("<no viewport>"));
-					continue;
-				}
-
-				const FIntPoint Size = Client->Viewport->GetSizeXY();
-				Seen.Add(FString::Printf(TEXT("%dx%d"), Size.X, Size.Y));
-
-				if (Size.X <= 0 || Size.Y <= 0)
-				{
-					continue;
-				}
-
-				// An exact match on the active viewport is the one the user is looking at.
-				if (Client->Viewport == ActiveViewport)
-				{
-					OutClient = Client;
-					return Client->Viewport;
-				}
-				if (!Fallback)
-				{
-					Fallback = Client->Viewport;
-					FallbackClient = Client;
-				}
-			}
+			Seen.Add(TEXT("<no viewport>"));
+			continue;
 		}
 
-		if (Fallback)
+		const FIntPoint Size = Client->Viewport->GetSizeXY();
+		Seen.Add(FString::Printf(TEXT("%dx%d"), Size.X, Size.Y));
+
+		if (Size.X <= 0 || Size.Y <= 0)
 		{
-			OutClient = FallbackClient;
-			return Fallback;
+			continue;
 		}
 
-		// Last resort: the active viewport may not belong to a level editor client at all (a
-		// Blueprint or material preview, say). Better a real frame than none, but there is no
-		// client to invalidate through.
-		if (ActiveViewport)
+		// An exact match on the active viewport is the one the user is looking at.
+		if (Client->Viewport == ActiveViewport)
+		{
+			return Client;
+		}
+		if (!FallbackClient)
+		{
+			FallbackClient = Client;
+		}
+	}
+
+	if (!FallbackClient)
+	{
+		OutDiagnostic = Seen.Num() > 0
+			? FString::Printf(TEXT("%d level viewport client(s), sizes: %s"), Seen.Num(), *FString::Join(Seen, TEXT(", ")))
+			: TEXT("no level viewport clients at all");
+	}
+	return FallbackClient;
+}
+
+FViewport* FBlueprintMCPServer::ResolveCaptureViewport(
+	FLevelEditorViewportClient*& OutClient, FString& OutDiagnostic) const
+{
+	OutClient = ResolveSizedLevelViewportClient(OutDiagnostic);
+	if (OutClient)
+	{
+		return OutClient->Viewport;
+	}
+
+	// The active viewport may not belong to a level editor client at all (a Blueprint or material
+	// preview, say). Better a real frame than none, but there is no client to invalidate through.
+	if (GEditor)
+	{
+		if (FViewport* ActiveViewport = GEditor->GetActiveViewport())
 		{
 			const FIntPoint Size = ActiveViewport->GetSizeXY();
 			if (Size.X > 0 && Size.Y > 0)
@@ -107,12 +122,8 @@ namespace
 				return ActiveViewport;
 			}
 		}
-
-		OutDiagnostic = Seen.Num() > 0
-			? FString::Printf(TEXT("%d level viewport client(s), sizes: %s"), Seen.Num(), *FString::Join(Seen, TEXT(", ")))
-			: TEXT("no level viewport clients at all");
-		return nullptr;
 	}
+	return nullptr;
 }
 
 FString FBlueprintMCPServer::HandleTakeScreenshot(const FString& Body)
@@ -162,7 +173,7 @@ FString FBlueprintMCPServer::HandleTakeScreenshot(const FString& Body)
 	{
 		FLevelEditorViewportClient* Client = nullptr;
 		FString Diagnostic;
-		Viewport = ResolveSizedLevelViewport(Client, Diagnostic);
+		Viewport = ResolveCaptureViewport(Client, Diagnostic);
 		if (!Viewport)
 		{
 			return MakeErrorJson(FString::Printf(
@@ -255,15 +266,13 @@ FString FBlueprintMCPServer::HandleTakeHighResScreenshot(const FString& Body)
 	FString OutputDir = FPaths::ProjectSavedDir() / TEXT("Screenshots");
 	FString FullPath = OutputDir / Filename;
 
-	FLevelEditorViewportClient* ViewportClient = nullptr;
-	if (GEditor->GetLevelViewportClients().Num() > 0)
-	{
-		ViewportClient = GEditor->GetLevelViewportClients()[0];
-	}
-
+	FString ViewportDiagnostic;
+	FLevelEditorViewportClient* ViewportClient = ResolveSizedLevelViewportClient(ViewportDiagnostic);
 	if (!ViewportClient || !ViewportClient->Viewport)
 	{
-		return MakeErrorJson(TEXT("No active viewport found."));
+		return MakeErrorJson(FString::Printf(
+			TEXT("No level editor viewport with a usable size (%s). Make sure a Level Editor ")
+			TEXT("viewport tab is open and visible."), *ViewportDiagnostic));
 	}
 
 	// Configure high-res screenshot settings
@@ -826,7 +835,7 @@ FString FBlueprintMCPServer::HandleViewportCapture(const FString& Body)
 		{
 			FLevelEditorViewportClient* ViewportClient = nullptr;
 			FString Diagnostic;
-			Viewport = ResolveSizedLevelViewport(ViewportClient, Diagnostic);
+			Viewport = ResolveCaptureViewport(ViewportClient, Diagnostic);
 			if (!Viewport)
 			{
 				return MakeErrorJson(

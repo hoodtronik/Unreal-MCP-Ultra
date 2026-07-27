@@ -10,7 +10,7 @@
 // Helper — get the first active viewport client
 // ============================================================
 
-static FLevelEditorViewportClient* GetFirstViewportClient(FString& OutError)
+static FLevelEditorViewportClient* GetFirstViewportClient(const FBlueprintMCPServer& Server, FString& OutError)
 {
 	if (!GEditor)
 	{
@@ -18,12 +18,20 @@ static FLevelEditorViewportClient* GetFirstViewportClient(FString& OutError)
 		return nullptr;
 	}
 
-	if (GEditor->GetLevelViewportClients().Num() > 0)
+	// CLAUDE-NOTE: was GetLevelViewportClients()[0], which is not reliably a realized, sized
+	// viewport — see the long note on ResolveSizedLevelViewportClient in
+	// BlueprintMCPHandlers_Screenshot.cpp. This helper backs set_view_mode, set_show_flags,
+	// set_realtime_rendering, set_game_view and set_viewport_type, so index 0 meant all five could
+	// report success while acting on a viewport nobody was looking at — and, worse, on a DIFFERENT
+	// viewport from the one viewport_capture reads, so setting a view mode then capturing could
+	// legitimately show no change.
+	FString Diagnostic;
+	if (FLevelEditorViewportClient* Client = Server.ResolveSizedLevelViewportClient(Diagnostic))
 	{
-		return GEditor->GetLevelViewportClients()[0];
+		return Client;
 	}
 
-	OutError = TEXT("No active viewport found.");
+	OutError = FString::Printf(TEXT("No level editor viewport with a usable size (%s)."), *Diagnostic);
 	return nullptr;
 }
 
@@ -53,7 +61,7 @@ FString FBlueprintMCPServer::HandleSetViewMode(const FString& Body)
 	}
 
 	FString Error;
-	FLevelEditorViewportClient* VC = GetFirstViewportClient(Error);
+	FLevelEditorViewportClient* VC = GetFirstViewportClient(*this, Error);
 	if (!VC) return MakeErrorJson(Error);
 
 	EViewModeIndex NewMode;
@@ -117,7 +125,7 @@ FString FBlueprintMCPServer::HandleSetShowFlags(const FString& Body)
 	}
 
 	FString Error;
-	FLevelEditorViewportClient* VC = GetFirstViewportClient(Error);
+	FLevelEditorViewportClient* VC = GetFirstViewportClient(*this, Error);
 	if (!VC) return MakeErrorJson(Error);
 
 	// Use the engine show flag index lookup
@@ -165,7 +173,7 @@ FString FBlueprintMCPServer::HandleSetViewportType(const FString& Body)
 	}
 
 	FString Error;
-	FLevelEditorViewportClient* VC = GetFirstViewportClient(Error);
+	FLevelEditorViewportClient* VC = GetFirstViewportClient(*this, Error);
 	if (!VC) return MakeErrorJson(Error);
 
 	if (TypeName.Equals(TEXT("Perspective"), ESearchCase::IgnoreCase))
@@ -236,7 +244,7 @@ FString FBlueprintMCPServer::HandleSetRealtimeRendering(const FString& Body)
 	}
 
 	FString Error;
-	FLevelEditorViewportClient* VC = GetFirstViewportClient(Error);
+	FLevelEditorViewportClient* VC = GetFirstViewportClient(*this, Error);
 	if (!VC) return MakeErrorJson(Error);
 
 	VC->SetRealtime(bEnabled);
@@ -275,7 +283,7 @@ FString FBlueprintMCPServer::HandleSetGameView(const FString& Body)
 	}
 
 	FString Error;
-	FLevelEditorViewportClient* VC = GetFirstViewportClient(Error);
+	FLevelEditorViewportClient* VC = GetFirstViewportClient(*this, Error);
 	if (!VC) return MakeErrorJson(Error);
 
 	VC->SetGameView(bEnabled);

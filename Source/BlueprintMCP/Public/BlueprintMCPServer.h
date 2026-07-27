@@ -9,6 +9,8 @@
 class UEdGraph;
 class UEdGraphNode;
 class UEdGraphPin;
+class FLevelEditorViewportClient;
+class FViewport;
 class UBlueprint;
 class UWidgetBlueprint;
 class UMaterial;
@@ -114,6 +116,15 @@ public:
 	 *  it when the registry finishes its async gather (the initial scan in
 	 *  Start() only sees engine assets). */
 	FString HandleRescan();
+
+	/**
+	 * The single source of truth for "which level viewport do the tools act on".
+	 * GetLevelViewportClients()[0] is NOT reliably realized or sized — see the long note on the
+	 * definition in BlueprintMCPHandlers_Screenshot.cpp. Public because the view-mode file's local
+	 * helper needs it too; it is shared by the camera, view-mode and capture handlers so they all
+	 * resolve the SAME viewport rather than silently acting on different ones.
+	 */
+	FLevelEditorViewportClient* ResolveSizedLevelViewportClient(FString& OutDiagnostic) const;
 
 private:
 	// ----- TMap-based request dispatch -----
@@ -420,6 +431,9 @@ private:
 	FString HandleScreenshotGraph(const FString& Body);
 	FString HandleViewportCapture(const FString& Body);
 	FString HandleSceneDigest(const FString& Body);
+
+	/** Capture variant of the viewport resolver: falls back to a non-level active viewport. */
+	FViewport* ResolveCaptureViewport(FLevelEditorViewportClient*& OutClient, FString& OutDiagnostic) const;
 
 	// Lighting
 	FString HandleListLights(const FString& Body);

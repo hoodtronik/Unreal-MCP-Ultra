@@ -24,15 +24,15 @@ FString FBlueprintMCPServer::HandleGetViewportCamera(const FString& Body)
 		return MakeErrorJson(TEXT("Editor not available."));
 	}
 
-	FLevelEditorViewportClient* ViewportClient = nullptr;
-	if (GEditor->GetLevelViewportClients().Num() > 0)
-	{
-		ViewportClient = GEditor->GetLevelViewportClients()[0];
-	}
-
+	// CLAUDE-NOTE: index 0 is not reliably a realized, sized viewport, and using it here while
+	// viewport_capture resolves a different one means the camera could be moved on a viewport the
+	// capture never shows. See ResolveSizedLevelViewportClient in BlueprintMCPHandlers_Screenshot.cpp.
+	FString ViewportDiagnostic;
+	FLevelEditorViewportClient* ViewportClient = ResolveSizedLevelViewportClient(ViewportDiagnostic);
 	if (!ViewportClient)
 	{
-		return MakeErrorJson(TEXT("No active viewport found."));
+		return MakeErrorJson(FString::Printf(
+			TEXT("No level editor viewport with a usable size (%s)."), *ViewportDiagnostic));
 	}
 
 	FVector Location = ViewportClient->GetViewLocation();
@@ -82,15 +82,15 @@ FString FBlueprintMCPServer::HandleSetViewportCamera(const FString& Body)
 		return MakeErrorJson(TEXT("Editor not available."));
 	}
 
-	FLevelEditorViewportClient* ViewportClient = nullptr;
-	if (GEditor->GetLevelViewportClients().Num() > 0)
-	{
-		ViewportClient = GEditor->GetLevelViewportClients()[0];
-	}
-
+	// CLAUDE-NOTE: index 0 is not reliably a realized, sized viewport, and using it here while
+	// viewport_capture resolves a different one means the camera could be moved on a viewport the
+	// capture never shows. See ResolveSizedLevelViewportClient in BlueprintMCPHandlers_Screenshot.cpp.
+	FString ViewportDiagnostic;
+	FLevelEditorViewportClient* ViewportClient = ResolveSizedLevelViewportClient(ViewportDiagnostic);
 	if (!ViewportClient)
 	{
-		return MakeErrorJson(TEXT("No active viewport found."));
+		return MakeErrorJson(FString::Printf(
+			TEXT("No level editor viewport with a usable size (%s)."), *ViewportDiagnostic));
 	}
 
 	// Parse optional location
