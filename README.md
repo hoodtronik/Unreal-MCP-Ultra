@@ -105,8 +105,11 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 > dynamic `UClass` lookup, and the Substrate expressions live in the Engine module, so
 > `SubstrateSlabBSDF`, `SubstrateHorizontalMixing`, `SubstrateAdd` and the rest all resolve.
 > The material root exposes a `Front Material` pin to connect a slab's output to — present even
-> when `r.Substrate=0`, though the material only *compiles* as Substrate once it is enabled in
-> Project Settings → Rendering. Verified end to end against a running editor.
+> when `r.Substrate=0`. **Verified end to end with `r.Substrate=1`**: authoring a slab, wiring a
+> colour into its `Diffuse Albedo` and the slab into `Front Material` produces a material that
+> `validate_material` reports as valid with zero errors, and `describe_material` traces the chain
+> back through the slab. Note the root keeps its legacy `Base Color`/`Metallic`/etc. pins listed
+> under Substrate; they are simply unused.
 >
 > `get_material_graph` reports each node's real `expressionClass`
 > (`MaterialExpressionSubstrateSlabBSDF`) plus a short `expressionType` (`SubstrateSlabBSDF`) that
