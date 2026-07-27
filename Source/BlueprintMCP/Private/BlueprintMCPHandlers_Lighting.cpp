@@ -20,6 +20,10 @@
 #include "Engine/EngineTypes.h"
 #include "Engine/PostProcessVolume.h"
 #include "Engine/Scene.h"
+#include "Engine/ExponentialHeightFog.h"
+#include "Components/ExponentialHeightFogComponent.h"
+#include "Components/SkyAtmosphereComponent.h"
+#include "Components/VolumetricCloudComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -1211,3 +1215,457 @@ FString FBlueprintMCPServer::HandleConfigurePostProcess(const FString& Body)
 
 	return JsonToString(Result);
 }
+
+// ============================================================
+// HandleSpawnSky â€” the coherent outdoor lighting set, in one call
+// ============================================================
+// CLAUDE-NOTE: an outdoor sky is five actors that only work together: a directional light flagged
+// as the atmosphere sun, a sky light for ambient, a SkyAtmosphere, height fog, and optionally
+// volumetric clouds. Building it by hand means five spawns plus the two links people forget â€”
+// bAtmosphereSunLight on the directional light (without it the atmosphere has no sun and renders
+// with no sun disc or scattering), and the sky light capture (a non-realtime sky light shows
+// whatever the level looked like when it was last captured, i.e. usually nothing). Both handled.
+
+FString FBlueprintMCPServer::HandleSpawnSky(const FString& Body)
+{
+	TSharedPtr<FJsonObject> Json = ParseBodyJson(Body);
+	if (!Json.IsValid())
+	{
+		return MakeErrorJson(TEXT("Invalid JSON body."), MCPErrorCodes::InvalidInput);
+	}
+
+	FString Preset = TEXT("daylight");
+	Json->TryGetStringField(TEXT("preset"), Preset);
+	Preset = Preset.ToLower();
+
+	float SunPitch, SunIntensity, SunTemperature, SkyIntensity;
+	if (Preset == TEXT("daylight"))
+	{
+		SunPitch = -45.0f; SunIntensity = 10.0f; SunTemperature = 6500.0f; SkyIntensity = 1.0f;
+	}
+	else if (Preset == TEXT("sunset"))
+	{
+		SunPitch = -4.0f;  SunIntensity = 4.0f;  SunTemperature = 2700.0f; SkyIntensity = 0.6f;
+	}
+	else if (Preset == TEXT("overcast"))
+	{
+		SunPitch = -60.0f; SunIntensity = 3.0f;  SunTemperature = 7200.0f; SkyIntensity = 1.6f;
+	}
+	else if (Preset == TEXT("night"))
+	{
+		SunPitch = -12.0f; SunIntensity = 0.15f; SunTemperature = 9000.0f; SkyIntensity = 0.25f;
+	}
+	else
+	{
+		return MakeErrorJson(
+			FString::Printf(TEXT("Unknown preset '%s'. Expected 'daylight', 'sunset', 'overcast', or 'night'."), *Preset),
+			MCPErrorCodes::InvalidInput);
+	}
+
+	double Number = 0.0;
+	float SunYaw = 0.0f;
+	if (Json->TryGetNumberField(TEXT("sunPitch"), Number))     { SunPitch = (float)Number; }
+	if (Json->TryGetNumberField(TEXT("sunYaw"), Number))       { SunYaw = (float)Number; }
+	if (Json->TryGetNumberField(TEXT("sunIntensity"), Number)) { SunIntensity = (float)Number; }
+
+	bool bIncludeClouds = true;
+	bool bIncludeFog = true;
+	bool bReplaceExisting = false;
+	Json->TryGetBoolField(TEXT("includeClouds"), bIncludeClouds);
+	Json->TryGetBoolField(TEXT("includeFog"), bIncludeFog);
+	Json->TryGetBoolField(TEXT("replaceExisting"), bReplaceExisting);
+
+	if (!GEditor)
+	{
+		return MakeErrorJson(TEXT("spawn_sky requires editor mode."), MCPErrorCodes::OperationFailed);
+	}
+
+	UWorld* World = GEditor->GetEditorWorldContext().World();
+	if (!World)
+	{
+		return MakeErrorJson(TEXT("No editor world available."), MCPErrorCodes::OperationFailed);
+	}
+
+	// Refuse to stack a second sky on an existing one rather than quietly doubling the lighting â€”
+	// two directional lights both flagged as the atmosphere sun is a confusing state to debug.
+	TArray<AActor*> Existing;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (It->IsA<ASkyAtmosphere>() || It->IsA<ASkyLight>() || It->IsA<AVolumetricCloud>())
+		{
+			Existing.Add(*It);
+		}
+	}
+	if (Existing.Num() > 0 && !bReplaceExisting)
+	{
+		TArray<FString> Names;
+		for (AActor* A : Existing) { Names.Add(A->GetActorLabel()); }
+		return MakeErrorJson(
+			FString::Printf(
+				TEXT("The level already has sky actors (%s). Pass replaceExisting=true to delete them and ")
+				TEXT("build a fresh sky, or adjust the existing ones with set_light_property."),
+				*FString::Join(Names, TEXT(", "))),
+			MCPErrorCodes::AlreadyExists);
+	}
+
+	TArray<FString> Removed;
+	if (bReplaceExisting)
+	{
+		// Also sweep directional lights and fog, which belong to the set even though the presence
+		// check above ignores them (a level can legitimately have a directional light and no sky).
+		TArray<AActor*> ToRemove = Existing;
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (It->IsA<ADirectionalLight>() || It->IsA<AExponentialHeightFog>())
+			{
+				ToRemove.AddUnique(*It);
+			}
+		}
+		for (AActor* A : ToRemove)
+		{
+			if (A)
+			{
+				Removed.Add(A->GetActorLabel());
+				World->EditorDestroyActor(A, /*bShouldModifyLevel=*/true);
+			}
+		}
+	}
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	TArray<FString> Created;
+
+	// --- Sun ---
+	ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(
+		ADirectionalLight::StaticClass(), FVector(0, 0, 500), FRotator(SunPitch, SunYaw, 0), SpawnParams);
+	if (!Sun)
+	{
+		return MakeErrorJson(TEXT("Failed to spawn the directional light."), MCPErrorCodes::OperationFailed);
+	}
+	Sun->SetActorLabel(TEXT("Sun"));
+	if (UDirectionalLightComponent* SunComp = Cast<UDirectionalLightComponent>(Sun->GetLightComponent()))
+	{
+		SunComp->Modify();
+		SunComp->SetMobility(EComponentMobility::Movable);
+		SunComp->Intensity = SunIntensity;
+		SunComp->Temperature = SunTemperature;
+		SunComp->bUseTemperature = true;
+		// Without this the SkyAtmosphere has no sun: no sun disc, no scattering, black horizon.
+		SunComp->bAtmosphereSunLight = true;
+		FPropertyChangedEvent Evt(nullptr);
+		SunComp->PostEditChangeProperty(Evt);
+		SunComp->MarkRenderStateDirty();
+	}
+	Created.Add(TEXT("Sun (DirectionalLight)"));
+
+	// --- Sky light ---
+	if (ASkyLight* SkyLight = World->SpawnActor<ASkyLight>(
+		ASkyLight::StaticClass(), FVector(0, 0, 500), FRotator::ZeroRotator, SpawnParams))
+	{
+		SkyLight->SetActorLabel(TEXT("SkyLight"));
+		if (USkyLightComponent* SkyComp = SkyLight->GetLightComponent())
+		{
+			SkyComp->Modify();
+			SkyComp->SetMobility(EComponentMobility::Movable);
+			SkyComp->Intensity = SkyIntensity;
+			// Real-time capture sidesteps the whole "did you remember to recapture" problem: the
+			// sky light tracks the atmosphere automatically as the sun moves.
+			SkyComp->bRealTimeCapture = true;
+			SkyComp->SourceType = SLS_CapturedScene;
+			FPropertyChangedEvent Evt(nullptr);
+			SkyComp->PostEditChangeProperty(Evt);
+			SkyComp->MarkRenderStateDirty();
+			SkyComp->RecaptureSky();
+		}
+		Created.Add(TEXT("SkyLight"));
+	}
+
+	// --- Atmosphere ---
+	if (ASkyAtmosphere* Atmosphere = World->SpawnActor<ASkyAtmosphere>(
+		ASkyAtmosphere::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams))
+	{
+		Atmosphere->SetActorLabel(TEXT("SkyAtmosphere"));
+		Created.Add(TEXT("SkyAtmosphere"));
+	}
+
+	// --- Fog ---
+	if (bIncludeFog)
+	{
+		if (AExponentialHeightFog* Fog = World->SpawnActor<AExponentialHeightFog>(
+			AExponentialHeightFog::StaticClass(), FVector(0, 0, 100), FRotator::ZeroRotator, SpawnParams))
+		{
+			Fog->SetActorLabel(TEXT("HeightFog"));
+			if (UExponentialHeightFogComponent* FogComp = Fog->GetComponent())
+			{
+				FogComp->Modify();
+				FogComp->bEnableVolumetricFog = true;
+				FPropertyChangedEvent Evt(nullptr);
+				FogComp->PostEditChangeProperty(Evt);
+				FogComp->MarkRenderStateDirty();
+			}
+			Created.Add(TEXT("HeightFog (volumetric)"));
+		}
+	}
+
+	// --- Clouds ---
+	if (bIncludeClouds)
+	{
+		if (AVolumetricCloud* Clouds = World->SpawnActor<AVolumetricCloud>(
+			AVolumetricCloud::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams))
+		{
+			Clouds->SetActorLabel(TEXT("VolumetricCloud"));
+			Created.Add(TEXT("VolumetricCloud"));
+		}
+	}
+
+	GEditor->NoteSelectionChange();
+
+	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("preset"), Preset);
+	Result->SetNumberField(TEXT("sunPitch"), SunPitch);
+	Result->SetNumberField(TEXT("sunYaw"), SunYaw);
+	Result->SetNumberField(TEXT("sunIntensity"), SunIntensity);
+	Result->SetNumberField(TEXT("sunTemperature"), SunTemperature);
+	Result->SetNumberField(TEXT("skyLightIntensity"), SkyIntensity);
+
+	TArray<TSharedPtr<FJsonValue>> CreatedArr;
+	for (const FString& C : Created) { CreatedArr.Add(MakeShared<FJsonValueString>(C)); }
+	Result->SetArrayField(TEXT("created"), CreatedArr);
+
+	if (Removed.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> RemovedArr;
+		for (const FString& R : Removed) { RemovedArr.Add(MakeShared<FJsonValueString>(R)); }
+		Result->SetArrayField(TEXT("removed"), RemovedArr);
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: spawn_sky('%s') created %d actors"), *Preset, Created.Num());
+
+	return JsonToString(Result);
+}
+
+// ============================================================
+// HandleValidateLighting â€” the mistakes that make a scene look wrong
+// ============================================================
+// CLAUDE-NOTE: every check here is a failure mode that produces a plausible-looking scene rather
+// than an error, which is exactly why they are worth automating â€” nothing in the editor tells you
+// about any of them. Severity is advisory: "error" means the scene is almost certainly broken,
+// "warning" means it is probably not what was intended, "info" is worth knowing.
+
+FString FBlueprintMCPServer::HandleValidateLighting(const FString& Body)
+{
+	if (!GEditor)
+	{
+		return MakeErrorJson(TEXT("validate_lighting requires editor mode."), MCPErrorCodes::OperationFailed);
+	}
+
+	UWorld* World = GEditor->GetEditorWorldContext().World();
+	if (!World)
+	{
+		return MakeErrorJson(TEXT("No editor world available."), MCPErrorCodes::OperationFailed);
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Issues;
+	int32 ErrorCount = 0, WarningCount = 0, InfoCount = 0;
+
+	auto AddIssue = [&](const TCHAR* Severity, const TCHAR* Code, const FString& Message, const FString& ActorLabel)
+	{
+		TSharedRef<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("severity"), Severity);
+		Obj->SetStringField(TEXT("code"), Code);
+		Obj->SetStringField(TEXT("message"), Message);
+		if (!ActorLabel.IsEmpty()) { Obj->SetStringField(TEXT("actor"), ActorLabel); }
+		Issues.Add(MakeShared<FJsonValueObject>(Obj));
+		if (FCString::Strcmp(Severity, TEXT("error")) == 0)        { ++ErrorCount; }
+		else if (FCString::Strcmp(Severity, TEXT("warning")) == 0) { ++WarningCount; }
+		else                                                       { ++InfoCount; }
+	};
+
+	int32 DirectionalCount = 0, SkyLightCount = 0, TotalLights = 0;
+	bool bHasAtmosphereSun = false;
+	bool bHasSkyAtmosphere = false;
+	TArray<ULocalLightComponent*> StationaryLocals;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+
+		if (Actor->IsA<ASkyAtmosphere>()) { bHasSkyAtmosphere = true; }
+		if (!IsLightActor(Actor)) { continue; }
+
+		++TotalLights;
+		ULightComponentBase* Base = GetLightComponentBase(Actor);
+		if (!Base) { continue; }
+
+		const FString Label = Actor->GetActorLabel();
+
+		if (Actor->IsA<ADirectionalLight>())
+		{
+			++DirectionalCount;
+			if (UDirectionalLightComponent* Dir = Cast<UDirectionalLightComponent>(Base))
+			{
+				if (Dir->bAtmosphereSunLight) { bHasAtmosphereSun = true; }
+			}
+		}
+
+		if (ASkyLight* Sky = Cast<ASkyLight>(Actor))
+		{
+			++SkyLightCount;
+			if (USkyLightComponent* SkyComp = Sky->GetLightComponent())
+			{
+				if (SkyComp->SourceType == SLS_CapturedScene && !SkyComp->bRealTimeCapture)
+				{
+					AddIssue(TEXT("warning"), TEXT("skylight_needs_recapture"),
+						TEXT("Sky light captures the scene but real-time capture is off, so it shows whatever the ")
+						TEXT("level looked like when it was last captured. Enable real-time capture, or recapture ")
+						TEXT("after changing the sky (set_light_property on this light recaptures automatically)."),
+						Label);
+				}
+			}
+		}
+
+		if (Base->Intensity <= 0.0f)
+		{
+			AddIssue(TEXT("warning"), TEXT("zero_intensity"),
+				TEXT("Light has zero intensity and contributes nothing. Set an intensity or delete it."), Label);
+		}
+
+		if (Base->bAffectsWorld == 0)
+		{
+			AddIssue(TEXT("info"), TEXT("affects_world_off"),
+				TEXT("Light is disabled via affectsWorld=false. Intentional, but it renders nothing."), Label);
+		}
+
+		if (Base->Mobility == EComponentMobility::Stationary)
+		{
+			if (ULocalLightComponent* Local = Cast<ULocalLightComponent>(Base))
+			{
+				StationaryLocals.Add(Local);
+			}
+		}
+	}
+
+	if (TotalLights == 0)
+	{
+		AddIssue(TEXT("error"), TEXT("no_lights"),
+			TEXT("The level has no lights at all. Use spawn_sky for an outdoor set, or spawn_light."), FString());
+	}
+	else
+	{
+		if (DirectionalCount == 0)
+		{
+			AddIssue(TEXT("warning"), TEXT("no_directional_light"),
+				TEXT("No directional light, so there is no sun or key light."), FString());
+		}
+		if (SkyLightCount == 0)
+		{
+			AddIssue(TEXT("warning"), TEXT("no_sky_light"),
+				TEXT("No sky light, so ambient fill is missing and shadowed areas will read as flat black."),
+				FString());
+		}
+	}
+
+	if (DirectionalCount > 1)
+	{
+		AddIssue(TEXT("warning"), TEXT("multiple_directional_lights"),
+			FString::Printf(TEXT("%d directional lights. More than one sun is rarely intended and doubles up lighting."),
+				DirectionalCount), FString());
+	}
+
+	if (bHasSkyAtmosphere && !bHasAtmosphereSun)
+	{
+		AddIssue(TEXT("error"), TEXT("atmosphere_without_sun"),
+			TEXT("A SkyAtmosphere exists but no directional light is flagged as its sun, so the sky renders ")
+			TEXT("with no sun disc and no atmospheric scattering."), FString());
+	}
+
+	// UE packs stationary-light shadows into a limited set of channels; above four overlapping
+	// stationary lights the extras fall back to fully dynamic shadows, silently.
+	constexpr int32 OverlapScanLimit = 200;
+	if (StationaryLocals.Num() > 1 && StationaryLocals.Num() <= OverlapScanLimit)
+	{
+		for (int32 i = 0; i < StationaryLocals.Num(); ++i)
+		{
+			int32 Overlaps = 0;
+			const FVector Pi = StationaryLocals[i]->GetComponentLocation();
+			const float Ri = StationaryLocals[i]->AttenuationRadius;
+			for (int32 j = 0; j < StationaryLocals.Num(); ++j)
+			{
+				if (i == j) { continue; }
+				const FVector Pj = StationaryLocals[j]->GetComponentLocation();
+				const float Rj = StationaryLocals[j]->AttenuationRadius;
+				if (FVector::DistSquared(Pi, Pj) < FMath::Square(Ri + Rj)) { ++Overlaps; }
+			}
+			if (Overlaps >= 4)
+			{
+				AddIssue(TEXT("warning"), TEXT("stationary_shadow_overflow"),
+					FString::Printf(
+						TEXT("%d other stationary lights overlap this one. Above four overlapping stationary ")
+						TEXT("lights UE runs out of shadow channels and the extras fall back to dynamic shadows ")
+						TEXT("without reporting it. Make some Movable or Static, or reduce their radii."), Overlaps),
+					StationaryLocals[i]->GetOwner() ? StationaryLocals[i]->GetOwner()->GetActorLabel() : FString());
+			}
+		}
+	}
+	else if (StationaryLocals.Num() > OverlapScanLimit)
+	{
+		AddIssue(TEXT("info"), TEXT("overlap_scan_skipped"),
+			FString::Printf(TEXT("Skipped the stationary-light overlap check: %d stationary local lights exceeds ")
+				TEXT("the %d scan limit."), StationaryLocals.Num(), OverlapScanLimit), FString());
+	}
+
+	// Auto-exposure silently re-normalises the image, so intensity edits appear to do nothing.
+	const int32 AutoExpo = GetIntCVar(TEXT("r.DefaultFeature.AutoExposure"), -1);
+	if (AutoExpo == 1)
+	{
+		bool bExposureLocked = false;
+		for (TActorIterator<APostProcessVolume> It(World); It; ++It)
+		{
+			const FPostProcessSettings& S = It->Settings;
+			if (S.bOverride_AutoExposureMinBrightness && S.bOverride_AutoExposureMaxBrightness &&
+				FMath::IsNearlyEqual(S.AutoExposureMinBrightness, S.AutoExposureMaxBrightness))
+			{
+				bExposureLocked = true;
+				break;
+			}
+			if (S.bOverride_AutoExposureMethod && S.AutoExposureMethod == AEM_Manual)
+			{
+				bExposureLocked = true;
+				break;
+			}
+		}
+		if (!bExposureLocked)
+		{
+			AddIssue(TEXT("warning"), TEXT("auto_exposure_unlocked"),
+				TEXT("Auto-exposure is on and no post-process volume locks it, so the image re-normalises after ")
+				TEXT("every lighting change and intensity edits appear to do nothing. Use ")
+				TEXT("configure_post_process(lockExposure=...) while tuning lights."), FString());
+		}
+	}
+
+	const int32 GIMethod = GetIntCVar(TEXT("r.DynamicGlobalIlluminationMethod"), -1);
+	if (GIMethod == 0 && TotalLights > 0)
+	{
+		AddIssue(TEXT("info"), TEXT("no_dynamic_gi"),
+			TEXT("Dynamic global illumination is off, so indirect light comes only from baked lightmaps and ")
+			TEXT("unbuilt lighting will look flat. Use set_renderer_mode('lumen') for dynamic GI."), FString());
+	}
+
+	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("level"), World->GetMapName());
+	Result->SetNumberField(TEXT("lightCount"), TotalLights);
+	Result->SetNumberField(TEXT("issueCount"), Issues.Num());
+	Result->SetNumberField(TEXT("errors"), ErrorCount);
+	Result->SetNumberField(TEXT("warnings"), WarningCount);
+	Result->SetNumberField(TEXT("infos"), InfoCount);
+	Result->SetArrayField(TEXT("issues"), Issues);
+	Result->SetBoolField(TEXT("passed"), ErrorCount == 0 && WarningCount == 0);
+
+	UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: validate_lighting â€” %d issues (%d errors, %d warnings)"),
+		Issues.Num(), ErrorCount, WarningCount);
+
+	return JsonToString(Result);
+}
+

@@ -44,9 +44,11 @@ export const visionState: VisionState = {
 // result — the capture is strictly additive to the tool's own output.
 const READ_ONLY_PREFIXES = [
   "get_", "list_", "describe_", "find_", "search_", "check_", "is_", "diff_", "discover_",
+  "validate_",
 ];
 
-// Read-only by name, mutating in fact.
+// Read-only by name, mutating in fact. Checked BEFORE the prefix list, which is why "validate_"
+// can sit in READ_ONLY_PREFIXES while these two stay classified as mutations.
 const MUTATES_DESPITE_NAME = new Set([
   // FKismetEditorUtilities::CompileBlueprint — see BlueprintMCPHandlers_Validation.cpp:90.
   "validate_blueprint",

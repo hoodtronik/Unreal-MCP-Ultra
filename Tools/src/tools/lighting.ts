@@ -312,4 +312,94 @@ export function registerLightingTools(server: McpServer): void {
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
   );
+
+  server.tool(
+    "spawn_sky",
+    "Create a complete outdoor sky in one call: sun, sky light, SkyAtmosphere, height fog and " +
+      "volumetric clouds. Handles the two links people forget — flagging the directional light as " +
+      "the atmosphere sun (without it the sky renders with no sun disc and no scattering) and " +
+      "enabling real-time sky-light capture (a non-realtime sky light shows whatever the level " +
+      "looked like when it was last captured).",
+    {
+      preset: z.enum(["daylight", "sunset", "overcast", "night"]).optional()
+        .describe("Sets sun angle, intensity, colour temperature and sky-light intensity. Default 'daylight'."),
+      sunPitch: z.number().optional().describe("Overrides the preset. Negative points downward; -45 is mid-morning, -4 is near the horizon."),
+      sunYaw: z.number().optional().describe("Compass direction of the sun."),
+      sunIntensity: z.number().optional().describe("Overrides the preset, in lux."),
+      includeFog: z.boolean().optional().describe("Spawn an ExponentialHeightFog with volumetric fog on (default true)."),
+      includeClouds: z.boolean().optional().describe("Spawn a VolumetricCloud (default true)."),
+      replaceExisting: z.boolean().optional()
+        .describe("Delete existing sky actors first. Without this, spawning onto a level that already has a sky is refused rather than doubling the lighting."),
+    },
+    async (args) => {
+      const err = await ensureUE();
+      if (err) return { content: [{ type: "text" as const, text: err }] };
+
+      const body = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
+
+      const data = await uePost("/api/spawn-sky", body);
+      if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
+
+      const lines = [`Built a '${data.preset}' sky:`];
+      for (const c of data.created) lines.push(`  + ${c}`);
+      if (data.removed?.length) {
+        lines.push("", "Removed first:");
+        for (const r of data.removed) lines.push(`  - ${r}`);
+      }
+      lines.push(
+        "",
+        `Sun: pitch ${data.sunPitch}° yaw ${data.sunYaw}°, ${data.sunIntensity} lux at ${data.sunTemperature}K`,
+        `Sky light: ${data.skyLightIntensity} (real-time capture on)`,
+        "",
+        "Next steps:",
+        "  1. viewport_capture() to see it",
+        "  2. validate_lighting() to check for problems",
+        "  3. configure_post_process(lockExposure=...) before tuning intensities",
+      );
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
+
+  server.tool(
+    "validate_lighting",
+    "Check the level's lighting for the mistakes that produce a plausible-looking but wrong scene — " +
+      "a SkyAtmosphere with no sun assigned, a sky light that needs recapturing, zero-intensity " +
+      "lights, more than four overlapping stationary lights (which silently exhausts UE's shadow " +
+      "channels), and auto-exposure left unlocked so intensity edits appear to do nothing. Nothing " +
+      "in the editor warns about any of these.",
+    {},
+    async () => {
+      const err = await ensureUE();
+      if (err) return { content: [{ type: "text" as const, text: err }] };
+
+      const data = await uePost("/api/validate-lighting", {});
+      if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
+
+      if (data.issueCount === 0) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Lighting looks sound — no issues found across ${data.lightCount} light${data.lightCount === 1 ? "" : "s"} in '${data.level}'.`,
+          }],
+        };
+      }
+
+      const icon: Record<string, string> = { error: "✗", warning: "⚠", info: "·" };
+      const lines = [
+        `${data.issueCount} issue${data.issueCount === 1 ? "" : "s"} in '${data.level}' ` +
+          `(${data.errors} error${data.errors === 1 ? "" : "s"}, ${data.warnings} warning${data.warnings === 1 ? "" : "s"}, ${data.infos} info) ` +
+          `across ${data.lightCount} light${data.lightCount === 1 ? "" : "s"}:`,
+        "",
+      ];
+      for (const sev of ["error", "warning", "info"]) {
+        for (const i of data.issues.filter((x: any) => x.severity === sev)) {
+          lines.push(`${icon[sev]} ${i.actor ? `[${i.actor}] ` : ""}${i.message}`);
+          lines.push(`    (${i.code})`);
+        }
+      }
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
 }

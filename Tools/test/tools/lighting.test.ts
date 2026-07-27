@@ -153,6 +153,80 @@ describe("lighting argument validation", () => {
     });
   });
 
+  describe("spawn_sky / validate_lighting", () => {
+    it("rejects an unknown preset", async () => {
+      const data = await uePost("/api/spawn-sky", { preset: "eclipse" });
+      expect(data.error).toBeDefined();
+      expect(data.error).toContain("daylight");
+      expect(data.errorCode).toBe("invalid_input");
+    });
+
+    it("builds the full set and flags the directional light as the atmosphere sun", async () => {
+      const data = await uePost("/api/spawn-sky", { preset: "daylight", replaceExisting: true });
+      expect(data.error).toBeUndefined();
+      expect(data.success).toBe(true);
+      const created = data.created.join(" ");
+      expect(created).toContain("DirectionalLight");
+      expect(created).toContain("SkyLight");
+      expect(created).toContain("SkyAtmosphere");
+      expect(created).toContain("HeightFog");
+      expect(created).toContain("VolumetricCloud");
+
+      // The whole point of the tool: an atmosphere with no assigned sun renders with no sun disc.
+      const check = await uePost("/api/validate-lighting", {});
+      expect(check.error).toBeUndefined();
+      const codes = check.issues.map((i: any) => i.code);
+      expect(codes).not.toContain("atmosphere_without_sun");
+      expect(codes).not.toContain("skylight_needs_recapture");
+      expect(codes).not.toContain("no_directional_light");
+      expect(codes).not.toContain("no_sky_light");
+    });
+
+    it("refuses to stack a second sky without replaceExisting", async () => {
+      await uePost("/api/spawn-sky", { preset: "daylight", replaceExisting: true });
+      const data = await uePost("/api/spawn-sky", { preset: "sunset" });
+      expect(data.error).toBeDefined();
+      expect(data.errorCode).toBe("already_exists");
+      expect(data.error).toContain("replaceExisting");
+    });
+
+    it("honours includeFog and includeClouds", async () => {
+      const data = await uePost("/api/spawn-sky", {
+        preset: "overcast", replaceExisting: true, includeFog: false, includeClouds: false,
+      });
+      expect(data.error).toBeUndefined();
+      const created = data.created.join(" ");
+      expect(created).not.toContain("HeightFog");
+      expect(created).not.toContain("VolumetricCloud");
+      expect(created).toContain("SkyAtmosphere");
+    });
+
+    it("applies explicit sun overrides on top of the preset", async () => {
+      const data = await uePost("/api/spawn-sky", {
+        preset: "night", replaceExisting: true, sunPitch: -30, sunYaw: 120, sunIntensity: 2.5,
+      });
+      expect(data.error).toBeUndefined();
+      expect(data.sunPitch).toBeCloseTo(-30, 1);
+      expect(data.sunYaw).toBeCloseTo(120, 1);
+      expect(data.sunIntensity).toBeCloseTo(2.5, 2);
+    });
+
+    it("reports a structured issue list with severities", async () => {
+      const data = await uePost("/api/validate-lighting", {});
+      expect(data.error).toBeUndefined();
+      expect(typeof data.issueCount).toBe("number");
+      expect(typeof data.errors).toBe("number");
+      expect(typeof data.warnings).toBe("number");
+      expect(Array.isArray(data.issues)).toBe(true);
+      for (const i of data.issues) {
+        expect(["error", "warning", "info"]).toContain(i.severity);
+        expect(typeof i.code).toBe("string");
+        expect(typeof i.message).toBe("string");
+      }
+    });
+
+  });
+
   describe("get_renderer_state", () => {
     // Reads console variables, so it works without an editor world.
     it("reports the renderer configuration", async () => {
@@ -315,6 +389,16 @@ describe("lighting tools", () => {
     expect(spot.error).toBeUndefined();
     expect(spot.light.innerConeAngle).toBeCloseTo(8, 1);
     expect(spot.light.outerConeAngle).toBeCloseTo(27, 1);
+  });
+
+  it("validate_lighting flags a zero-intensity light by label", async () => {
+    const dim = await spawn("point", { intensity: 0 });
+    expect(dim.error).toBeUndefined();
+    const data = await uePost("/api/validate-lighting", {});
+    expect(data.error).toBeUndefined();
+    const zero = data.issues.filter((i: any) => i.code === "zero_intensity");
+    expect(zero.length).toBeGreaterThan(0);
+    expect(zero.some((i: any) => i.actor === dim.label)).toBe(true);
   });
 
   it("recaptures a sky light after a property change", async () => {

@@ -151,7 +151,7 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 - View: `set_view_mode` · `set_show_flags` · `set_viewport_type` · `set_realtime_rendering` · `set_game_view`
 - Screenshots: `take_screenshot` · `take_high_res_screenshot` (both write a PNG to `Saved/Screenshots`)
 - Vision: `viewport_capture` · `vision_mode` · `scene_digest`
-- Lighting: `list_lights` · `spawn_light` · `set_light_property`
+- Lighting: `list_lights` · `spawn_light` · `set_light_property` · `spawn_sky` · `validate_lighting`
 - Rendering: `get_renderer_state` · `set_renderer_mode` · `configure_post_process`
 - Output log: `get_output_log` · `clear_output_log`
 - CVars: `get_cvar` · `set_cvar` · `list_cvars`
@@ -185,6 +185,14 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
   call. Applies mobility first (a Static light rejects later writes) and recaptures sky lights.
 - `set_light_property` — typed setters on an existing light by label, with per-type validation
   (`innerConeAngle` on a point light is an error, not a silent no-op).
+- `spawn_sky` — a complete outdoor set (sun, sky light, SkyAtmosphere, height fog, volumetric
+  clouds) with presets for daylight / sunset / overcast / night. Handles the two links people
+  forget: flagging the directional light as the atmosphere sun, and enabling real-time sky-light
+  capture.
+- `validate_lighting` — flags the mistakes that produce a plausible-looking but wrong scene: an
+  atmosphere with no sun assigned, a sky light needing recapture, zero-intensity lights, more than
+  four overlapping stationary lights (which silently exhausts UE's shadow channels), and
+  auto-exposure left unlocked so intensity edits appear to do nothing.
 - `get_renderer_state` — GI method, reflection method, shadow-map method, and whether path tracing,
   Lumen hardware RT, MegaLights or auto-exposure are on. Reads live console variables, so it
   reflects what is actually in force rather than what the project `.ini` says.

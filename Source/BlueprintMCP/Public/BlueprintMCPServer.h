@@ -428,6 +428,8 @@ private:
 	FString HandleGetRendererState(const FString& Body);
 	FString HandleSetRendererMode(const FString& Body);
 	FString HandleConfigurePostProcess(const FString& Body);
+	FString HandleSpawnSky(const FString& Body);
+	FString HandleValidateLighting(const FString& Body);
 	bool ApplyLightProperties(AActor* Actor, const TSharedPtr<FJsonObject>& Json,
 		TArray<FString>& OutApplied, FString& OutError);
 

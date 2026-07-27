@@ -59,6 +59,13 @@ describe("vision attach policy", () => {
     expect(shouldAttach("validate_all_blueprints")).toBe(true);
   });
 
+  // ...but validate_lighting and validate_material genuinely only read, so the explicit
+  // exception set is checked before the "validate_" prefix rather than instead of it.
+  it("still treats other validate_* tools as read-only", () => {
+    expect(shouldAttach("validate_lighting")).toBe(false);
+    expect(shouldAttach("validate_material")).toBe(false);
+  });
+
   it("never attaches to the vision tools themselves", () => {
     expect(shouldAttach("viewport_capture")).toBe(false);
     expect(shouldAttach("vision_mode")).toBe(false);

@@ -876,6 +876,10 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 		QueuedHandler(TEXT("setRendererMode")));
 	Router->BindRoute(FHttpPath(TEXT("/api/configure-post-process")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("configurePostProcess")));
+	Router->BindRoute(FHttpPath(TEXT("/api/spawn-sky")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("spawnSky")));
+	Router->BindRoute(FHttpPath(TEXT("/api/validate-lighting")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("validateLighting")));
 
 	// PIE control
 	Router->BindRoute(FHttpPath(TEXT("/api/start-pie")), EHttpServerRequestVerbs::VERB_POST,
@@ -1275,6 +1279,7 @@ void FBlueprintMCPServer::RegisterHandlers()
 		TEXT("spawnLight"),
 		TEXT("setLightProperty"),
 		TEXT("configurePostProcess"),
+		TEXT("spawnSky"),
 		// Niagara mutations (Tier 1)
 		TEXT("createNiagaraSystem"),
 		TEXT("createNiagaraEmitter"),
@@ -1448,6 +1453,8 @@ void FBlueprintMCPServer::RegisterHandlers()
 	HandlerMap.Add(TEXT("getRendererState"),        [this](const TMap<FString, FString>&, const FString& B) { return HandleGetRendererState(B); });
 	HandlerMap.Add(TEXT("setRendererMode"),         [this](const TMap<FString, FString>&, const FString& B) { return HandleSetRendererMode(B); });
 	HandlerMap.Add(TEXT("configurePostProcess"),    [this](const TMap<FString, FString>&, const FString& B) { return HandleConfigurePostProcess(B); });
+	HandlerMap.Add(TEXT("spawnSky"),                [this](const TMap<FString, FString>&, const FString& B) { return HandleSpawnSky(B); });
+	HandlerMap.Add(TEXT("validateLighting"),        [this](const TMap<FString, FString>&, const FString& B) { return HandleValidateLighting(B); });
 
 	// PIE control
 	HandlerMap.Add(TEXT("startPie"),                [this](const TMap<FString, FString>&, const FString& B) { return HandleStartPIE(B); });
