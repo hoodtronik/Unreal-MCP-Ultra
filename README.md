@@ -101,6 +101,20 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 - `create_material_instance` · `set_material_instance_parameter` · `get_material_instance_parameters`
   · `reparent_material_instance`
 
+> **Substrate works with no special handling.** `add_material_expression` resolves the class by
+> dynamic `UClass` lookup, and the Substrate expressions live in the Engine module, so
+> `SubstrateSlabBSDF`, `SubstrateHorizontalMixing`, `SubstrateAdd` and the rest all resolve.
+> The material root exposes a `Front Material` pin to connect a slab's output to — present even
+> when `r.Substrate=0`, though the material only *compiles* as Substrate once it is enabled in
+> Project Settings → Rendering. Verified end to end against a running editor.
+>
+> `get_material_graph` reports each node's real `expressionClass`
+> (`MaterialExpressionSubstrateSlabBSDF`) plus a short `expressionType` (`SubstrateSlabBSDF`) that
+> feeds straight back into `add_material_expression`. Two traps worth knowing: adding an expression
+> **regenerates the graph GUIDs of earlier nodes**, so re-read the graph after your last add before
+> calling `connect_material_pins`; and the read route is `/api/material-graph`, not
+> `/api/get-material-graph`.
+
 **Animation Blueprints**
 - `create_anim_blueprint` · `add_anim_state` · `remove_anim_state` · `add_anim_transition`
   · `set_transition_rule` · `add_anim_node` · `add_state_machine` · `set_state_animation`
@@ -166,9 +180,15 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
   `'pie'` for a running PIE session, `'graph'` for a Blueprint node graph (far easier to verify
   wiring from than raw node/pin JSON). Capture is synchronous — `FViewport::ReadPixels` for
   viewports, `FWidgetRenderer` for graphs — so there is no deferred-file polling.
+  Pass **`settle: true`** after anything involving sky, atmosphere, volumetric clouds, Lumen or a
+  sky-light recapture: those converge over *seconds*, and because the request handler owns the game
+  thread, a tight capture loop starves the editor of the very ticks it needs — so an immediate
+  capture returns the pre-change frame and looks convincingly like a broken capture.
 - `vision_mode` — always-on visual feedback. While enabled, every state-changing tool call gets a
-  fresh frame appended automatically; read-only tools are skipped and unchanged frames are
-  suppressed by pixel digest. The capture target is inferred from each tool's own arguments, so
+  fresh frame appended automatically; read-only tools are skipped and visually-unchanged frames are
+  suppressed. Suppression compares downsampled luma with a tolerance rather than hashing pixels
+  exactly — TAA jitter and temporal accumulation mean two captures of a static scene are *never*
+  bit-identical, so an exact hash would never once match. The capture target is inferred from each tool's own arguments, so
   graph edits show the graph and level edits show the level. Level frames default to 384px
   (~150 tokens); graph attachment is opt-in via `targets: ["level","graph"]` because a legible
   graph frame needs ~1024px and cannot be digest-suppressed.
@@ -179,6 +199,14 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 
 > Requires a running editor. A headless commandlet is spawned with `-nullrhi` and has no render
 > device at all, so all three capture targets report that explicitly rather than failing obscurely.
+>
+> Every viewport-touching tool — both captures, `get_viewport_camera`/`set_viewport_camera`,
+> `set_view_mode`, `set_show_flags`, `set_realtime_rendering`, `set_game_view`, `set_viewport_type`
+> and `take_high_res_screenshot` — resolves the viewport through one shared helper, so they always
+> act on the same one. They previously each indexed `GetLevelViewportClients()[0]`, which is not
+> reliably a realized, sized viewport: that could make a tool report success while acting on a
+> viewport nobody was looking at, and on a different one from the capture, so `set_view_mode`
+> appeared to do nothing.
 
 **Lighting**
 - `list_lights` — every light in the level with type, mobility, intensity, colour, temperature and
