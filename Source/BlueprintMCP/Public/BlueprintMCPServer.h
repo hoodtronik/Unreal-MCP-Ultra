@@ -418,6 +418,8 @@ private:
 	FString HandleTakeScreenshot(const FString& Body);
 	FString HandleTakeHighResScreenshot(const FString& Body);
 	FString HandleScreenshotGraph(const FString& Body);
+	FString HandleViewportCapture(const FString& Body);
+	FString HandleSceneDigest(const FString& Body);
 
 	// ----- Output log / undo-redo / editor utils -----
 	FString HandleGetOutputLog(const FString& Body);

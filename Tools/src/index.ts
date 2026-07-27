@@ -9,8 +9,13 @@ import { registerSkills } from "./skills/index.js";
 import { registerExamples } from "./examples/index.js";
 import { registerDiscoveryMode } from "./discovery/index.js";
 import { registerAgentConfigTools } from "./tools/agent-config.js";
+import { installVisionWrapper } from "./vision-wrapper.js";
 
 const server = new McpServer({ name: "blueprint-mcp", version: "1.0.0" });
+
+// Must run BEFORE any registration — it wraps server.tool, so tools registered earlier would
+// miss the hook entirely. No-op unless vision_mode has been turned on.
+installVisionWrapper(server);
 
 for (const { register } of TOOL_REGISTRATIONS) register(server);
 

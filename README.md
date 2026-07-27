@@ -149,10 +149,31 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 - `navigate_content_browser` · `open_asset_editor`
 - Camera: `get_viewport_camera` · `set_viewport_camera`
 - View: `set_view_mode` · `set_show_flags` · `set_viewport_type` · `set_realtime_rendering` · `set_game_view`
-- Screenshots: `take_screenshot` · `take_high_res_screenshot`
+- Screenshots: `take_screenshot` · `take_high_res_screenshot` (both write a PNG to `Saved/Screenshots`)
+- Vision: `viewport_capture` · `vision_mode` · `scene_digest`
 - Output log: `get_output_log` · `clear_output_log`
 - CVars: `get_cvar` · `set_cvar` · `list_cvars`
 - Profiling: `get_frame_timing`
+
+**Vision — seeing the editor without a file round-trip**
+- `viewport_capture` — returns the image **inline in the tool result** as base64 PNG, not a file
+  path, so looking costs zero extra tool calls. `target='level'` for the editor viewport,
+  `'pie'` for a running PIE session, `'graph'` for a Blueprint node graph (far easier to verify
+  wiring from than raw node/pin JSON). Capture is synchronous — `FViewport::ReadPixels` for
+  viewports, `FWidgetRenderer` for graphs — so there is no deferred-file polling.
+- `vision_mode` — always-on visual feedback. While enabled, every state-changing tool call gets a
+  fresh frame appended automatically; read-only tools are skipped and unchanged frames are
+  suppressed by pixel digest. The capture target is inferred from each tool's own arguments, so
+  graph edits show the graph and level edits show the level. Level frames default to 384px
+  (~150 tokens); graph attachment is opt-in via `targets: ["level","graph"]` because a legible
+  graph frame needs ~1024px and cannot be digest-suppressed.
+- `scene_digest` — cheap change-detection fingerprint (level name, actor count, selection,
+  unsaved packages, PIE state; or node/pin structure for a graph). Deliberately coarse. It does
+  not hash actor transforms — compare `viewport_capture`'s `digest` field for that, which
+  fingerprints the actual pixels.
+
+> Requires a running editor. A headless commandlet is spawned with `-nullrhi` and has no render
+> device at all, so all three capture targets report that explicitly rather than failing obscurely.
 
 **Play In Editor (PIE)**
 - `start_pie` · `stop_pie` · `pie_pause` · `is_pie_running`
