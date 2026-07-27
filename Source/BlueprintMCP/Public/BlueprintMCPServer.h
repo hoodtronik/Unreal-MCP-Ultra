@@ -426,6 +426,8 @@ private:
 	FString HandleSpawnLight(const FString& Body);
 	FString HandleSetLightProperty(const FString& Body);
 	FString HandleGetRendererState(const FString& Body);
+	FString HandleSetRendererMode(const FString& Body);
+	FString HandleConfigurePostProcess(const FString& Body);
 	bool ApplyLightProperties(AActor* Actor, const TSharedPtr<FJsonObject>& Json,
 		TArray<FString>& OutApplied, FString& OutError);
 

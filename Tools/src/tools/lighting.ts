@@ -222,4 +222,94 @@ export function registerLightingTools(server: McpServer): void {
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
   );
+
+  server.tool(
+    "set_renderer_mode",
+    "Switch the renderer between coherent configurations. 'Use Lumen' is not one setting but a set " +
+      "of them (GI method + reflection method + path tracing off); applying a partial combination is " +
+      "how you end up with Lumen GI, screen-space reflections and no idea why. This applies them as " +
+      "a unit and reports any console variable that does not exist in this build rather than " +
+      "silently doing nothing.",
+    {
+      mode: z.enum(["lumen", "pathtracer", "baked"])
+        .describe("lumen = dynamic GI + Lumen reflections. pathtracer = reference path tracing (needs set_view_mode('PathTracing') to actually render). baked = GI from lightmaps, screen-space reflections."),
+      hardwareRayTracing: z.boolean().optional().describe("Lumen only. Hardware RT vs software tracing."),
+      samplesPerPixel: z.number().min(1).optional().describe("Path tracer only."),
+      maxBounces: z.number().min(0).optional().describe("Path tracer only."),
+      megaLights: z.boolean().optional()
+        .describe("Independent of mode — MegaLights is a light-culling technique, not a GI method."),
+      virtualShadowMaps: z.boolean().optional().describe("Independent of mode."),
+    },
+    async (args) => {
+      const err = await ensureUE();
+      if (err) return { content: [{ type: "text" as const, text: err }] };
+
+      const body = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
+
+      const data = await uePost("/api/set-renderer-mode", body);
+      if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
+
+      const lines = [`Renderer mode set to '${data.mode}'.`, "", "Applied:"];
+      for (const c of data.appliedCVars) lines.push(`  ${c}`);
+      if (data.unavailableCVars?.length) {
+        lines.push("", `⚠ Not available in this build (had no effect): ${data.unavailableCVars.join(", ")}`);
+      }
+      if (data.note) lines.push("", `Note: ${data.note}`);
+      lines.push("", "Next steps:", "  1. get_renderer_state() to confirm", "  2. viewport_capture() to see it");
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
+
+  server.tool(
+    "configure_post_process",
+    "Set exposure, bloom and Lumen quality on a post-process volume. Every field of " +
+      "FPostProcessSettings is INERT unless its paired bOverride_ flag is also set — writing the " +
+      "value through set_actor_property stores it and the renderer ignores it. This sets both, and " +
+      "reports the override flags back so you can see the setting is actually live. Auto-exposure " +
+      "is the most common reason lighting 'looks wrong'; lockExposure pins it so you can judge " +
+      "light intensities directly.",
+    {
+      volume: z.string().optional()
+        .describe("Label of a specific PostProcessVolume. Omit to target the level's unbound (global) volume."),
+      createGlobal: z.boolean().optional()
+        .describe("If no unbound volume exists, spawn one. Only used when 'volume' is omitted."),
+      exposureMethod: z.enum(["histogram", "basic", "manual"]).optional(),
+      exposureBias: z.number().optional().describe("EV offset applied on top of the metered exposure."),
+      lockExposure: z.number().optional()
+        .describe("Pin auto-exposure by setting min and max EV100 to this value — the usual way to stop the image re-normalising while you tune light intensities."),
+      exposureMinEV: z.number().optional().describe("Ignored if lockExposure is given."),
+      exposureMaxEV: z.number().optional().describe("Ignored if lockExposure is given."),
+      bloomIntensity: z.number().optional(),
+      lumenSceneLightingQuality: z.number().optional().describe("~0.25-2. Higher is slower."),
+      lumenFinalGatherQuality: z.number().optional().describe("~0.25-2. Higher is slower."),
+      lumenMaxTraceDistance: z.number().optional().describe("World units."),
+    },
+    async (args) => {
+      const err = await ensureUE();
+      if (err) return { content: [{ type: "text" as const, text: err }] };
+
+      const body = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
+
+      const data = await uePost("/api/configure-post-process", body);
+      if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
+
+      const s = data.settings;
+      const lines = [
+        `Updated post-process volume '${data.volume}'${data.unbound ? " (global/unbound)" : ""}:`,
+        ...data.appliedSettings.map((a: string) => `  ${a}`),
+        "",
+        "Live overrides (a setting only applies when its override is on):",
+        `  exposure method: ${s.exposureMethodOverridden ? ["histogram", "basic", "manual"][s.exposureMethod] ?? s.exposureMethod : "not overridden"}`,
+        `  exposure bias:   ${s.exposureBiasOverridden ? s.exposureBias : "not overridden"}`,
+        `  exposure range:  ${s.exposureMinOverridden ? s.exposureMinEV : "—"} .. ${s.exposureMaxOverridden ? s.exposureMaxEV : "—"} EV100`,
+        `  bloom intensity: ${s.bloomIntensityOverridden ? s.bloomIntensity : "not overridden"}`,
+      ];
+      if (s.exposureMinOverridden && s.exposureMaxOverridden && s.exposureMinEV === s.exposureMaxEV) {
+        lines.push("", `Exposure is locked at EV100 ${s.exposureMinEV} — light intensity changes now read directly.`);
+      }
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
 }

@@ -151,7 +151,8 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 - View: `set_view_mode` · `set_show_flags` · `set_viewport_type` · `set_realtime_rendering` · `set_game_view`
 - Screenshots: `take_screenshot` · `take_high_res_screenshot` (both write a PNG to `Saved/Screenshots`)
 - Vision: `viewport_capture` · `vision_mode` · `scene_digest`
-- Lighting: `list_lights` · `spawn_light` · `set_light_property` · `get_renderer_state`
+- Lighting: `list_lights` · `spawn_light` · `set_light_property`
+- Rendering: `get_renderer_state` · `set_renderer_mode` · `configure_post_process`
 - Output log: `get_output_log` · `clear_output_log`
 - CVars: `get_cvar` · `set_cvar` · `list_cvars`
 - Profiling: `get_frame_timing`
@@ -187,6 +188,15 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 - `get_renderer_state` — GI method, reflection method, shadow-map method, and whether path tracing,
   Lumen hardware RT, MegaLights or auto-exposure are on. Reads live console variables, so it
   reflects what is actually in force rather than what the project `.ini` says.
+- `set_renderer_mode` — switch between `lumen`, `pathtracer` and `baked` as a coherent set.
+  "Use Lumen" is three settings, not one; a partial combination gives you Lumen GI with
+  screen-space reflections and no indication anything is wrong. Reports any console variable
+  missing from this build instead of silently doing nothing.
+- `configure_post_process` — exposure, bloom and Lumen quality on a post-process volume.
+  **Every field of `FPostProcessSettings` is inert unless its paired `bOverride_` flag is also
+  set**, so writing one through `set_actor_property` stores the value and the renderer ignores it.
+  This sets both and reports the override flags back. `lockExposure` pins auto-exposure so light
+  intensity changes read directly instead of being re-normalised away.
 
 > These write light properties directly rather than through the engine's `Set*` light functions,
 > which are runtime APIs that silently no-op on Static lights — and, for attenuation radius and

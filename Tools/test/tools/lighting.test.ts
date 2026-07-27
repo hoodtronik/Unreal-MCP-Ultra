@@ -35,6 +35,124 @@ describe("lighting argument validation", () => {
     });
   });
 
+  describe("set_renderer_mode", () => {
+    it("rejects a missing mode", async () => {
+      const data = await uePost("/api/set-renderer-mode", {});
+      expect(data.error).toBeDefined();
+      expect(data.errorCode).toBe("invalid_input");
+    });
+
+    it("rejects an unknown mode", async () => {
+      const data = await uePost("/api/set-renderer-mode", { mode: "raytraced" });
+      expect(data.error).toBeDefined();
+      expect(data.error).toContain("lumen");
+    });
+
+    it("rejects path-tracer parameters on a non-path-tracer mode", async () => {
+      const data = await uePost("/api/set-renderer-mode", { mode: "lumen", samplesPerPixel: 8 });
+      expect(data.error).toBeDefined();
+      expect(data.error).toContain("pathtracer");
+    });
+
+    it("rejects hardwareRayTracing outside lumen mode", async () => {
+      const data = await uePost("/api/set-renderer-mode", { mode: "baked", hardwareRayTracing: true });
+      expect(data.error).toBeDefined();
+      expect(data.error).toContain("lumen");
+    });
+
+    it("applies the coherent lumen set and get_renderer_state agrees", async () => {
+      const data = await uePost("/api/set-renderer-mode", { mode: "lumen" });
+      expect(data.error).toBeUndefined();
+      expect(data.appliedCVars.join(" ")).toContain("r.DynamicGlobalIlluminationMethod=1");
+      expect(data.appliedCVars.join(" ")).toContain("r.ReflectionMethod=1");
+
+      const state = await uePost("/api/get-renderer-state", {});
+      expect(state.globalIllumination).toBe("Lumen");
+      expect(state.reflections).toBe("Lumen");
+      expect(state.pathTracingEnabled).toBe(false);
+      expect(state.activeMode).toContain("lumen");
+    });
+
+    it("switches to path tracing and warns about the viewport view mode", async () => {
+      const data = await uePost("/api/set-renderer-mode", { mode: "pathtracer", samplesPerPixel: 4 });
+      expect(data.error).toBeUndefined();
+      expect(data.note).toContain("set_view_mode");
+      const state = await uePost("/api/get-renderer-state", {});
+      expect(state.pathTracingEnabled).toBe(true);
+      expect(state.activeMode).toBe("pathtracer");
+      // Restore so later tests see a sane renderer.
+      await uePost("/api/set-renderer-mode", { mode: "lumen" });
+    });
+
+    // Regression guard: r.MegaLights.Enable does not exist in UE 5.6 (the real name is
+    // r.MegaLights.EnableForProject), so the old code read a fallback and always reported "off".
+    it("reports MegaLights through a console variable that actually exists", async () => {
+      const data = await uePost("/api/set-renderer-mode", { mode: "lumen", megaLights: true });
+      expect(data.error).toBeUndefined();
+      expect(data.unavailableCVars ?? []).not.toContain("r.MegaLights.EnableForProject");
+      const state = await uePost("/api/get-renderer-state", {});
+      expect(state.megaLightsEnabled).toBe(true);
+      await uePost("/api/set-renderer-mode", { mode: "lumen", megaLights: false });
+    });
+  });
+
+  describe("configure_post_process", () => {
+    it("rejects an unknown exposure method", async () => {
+      const data = await uePost("/api/configure-post-process", { exposureMethod: "eyeball" });
+      expect(data.error).toBeDefined();
+      expect(data.errorCode).toBe("invalid_input");
+    });
+
+    it("sets the override flag alongside every value it writes", async () => {
+      const data = await uePost("/api/configure-post-process", {
+        createGlobal: true,
+        exposureMethod: "manual",
+        exposureBias: 1.5,
+        bloomIntensity: 0.4,
+      });
+      expect(data.error).toBeUndefined();
+      expect(data.settings.exposureMethodOverridden).toBe(true);
+      expect(data.settings.exposureBiasOverridden).toBe(true);
+      expect(data.settings.bloomIntensityOverridden).toBe(true);
+      expect(data.settings.exposureBias).toBeCloseTo(1.5, 3);
+      expect(data.settings.bloomIntensity).toBeCloseTo(0.4, 3);
+    });
+
+    it("locks exposure by pinning min and max together", async () => {
+      const data = await uePost("/api/configure-post-process", { createGlobal: true, lockExposure: 1.25 });
+      expect(data.error).toBeUndefined();
+      expect(data.settings.exposureMinOverridden).toBe(true);
+      expect(data.settings.exposureMaxOverridden).toBe(true);
+      expect(data.settings.exposureMinEV).toBeCloseTo(1.25, 3);
+      expect(data.settings.exposureMaxEV).toBeCloseTo(1.25, 3);
+    });
+
+    it("errors when no settings are supplied", async () => {
+      const data = await uePost("/api/configure-post-process", { createGlobal: true });
+      expect(data.error).toBeDefined();
+      expect(data.error).toContain("No post-process settings supplied");
+    });
+
+    it("refuses a non-volume actor", async () => {
+      const cube = uniqueName("TestCubePP");
+      const res = await uePost("/api/spawn-actor", { class: "StaticMeshActor", label: cube });
+      expect(res.error).toBeUndefined();
+      try {
+        const data = await uePost("/api/configure-post-process", { volume: cube, bloomIntensity: 1 });
+        expect(data.error).toBeDefined();
+        expect(data.error).toContain("PostProcessVolume");
+      } finally {
+        await uePost("/api/delete-actor", { label: cube }).catch(() => {});
+      }
+    });
+
+    it("returns not_found for a non-existent volume label", async () => {
+      const data = await uePost("/api/configure-post-process", { volume: "NoSuchVolume_XYZ_999", bloomIntensity: 1 });
+      expect(data.error).toBeDefined();
+      expect(data.errorCode).toBe("not_found");
+    });
+  });
+
   describe("get_renderer_state", () => {
     // Reads console variables, so it works without an editor world.
     it("reports the renderer configuration", async () => {

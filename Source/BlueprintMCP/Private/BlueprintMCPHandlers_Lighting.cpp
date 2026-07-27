@@ -18,6 +18,8 @@
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Engine/EngineTypes.h"
+#include "Engine/PostProcessVolume.h"
+#include "Engine/Scene.h"
 #include "HAL/IConsoleManager.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -745,20 +747,37 @@ bool FBlueprintMCPServer::ApplyLightProperties(
 // differ after a scalability change, a device profile, or a plain `set_cvar` call from these tools.
 // For "why does my scene look like this", the live value is the only useful answer.
 
-FString FBlueprintMCPServer::HandleGetRendererState(const FString& Body)
+namespace
 {
-	auto GetIntCVar = [](const TCHAR* Name, int32 Fallback) -> int32
+	int32 GetIntCVar(const TCHAR* Name, int32 Fallback)
 	{
 		IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(Name);
 		return CVar ? CVar->GetInt() : Fallback;
-	};
+	}
 
+	bool SetIntCVar(const TCHAR* Name, int32 Value)
+	{
+		IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(Name);
+		if (!CVar)
+		{
+			return false;
+		}
+		CVar->Set(Value, ECVF_SetByCode);
+		return true;
+	}
+}
+
+FString FBlueprintMCPServer::HandleGetRendererState(const FString& Body)
+{
 	const int32 GIMethod   = GetIntCVar(TEXT("r.DynamicGlobalIlluminationMethod"), -1);
 	const int32 ReflMethod = GetIntCVar(TEXT("r.ReflectionMethod"), -1);
 	const int32 VSM        = GetIntCVar(TEXT("r.Shadow.Virtual.Enable"), -1);
 	const int32 PathTrace  = GetIntCVar(TEXT("r.PathTracing"), -1);
 	const int32 LumenHWRT  = GetIntCVar(TEXT("r.Lumen.HardwareRayTracing"), -1);
-	const int32 MegaLights = GetIntCVar(TEXT("r.MegaLights.Enable"), -1);
+	// CLAUDE-NOTE: the cvar is r.MegaLights.EnableForProject in 5.6, NOT r.MegaLights.Enable —
+	// that name does not exist, so reading it silently returned the fallback and this always
+	// reported MegaLights as off. Verified against Renderer/Private cvar registrations.
+	const int32 MegaLights = GetIntCVar(TEXT("r.MegaLights.EnableForProject"), -1);
 	const int32 AutoExpo   = GetIntCVar(TEXT("r.DefaultFeature.AutoExposure"), -1);
 
 	auto GIName = [](int32 V) -> FString
@@ -834,6 +853,361 @@ FString FBlueprintMCPServer::HandleGetRendererState(const FString& Body)
 			Result->SetStringField(TEXT("level"), World->GetMapName());
 		}
 	}
+
+	return JsonToString(Result);
+}
+
+// ============================================================
+// HandleSetRendererMode — switch the renderer between coherent configurations
+// ============================================================
+// CLAUDE-NOTE: "switch to Lumen" is not one setting, it is a coherent SET of them
+// (r.DynamicGlobalIlluminationMethod + r.ReflectionMethod + turning path tracing off), and getting
+// a partial combination is how you end up with Lumen GI but screen-space reflections and no idea
+// why the scene looks wrong. Setting these through set_cvar individually requires knowing all of
+// them and their integer encodings; this applies them as a unit.
+
+FString FBlueprintMCPServer::HandleSetRendererMode(const FString& Body)
+{
+	TSharedPtr<FJsonObject> Json = ParseBodyJson(Body);
+	if (!Json.IsValid())
+	{
+		return MakeErrorJson(TEXT("Invalid JSON body."), MCPErrorCodes::InvalidInput);
+	}
+
+	FString Mode;
+	if (!Json->TryGetStringField(TEXT("mode"), Mode) || Mode.IsEmpty())
+	{
+		return MakeErrorJson(
+			TEXT("Missing required field: mode. Expected 'lumen', 'pathtracer', or 'baked'."),
+			MCPErrorCodes::InvalidInput);
+	}
+	Mode = Mode.ToLower();
+
+	if (Mode != TEXT("lumen") && Mode != TEXT("pathtracer") && Mode != TEXT("baked"))
+	{
+		return MakeErrorJson(
+			FString::Printf(TEXT("Unknown mode '%s'. Expected 'lumen', 'pathtracer', or 'baked'."), *Mode),
+			MCPErrorCodes::InvalidInput);
+	}
+
+	// Reject mode-specific parameters aimed at the wrong mode rather than silently ignoring them —
+	// same contract as set_light_property's per-type validation.
+	double Number = 0.0;
+	bool bFlag = false;
+	const bool bWantsPathTracerParams =
+		Json->HasField(TEXT("samplesPerPixel")) || Json->HasField(TEXT("maxBounces"));
+	if (bWantsPathTracerParams && Mode != TEXT("pathtracer"))
+	{
+		return MakeErrorJson(
+			TEXT("samplesPerPixel and maxBounces apply only to mode='pathtracer'."),
+			MCPErrorCodes::InvalidInput);
+	}
+	if (Json->HasField(TEXT("hardwareRayTracing")) && Mode != TEXT("lumen"))
+	{
+		return MakeErrorJson(
+			TEXT("hardwareRayTracing applies only to mode='lumen'."),
+			MCPErrorCodes::InvalidInput);
+	}
+
+	TArray<FString> Applied;
+	TArray<FString> Unavailable;
+
+	auto Apply = [&Applied, &Unavailable](const TCHAR* Name, int32 Value)
+	{
+		if (SetIntCVar(Name, Value))
+		{
+			Applied.Add(FString::Printf(TEXT("%s=%d"), Name, Value));
+		}
+		else
+		{
+			Unavailable.Add(Name);
+		}
+	};
+
+	if (Mode == TEXT("lumen"))
+	{
+		Apply(TEXT("r.PathTracing"), 0);
+		Apply(TEXT("r.DynamicGlobalIlluminationMethod"), 1); // Lumen
+		Apply(TEXT("r.ReflectionMethod"), 1);                // Lumen
+		if (Json->TryGetBoolField(TEXT("hardwareRayTracing"), bFlag))
+		{
+			Apply(TEXT("r.Lumen.HardwareRayTracing"), bFlag ? 1 : 0);
+		}
+	}
+	else if (Mode == TEXT("pathtracer"))
+	{
+		Apply(TEXT("r.PathTracing"), 1);
+		if (Json->TryGetNumberField(TEXT("samplesPerPixel"), Number))
+		{
+			Apply(TEXT("r.PathTracing.SamplesPerPixel"), FMath::Max(1, (int32)Number));
+		}
+		if (Json->TryGetNumberField(TEXT("maxBounces"), Number))
+		{
+			Apply(TEXT("r.PathTracing.MaxBounces"), FMath::Max(0, (int32)Number));
+		}
+	}
+	else // baked
+	{
+		Apply(TEXT("r.PathTracing"), 0);
+		Apply(TEXT("r.DynamicGlobalIlluminationMethod"), 0); // None — GI comes from lightmaps
+		Apply(TEXT("r.ReflectionMethod"), 2);                // Screen space
+	}
+
+	// Orthogonal to the mode: MegaLights is a light-culling technique, not a GI method, and virtual
+	// shadow maps are independent of both.
+	if (Json->TryGetBoolField(TEXT("megaLights"), bFlag))
+	{
+		Apply(TEXT("r.MegaLights.EnableForProject"), bFlag ? 1 : 0);
+	}
+	if (Json->TryGetBoolField(TEXT("virtualShadowMaps"), bFlag))
+	{
+		Apply(TEXT("r.Shadow.Virtual.Enable"), bFlag ? 1 : 0);
+	}
+
+	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("mode"), Mode);
+
+	TArray<TSharedPtr<FJsonValue>> AppliedArr;
+	for (const FString& A : Applied) AppliedArr.Add(MakeShared<FJsonValueString>(A));
+	Result->SetArrayField(TEXT("appliedCVars"), AppliedArr);
+
+	if (Unavailable.Num() > 0)
+	{
+		// Surface rather than swallow: a console variable that does not exist in this build means
+		// the setting silently did nothing, which is exactly the failure this tool exists to avoid.
+		TArray<TSharedPtr<FJsonValue>> UnavailArr;
+		for (const FString& U : Unavailable) UnavailArr.Add(MakeShared<FJsonValueString>(U));
+		Result->SetArrayField(TEXT("unavailableCVars"), UnavailArr);
+	}
+
+	if (Mode == TEXT("pathtracer"))
+	{
+		Result->SetStringField(TEXT("note"),
+			TEXT("Path tracing is enabled but only renders in a viewport whose view mode is set to ")
+			TEXT("PathTracing — call set_view_mode('PathTracing')."));
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: set_renderer_mode('%s') applied %d cvars"), *Mode, Applied.Num());
+
+	return JsonToString(Result);
+}
+
+// ============================================================
+// HandleConfigurePostProcess — exposure, bloom and Lumen quality on a post-process volume
+// ============================================================
+// CLAUDE-NOTE: this is the tool that most justifies a typed layer existing at all. Every field of
+// FPostProcessSettings is INERT unless its paired bOverride_<Field> boolean is also true. Setting
+// Settings.AutoExposureMinBrightness through the generic set_actor_property silently does nothing,
+// because bOverride_AutoExposureMinBrightness stays false — the value is stored and then ignored.
+// A generic property setter has no way to know about the paired flag. Every write below sets both.
+
+FString FBlueprintMCPServer::HandleConfigurePostProcess(const FString& Body)
+{
+	TSharedPtr<FJsonObject> Json = ParseBodyJson(Body);
+	if (!Json.IsValid())
+	{
+		return MakeErrorJson(TEXT("Invalid JSON body."), MCPErrorCodes::InvalidInput);
+	}
+
+	FString ExposureMethod;
+	if (Json->TryGetStringField(TEXT("exposureMethod"), ExposureMethod))
+	{
+		const FString Lower = ExposureMethod.ToLower();
+		if (Lower != TEXT("histogram") && Lower != TEXT("basic") && Lower != TEXT("manual"))
+		{
+			return MakeErrorJson(
+				FString::Printf(TEXT("Unknown exposureMethod '%s'. Expected 'histogram', 'basic', or 'manual'."), *ExposureMethod),
+				MCPErrorCodes::InvalidInput);
+		}
+		ExposureMethod = Lower;
+	}
+
+	if (!GEditor)
+	{
+		return MakeErrorJson(TEXT("configure_post_process requires editor mode."), MCPErrorCodes::OperationFailed);
+	}
+
+	UWorld* World = GEditor->GetEditorWorldContext().World();
+	if (!World)
+	{
+		return MakeErrorJson(TEXT("No editor world available."), MCPErrorCodes::OperationFailed);
+	}
+
+	// Resolve the target volume: an explicit label, else the first unbound ("global") volume.
+	FString VolumeLabel;
+	APostProcessVolume* Volume = nullptr;
+	const bool bHasLabel = Json->TryGetStringField(TEXT("volume"), VolumeLabel) && !VolumeLabel.IsEmpty();
+
+	if (bHasLabel)
+	{
+		AActor* Actor = FindActorByLabel(World, VolumeLabel);
+		if (!Actor)
+		{
+			return MakeErrorJson(
+				FString::Printf(TEXT("No actor labelled '%s' in the level."), *VolumeLabel),
+				MCPErrorCodes::NotFound);
+		}
+		Volume = Cast<APostProcessVolume>(Actor);
+		if (!Volume)
+		{
+			return MakeErrorJson(
+				FString::Printf(TEXT("Actor '%s' is a %s, not a PostProcessVolume."),
+					*VolumeLabel, *Actor->GetClass()->GetName()),
+				MCPErrorCodes::InvalidInput);
+		}
+	}
+	else
+	{
+		for (TActorIterator<APostProcessVolume> It(World); It; ++It)
+		{
+			if (It->bUnbound)
+			{
+				Volume = *It;
+				break;
+			}
+		}
+
+		if (!Volume)
+		{
+			bool bCreateGlobal = false;
+			Json->TryGetBoolField(TEXT("createGlobal"), bCreateGlobal);
+			if (!bCreateGlobal)
+			{
+				return MakeErrorJson(
+					TEXT("No unbound (global) PostProcessVolume in the level. Pass createGlobal=true to ")
+					TEXT("spawn one, or pass volume=<label> to target a specific volume."),
+					MCPErrorCodes::NotFound);
+			}
+
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Volume = World->SpawnActor<APostProcessVolume>(
+				APostProcessVolume::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+			if (!Volume)
+			{
+				return MakeErrorJson(TEXT("Failed to spawn a global PostProcessVolume."), MCPErrorCodes::OperationFailed);
+			}
+			Volume->bUnbound = true;
+			Volume->SetActorLabel(TEXT("GlobalPostProcess"));
+		}
+	}
+
+	Volume->Modify();
+	FPostProcessSettings& S = Volume->Settings;
+
+	TArray<FString> Applied;
+	double Number = 0.0;
+
+	if (!ExposureMethod.IsEmpty())
+	{
+		S.bOverride_AutoExposureMethod = true;
+		S.AutoExposureMethod =
+			ExposureMethod == TEXT("manual")    ? AEM_Manual :
+			ExposureMethod == TEXT("basic")     ? AEM_Basic  : AEM_Histogram;
+		Applied.Add(FString::Printf(TEXT("exposureMethod=%s"), *ExposureMethod));
+	}
+
+	if (Json->TryGetNumberField(TEXT("exposureBias"), Number))
+	{
+		S.bOverride_AutoExposureBias = true;
+		S.AutoExposureBias = (float)Number;
+		Applied.Add(FString::Printf(TEXT("exposureBias=%.3f"), Number));
+	}
+
+	// Convenience: locking exposure means pinning min and max to the same EV100 value. Doing it by
+	// hand means remembering to set two values AND their two override flags.
+	if (Json->TryGetNumberField(TEXT("lockExposure"), Number))
+	{
+		S.bOverride_AutoExposureMinBrightness = true;
+		S.bOverride_AutoExposureMaxBrightness = true;
+		S.AutoExposureMinBrightness = (float)Number;
+		S.AutoExposureMaxBrightness = (float)Number;
+		Applied.Add(FString::Printf(TEXT("lockExposure=%.3f (min=max EV100)"), Number));
+	}
+	else
+	{
+		if (Json->TryGetNumberField(TEXT("exposureMinEV"), Number))
+		{
+			S.bOverride_AutoExposureMinBrightness = true;
+			S.AutoExposureMinBrightness = (float)Number;
+			Applied.Add(FString::Printf(TEXT("exposureMinEV=%.3f"), Number));
+		}
+		if (Json->TryGetNumberField(TEXT("exposureMaxEV"), Number))
+		{
+			S.bOverride_AutoExposureMaxBrightness = true;
+			S.AutoExposureMaxBrightness = (float)Number;
+			Applied.Add(FString::Printf(TEXT("exposureMaxEV=%.3f"), Number));
+		}
+	}
+
+	if (Json->TryGetNumberField(TEXT("bloomIntensity"), Number))
+	{
+		S.bOverride_BloomIntensity = true;
+		S.BloomIntensity = (float)Number;
+		Applied.Add(FString::Printf(TEXT("bloomIntensity=%.3f"), Number));
+	}
+
+	if (Json->TryGetNumberField(TEXT("lumenSceneLightingQuality"), Number))
+	{
+		S.bOverride_LumenSceneLightingQuality = true;
+		S.LumenSceneLightingQuality = (float)Number;
+		Applied.Add(FString::Printf(TEXT("lumenSceneLightingQuality=%.2f"), Number));
+	}
+
+	if (Json->TryGetNumberField(TEXT("lumenFinalGatherQuality"), Number))
+	{
+		S.bOverride_LumenFinalGatherQuality = true;
+		S.LumenFinalGatherQuality = (float)Number;
+		Applied.Add(FString::Printf(TEXT("lumenFinalGatherQuality=%.2f"), Number));
+	}
+
+	if (Json->TryGetNumberField(TEXT("lumenMaxTraceDistance"), Number))
+	{
+		S.bOverride_LumenMaxTraceDistance = true;
+		S.LumenMaxTraceDistance = (float)Number;
+		Applied.Add(FString::Printf(TEXT("lumenMaxTraceDistance=%.1f"), Number));
+	}
+
+	if (Applied.Num() == 0)
+	{
+		return MakeErrorJson(
+			TEXT("No post-process settings supplied. Pass at least one of: exposureMethod, ")
+			TEXT("exposureBias, lockExposure, exposureMinEV, exposureMaxEV, bloomIntensity, ")
+			TEXT("lumenSceneLightingQuality, lumenFinalGatherQuality, lumenMaxTraceDistance."),
+			MCPErrorCodes::InvalidInput);
+	}
+
+	FPropertyChangedEvent ChangedEvent(nullptr);
+	Volume->PostEditChangeProperty(ChangedEvent);
+	Volume->MarkPackageDirty();
+
+	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("volume"), Volume->GetActorLabel());
+	Result->SetBoolField(TEXT("unbound"), Volume->bUnbound != 0);
+
+	TArray<TSharedPtr<FJsonValue>> AppliedArr;
+	for (const FString& A : Applied) AppliedArr.Add(MakeShared<FJsonValueString>(A));
+	Result->SetArrayField(TEXT("appliedSettings"), AppliedArr);
+
+	// Read back through the same override flags the renderer consults, so the response proves the
+	// setting is actually live rather than merely stored.
+	TSharedRef<FJsonObject> StateObj = MakeShared<FJsonObject>();
+	StateObj->SetBoolField(TEXT("exposureMethodOverridden"), S.bOverride_AutoExposureMethod != 0);
+	StateObj->SetNumberField(TEXT("exposureMethod"), (int32)S.AutoExposureMethod);
+	StateObj->SetBoolField(TEXT("exposureBiasOverridden"), S.bOverride_AutoExposureBias != 0);
+	StateObj->SetNumberField(TEXT("exposureBias"), S.AutoExposureBias);
+	StateObj->SetBoolField(TEXT("exposureMinOverridden"), S.bOverride_AutoExposureMinBrightness != 0);
+	StateObj->SetNumberField(TEXT("exposureMinEV"), S.AutoExposureMinBrightness);
+	StateObj->SetBoolField(TEXT("exposureMaxOverridden"), S.bOverride_AutoExposureMaxBrightness != 0);
+	StateObj->SetNumberField(TEXT("exposureMaxEV"), S.AutoExposureMaxBrightness);
+	StateObj->SetBoolField(TEXT("bloomIntensityOverridden"), S.bOverride_BloomIntensity != 0);
+	StateObj->SetNumberField(TEXT("bloomIntensity"), S.BloomIntensity);
+	Result->SetObjectField(TEXT("settings"), StateObj);
+
+	UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: configure_post_process('%s') applied %d"),
+		*Volume->GetActorLabel(), Applied.Num());
 
 	return JsonToString(Result);
 }

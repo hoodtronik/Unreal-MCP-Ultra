@@ -1,6 +1,6 @@
 # BlueprintMCP — Claude Code Instructions
 
-A UE5 editor plugin that exposes 235 MCP tools for inspecting and modifying Blueprint assets. Targets **UE 5.6.1** — this is the version the plugin is built and tested against.
+A UE5 editor plugin that exposes 237 MCP tools for inspecting and modifying Blueprint assets. Targets **UE 5.6.1** — this is the version the plugin is built and tested against.
 
 Two serving modes:
 - **Editor subsystem** (preferred): Auto-starts on port 9847 when the UE5 editor is open. Zero overhead.

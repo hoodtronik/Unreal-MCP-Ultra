@@ -872,6 +872,10 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 		QueuedHandler(TEXT("setLightProperty")));
 	Router->BindRoute(FHttpPath(TEXT("/api/get-renderer-state")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("getRendererState")));
+	Router->BindRoute(FHttpPath(TEXT("/api/set-renderer-mode")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("setRendererMode")));
+	Router->BindRoute(FHttpPath(TEXT("/api/configure-post-process")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("configurePostProcess")));
 
 	// PIE control
 	Router->BindRoute(FHttpPath(TEXT("/api/start-pie")), EHttpServerRequestVerbs::VERB_POST,
@@ -1270,6 +1274,7 @@ void FBlueprintMCPServer::RegisterHandlers()
 		// Lighting mutations — also what vision_mode keys off to attach a frame after the change.
 		TEXT("spawnLight"),
 		TEXT("setLightProperty"),
+		TEXT("configurePostProcess"),
 		// Niagara mutations (Tier 1)
 		TEXT("createNiagaraSystem"),
 		TEXT("createNiagaraEmitter"),
@@ -1441,6 +1446,8 @@ void FBlueprintMCPServer::RegisterHandlers()
 	HandlerMap.Add(TEXT("spawnLight"),              [this](const TMap<FString, FString>&, const FString& B) { return HandleSpawnLight(B); });
 	HandlerMap.Add(TEXT("setLightProperty"),        [this](const TMap<FString, FString>&, const FString& B) { return HandleSetLightProperty(B); });
 	HandlerMap.Add(TEXT("getRendererState"),        [this](const TMap<FString, FString>&, const FString& B) { return HandleGetRendererState(B); });
+	HandlerMap.Add(TEXT("setRendererMode"),         [this](const TMap<FString, FString>&, const FString& B) { return HandleSetRendererMode(B); });
+	HandlerMap.Add(TEXT("configurePostProcess"),    [this](const TMap<FString, FString>&, const FString& B) { return HandleConfigurePostProcess(B); });
 
 	// PIE control
 	HandlerMap.Add(TEXT("startPie"),                [this](const TMap<FString, FString>&, const FString& B) { return HandleStartPIE(B); });
