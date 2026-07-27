@@ -731,13 +731,31 @@ FString FBlueprintMCPServer::HandleViewportCapture(const FString& Body)
 	// render device at all: no viewport, no render target, no Slate renderer. This is the direct
 	// analogue of Blender's background mode. Name the reason and the fix — a bare "no viewport
 	// found" sends people hunting for a viewport that structurally cannot exist in that process.
+	// CLAUDE-NOTE: capture requires the actual editor, and headless rendering was MEASURED and
+	// rejected on 2026-07-27 rather than assumed. For the record, so nobody re-litigates it:
+	//
+	// `-renderoffscreen` alone changes nothing — FApp::CanEverRender() is
+	// `(!IsRunningCommandlet() || IsAllowCommandletRendering()) && ... && !bHasNullRHIOnCommandline`,
+	// so a commandlet also needs the `-AllowCommandletRendering` switch (which sets
+	// PRIVATE_GAllowCommandletRendering) and must drop `-nullrhi`.
+	//
+	// With all three set correctly the RHI does come up, and it is still not worth it:
+	//   startup  8.3s -> 98.9s   (12x)
+	//   memory   1814 MB -> 3265 MB   (+80%)
+	//   graph capture -> SEH crash (FWidgetRenderer needs a Slate application a commandlet lacks;
+	//                    the SEH wrapper caught it, which is exactly why that wrapper exists)
+	//   level/PIE capture -> impossible regardless; a commandlet has no level viewport client
+	//
+	// So the editor requirement stays. Gate on bIsEditor first and name that as the reason, rather
+	// than blaming -nullrhi, which is only one of several things that would have to change.
 	if (!bIsEditor || !FApp::CanEverRender())
 	{
 		return MakeErrorJson(
-			TEXT("No render device: the BlueprintMCP backend is running as a headless commandlet ")
-			TEXT("(-nullrhi), which has no viewport, render target, or Slate renderer. Open the ")
-			TEXT("project in the UE5 editor — the editor subsystem takes over port 9847 ")
-			TEXT("automatically — and retry."),
+			TEXT("Capture requires the UE5 editor. This process is a headless commandlet, which has ")
+			TEXT("no level viewport and no Slate application to render a graph through. Open the ")
+			TEXT("project in the editor — the editor subsystem takes over port 9847 automatically — ")
+			TEXT("and retry. (Headless rendering was measured and rejected: it costs 12x startup and ")
+			TEXT("+80% memory, and graph capture crashes without a Slate app.)"),
 			MCPErrorCodes::OperationFailed);
 	}
 
