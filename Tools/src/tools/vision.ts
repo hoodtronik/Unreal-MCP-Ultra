@@ -145,6 +145,14 @@ export function registerVisionTools(server: McpServer): void {
         visionState.suppressedReason = null;
       }
 
+      // CLAUDE-NOTE: the probe frame is diagnostic — it is thrown away, never delivered to the
+      // model. Leaving its digest recorded meant the FIRST auto-attached frame after enabling
+      // vision mode was always suppressed as "unchanged", so turning the feature on appeared to do
+      // nothing. Suppression must only ever compare against a frame that was actually delivered.
+      // Caught by the end-to-end MCP test; no unit test could see it, because the bug lives in the
+      // interaction between vision_mode's probe and the wrapper's later capture.
+      visionState.lastDigest = {};
+
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
   );
