@@ -121,6 +121,12 @@ bool ReadProfileFromBody(const TSharedPtr<FJsonObject>& Body, FRiotCharacterProf
 		OutProfile.SelectionWeight = Weight;
 	}
 
+	double YawOffset = OutProfile.MeshYawOffsetDegrees;
+	if (Body->TryGetNumberField(TEXT("meshYawOffsetDegrees"), YawOffset))
+	{
+		OutProfile.MeshYawOffsetDegrees = YawOffset;
+	}
+
 	FString ModeString;
 	if (Body->TryGetStringField(TEXT("animationMode"), ModeString))
 	{

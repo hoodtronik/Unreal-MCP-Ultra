@@ -144,6 +144,17 @@ struct FRiotCharacterProfile
 	/** Material overrides by material slot index. Empty entries leave the mesh's own material. */
 	TArray<FString> MaterialOverrides;
 
+	/**
+	 * Yaw applied to the mesh component relative to the actor, in degrees.
+	 *
+	 * CLAUDE-NOTE: defaults to -90 because Epic's skeletal meshes (Manny/Quinn and everything else
+	 * derived from the UE mannequin) are authored facing +Y, while the actor's forward is +X — the
+	 * Third Person template's character BP applies exactly this -90 on its mesh component. Without
+	 * it the whole crowd visibly runs sideways, which is how the user found it. Per-profile rather
+	 * than hardcoded because an operator's own characters may be authored with any forward axis.
+	 */
+	double MeshYawOffsetDegrees = -90.0;
+
 	/** Which representation profile governs this character's LOD. Empty = the scenario default. */
 	FString RepresentationProfileId;
 

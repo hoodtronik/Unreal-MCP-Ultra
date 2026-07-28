@@ -524,6 +524,12 @@ export function registerRiotCrowdTools(server: McpServer): void {
         .array(z.string())
         .optional()
         .describe("Material paths by mesh material-slot index. Empty strings leave that slot alone."),
+      meshYawOffsetDegrees: z
+        .number()
+        .optional()
+        .describe(
+          "Yaw of the mesh relative to travel direction, degrees. Default -90, which is correct for Epic-convention meshes (Manny/Quinn are authored facing +Y). Set 0 for meshes authored facing +X."
+        ),
       representationProfileId: z.string().optional().describe("Representation profile governing this character's LOD."),
       enabled: z.boolean().optional().describe("Default true. A disabled profile is never selected."),
       dryRun: z.boolean().optional().describe("Validate and report without storing anything."),
@@ -566,6 +572,7 @@ export function registerRiotCrowdTools(server: McpServer): void {
         .optional()
         .describe("Replaces the whole animation set when supplied."),
       materialOverrides: z.array(z.string()).optional(),
+      meshYawOffsetDegrees: z.number().optional(),
       representationProfileId: z.string().optional(),
       enabled: z.boolean().optional(),
       dryRun: z.boolean().optional(),

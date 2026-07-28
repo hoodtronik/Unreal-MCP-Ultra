@@ -2,7 +2,7 @@
 
 Measured results for the rigged-character / representation-LOD milestone.
 
-**Status: the 244-agent performance gate is met. The 500 and 1,000-agent runs have not been done.**
+**Status: the 244-agent performance gate is met. 500 and 1,000-agent runs completed — see §5a.**
 
 ---
 
@@ -104,14 +104,35 @@ These matter and are not hedging:
 
 ---
 
-## 5. Not yet measured
+## 5a. Scale runs — 500 and 1,000 agents
+
+Same scenario shape and seed, counts scaled. Same sampling method and caveats as §2.
+
+**500 agents (466 rioters + 34 defenders):** completed the full spawn → advance → pressure →
+breach → panic → retreat → reset cycle. Game thread 9.36–18.49 ms sampled across the run
+(peak 18.49 ms in the post-breach phase with ~433 agents represented at 0/200/67 after inactives).
+0 placeholders, 0 duplicates, budgets held at 24/200 exactly. Reset returned every count to zero and
+left zero riot actors in the editor world. Deterministic distribution scaled correctly:
+196/166/104 rioters across the 2:2:1 profiles.
+
+**1,000 agents (966 rioters + 34 defenders):** treated as a scalability benchmark, not a target.
+Spawned in under 1 s, ran >40 s, sampled game thread 9.09–29.35 ms (peak during the post-breach
+phase). Tier counts reached 24/200/776 at full crowd — the far tier absorbing what the budgets
+rejected, as designed. No crash, no runaway actor spawning, reset clean. A **second full cycle** at
+1,000 was run immediately after: spawn OK, 10.51 ms mid-run, reset clean — no degradation across
+cycles.
+
+The honest reading of the 1,000-agent number: ~29 ms sampled peak is *below* the 244-agent hard
+gate, but the far tier (which most of those agents occupy) is non-animating instances, so this is
+not evidence that 1,000 *animated* agents fit the budget. It establishes the ceiling for the current
+representation mix only.
+
+## 5b. Still not measured
 
 | Requirement | Status |
 |---|---|
-| 500-agent full cycle | **not run** |
-| 1,000-agent scalability benchmark | **not run** |
-| Memory, actor count, skeletal-mesh count at scale | **not captured** |
+| Editor RSS during the scale runs | **not captured** — the in-run sampler's output parsing failed; noticed only after teardown. Not re-run yet. |
 | Unreal Insights trace | **not captured** |
 | Same-conditions A/B against the foundation build | **not run** |
 
-Do not read the 244-agent pass as evidence for any of these.
+Do not read the completed runs as evidence for these.

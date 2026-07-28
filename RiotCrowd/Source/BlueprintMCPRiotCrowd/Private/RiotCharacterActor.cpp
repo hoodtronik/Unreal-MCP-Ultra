@@ -23,8 +23,15 @@ ARiotCharacterActor::ARiotCharacterActor()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
+	// CLAUDE-NOTE: a scene root with the mesh ATTACHED, not the mesh as root. The actor's rotation is
+	// the agent's travel facing; the mesh needs an additional per-profile yaw on top of that because
+	// skeletal meshes carry their own authoring convention (Epic's face +Y, so -90 aligns them with
+	// the actor's +X). A relative rotation can only exist on a non-root component.
+	USceneComponent* SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	SetRootComponent(SceneRoot);
+
 	MeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh"));
-	SetRootComponent(MeshComponent);
+	MeshComponent->SetupAttachment(SceneRoot);
 
 	// CLAUDE-NOTE: no collision, ever. These actors are a view of Mass entities, and hundreds of
 	// colliding capsules would both cost more than the animation does and let physics fight Mass for
@@ -99,6 +106,9 @@ bool ARiotCharacterActor::ApplyProfile(const FRiotCharacterProfile& Profile)
 	CharacterProfileId = Profile.ProfileId;
 	bHasProfile = false;
 	CurrentSlot = ERiotAnimationSlot::Max;
+
+	// Apply the profile's mesh-forward correction. See MeshYawOffsetDegrees in RiotCharacterProfile.h.
+	MeshComponent->SetRelativeRotation(FRotator(0.0, Profile.MeshYawOffsetDegrees, 0.0));
 
 	USkeletalMesh* Mesh = Cast<USkeletalMesh>(FSoftObjectPath(Profile.SkeletalMeshPath).TryLoad());
 	if (!Mesh)

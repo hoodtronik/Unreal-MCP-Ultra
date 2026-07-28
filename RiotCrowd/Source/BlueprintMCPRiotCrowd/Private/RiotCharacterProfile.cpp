@@ -843,6 +843,7 @@ TSharedRef<FJsonObject> FRiotCharacterProfile::ToJson() const
 	}
 	Json->SetArrayField(TEXT("materialOverrides"), MaterialArray);
 
+	Json->SetNumberField(TEXT("meshYawOffsetDegrees"), MeshYawOffsetDegrees);
 	Json->SetStringField(TEXT("representationProfileId"), RepresentationProfileId);
 	Json->SetBoolField(TEXT("enabled"), bEnabled);
 	Json->SetStringField(TEXT("validationState"), LexToStringRiotValidationState(ValidationState));
