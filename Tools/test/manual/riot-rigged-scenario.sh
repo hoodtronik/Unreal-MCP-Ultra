@@ -13,7 +13,12 @@
 #
 # The scenario is anchored around the Lvl_ThirdPerson play area: the player spawns at the origin,
 # so the blockade sits 1,500uu in front (+X) and the crowd flows in from 5,000-9,000uu out. Ground
-# height is Z=214. Anchoring matters: the first evidence pass authored the crowd at arbitrary
+# height is # Ground height and level. Default: the flat Lvl_RiotProxy authored for this milestone
+# (user call: a flat plane beats the template level, whose raised platform floated agents over the
+# void and whose walls occluded ground contact in captures). Override for other levels:
+#   RIOT_Z=214 RIOT_WORLD=Lvl_ThirdPerson bash riot-rigged-scenario.sh
+Z=${RIOT_Z:-0}
+WORLD=${RIOT_WORLD:-Lvl_RiotProxy}. Anchoring matters: the first evidence pass authored the crowd at arbitrary
 # coordinates and photographed a perfectly valid empty field.
 #
 # Usage:  bash riot-rigged-scenario.sh [rioterCount] [defenderCount]
@@ -21,7 +26,12 @@ set -u
 B=http://localhost:9847/api
 M=/Game/Characters/Mannequins
 A=$M/Anims/Unarmed
-Z=214
+# Ground height and level. Default: the flat Lvl_RiotProxy authored for this milestone
+# (user call: a flat plane beats the template level, whose raised platform floated agents over the
+# void and whose walls occluded ground contact in captures). Override for other levels:
+#   RIOT_Z=214 RIOT_WORLD=Lvl_ThirdPerson bash riot-rigged-scenario.sh
+Z=${RIOT_Z:-0}
+WORLD=${RIOT_WORLD:-Lvl_RiotProxy}
 
 RIOTERS=${1:-210}
 DEFENDERS=${2:-34}
