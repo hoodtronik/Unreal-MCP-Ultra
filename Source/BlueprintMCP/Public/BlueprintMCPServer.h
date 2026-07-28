@@ -126,6 +126,46 @@ public:
 	 */
 	FLevelEditorViewportClient* ResolveSizedLevelViewportClient(FString& OutDiagnostic) const;
 
+	// ----- Extension seam for optional sibling plugins -----
+
+	/**
+	 * An endpoint contributed by another module (e.g. the opt-in BlueprintMCPRiotCrowd plugin).
+	 *
+	 * CLAUDE-NOTE: this exists so optional features can add MCP endpoints WITHOUT forking the
+	 * server, the router, the request queue, the game-thread marshalling or the undo-transaction
+	 * wrapping. An external handler is dispatched through exactly the same path as a built-in one:
+	 * queued off the HTTP thread, executed on the game thread by ProcessOneRequest(), and wrapped
+	 * in a transaction when bIsMutation is set. Copying that machinery into a second plugin is how
+	 * you end up with two subtly different request lifecycles.
+	 */
+	struct FExternalEndpoint
+	{
+		/** Full HTTP path, e.g. "/api/riot-spawn". */
+		FString Route;
+		/** HandlerMap dispatch key, e.g. "riot-spawn". Must be unique across all endpoints. */
+		FString EndpointKey;
+		/** Receives the request body; returns a JSON string. Runs on the GAME THREAD. */
+		TFunction<FString(const FString& Body)> Handler;
+		/** When true, ProcessOneRequest() wraps the call in an undo transaction. */
+		bool bIsMutation = false;
+		/** POST when true, GET when false. */
+		bool bIsPost = true;
+	};
+
+	/**
+	 * Contribute an endpoint. Must be called BEFORE Start() — typically from the contributing
+	 * module's StartupModule(), which runs while modules load and therefore before the editor
+	 * subsystem that owns the server is initialized. Registering after Start() logs a warning and
+	 * the endpoint will not be routed, because the HTTP routes are bound once inside Start().
+	 */
+	static void RegisterExternalEndpoint(FExternalEndpoint Endpoint);
+
+	/** All endpoints contributed so far. */
+	static const TArray<FExternalEndpoint>& GetExternalEndpoints();
+
+	/** True once Start() has bound routes; used to detect too-late registration. */
+	static bool HaveExternalEndpointsBeenBound();
+
 private:
 	// ----- TMap-based request dispatch -----
 	using FRequestHandler = TFunction<FString(const TMap<FString, FString>&, const FString&)>;

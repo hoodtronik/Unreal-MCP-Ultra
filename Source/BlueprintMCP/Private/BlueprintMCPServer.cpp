@@ -449,6 +449,62 @@ int32 TryAddMaterialExpressionSEH(
 // Start / Stop / ProcessOneRequest
 // ============================================================
 
+// ============================================================
+// External endpoint registry (extension seam for optional sibling plugins)
+// ============================================================
+
+// CLAUDE-NOTE: function-local static rather than a namespace-scope global so registration from
+// another module's StartupModule() is safe regardless of static init order across DLLs — the
+// registry is constructed on first use, which is the first RegisterExternalEndpoint call.
+static TArray<FBlueprintMCPServer::FExternalEndpoint>& ExternalEndpointRegistry()
+{
+	static TArray<FBlueprintMCPServer::FExternalEndpoint> Registry;
+	return Registry;
+}
+
+static bool GExternalEndpointsBound = false;
+
+void FBlueprintMCPServer::RegisterExternalEndpoint(FExternalEndpoint Endpoint)
+{
+	if (Endpoint.Route.IsEmpty() || Endpoint.EndpointKey.IsEmpty() || !Endpoint.Handler)
+	{
+		UE_LOG(LogTemp, Error, TEXT("BlueprintMCP: rejected malformed external endpoint '%s'."), *Endpoint.Route);
+		return;
+	}
+
+	for (const FExternalEndpoint& Existing : ExternalEndpointRegistry())
+	{
+		if (Existing.EndpointKey == Endpoint.EndpointKey || Existing.Route == Endpoint.Route)
+		{
+			UE_LOG(LogTemp, Error,
+				TEXT("BlueprintMCP: duplicate external endpoint '%s' (key '%s') ignored."),
+				*Endpoint.Route, *Endpoint.EndpointKey);
+			return;
+		}
+	}
+
+	if (GExternalEndpointsBound)
+	{
+		// Not fatal, but the endpoint will 404 — say so loudly rather than let it look registered.
+		UE_LOG(LogTemp, Warning,
+			TEXT("BlueprintMCP: external endpoint '%s' registered AFTER the server bound its routes; ")
+			TEXT("it will not be reachable. Register from StartupModule()."), *Endpoint.Route);
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: registered external endpoint %s"), *Endpoint.Route);
+	ExternalEndpointRegistry().Add(MoveTemp(Endpoint));
+}
+
+const TArray<FBlueprintMCPServer::FExternalEndpoint>& FBlueprintMCPServer::GetExternalEndpoints()
+{
+	return ExternalEndpointRegistry();
+}
+
+bool FBlueprintMCPServer::HaveExternalEndpointsBeenBound()
+{
+	return GExternalEndpointsBound;
+}
+
 bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 {
 	Port = InPort;
@@ -1076,6 +1132,21 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 	Router->BindRoute(FHttpPath(TEXT("/api/set-renderer-property")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("setRendererProperty")));
 
+	// CLAUDE-NOTE: bind endpoints contributed by optional sibling plugins through the SAME
+	// QueuedHandler path as built-ins, so they inherit game-thread marshalling for free.
+	for (const FExternalEndpoint& Ext : GetExternalEndpoints())
+	{
+		Router->BindRoute(FHttpPath(Ext.Route),
+			Ext.bIsPost ? EHttpServerRequestVerbs::VERB_POST : EHttpServerRequestVerbs::VERB_GET,
+			QueuedHandler(Ext.EndpointKey));
+	}
+	GExternalEndpointsBound = true;
+	if (GetExternalEndpoints().Num() > 0)
+	{
+		UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: bound %d external endpoint(s)."),
+			GetExternalEndpoints().Num());
+	}
+
 	// Register TMap dispatch handlers
 	RegisterHandlers();
 
@@ -1575,6 +1646,28 @@ void FBlueprintMCPServer::RegisterHandlers()
 	HandlerMap.Add(TEXT("set-actor-property"),  [this](const TMap<FString, FString>& P, const FString& B) { return HandleSetActorProperty(P, B); });
 	HandlerMap.Add(TEXT("spawn-actor"),         [this](const TMap<FString, FString>& P, const FString& B) { return HandleSpawnActor(P, B); });
 	HandlerMap.Add(TEXT("delete-actor"),        [this](const TMap<FString, FString>& P, const FString& B) { return HandleDeleteActor(P, B); });
+
+	// CLAUDE-NOTE: external endpoints go in LAST and deliberately do not overwrite a built-in key —
+	// an optional plugin must never be able to shadow a core tool. RegisterExternalEndpoint already
+	// rejects duplicates among externals; this guards against an external colliding with a built-in.
+	for (const FExternalEndpoint& Ext : GetExternalEndpoints())
+	{
+		if (HandlerMap.Contains(Ext.EndpointKey))
+		{
+			UE_LOG(LogTemp, Error,
+				TEXT("BlueprintMCP: external endpoint key '%s' collides with a built-in handler; ignoring."),
+				*Ext.EndpointKey);
+			continue;
+		}
+
+		HandlerMap.Add(Ext.EndpointKey,
+			[Handler = Ext.Handler](const TMap<FString, FString>& /*P*/, const FString& B) { return Handler(B); });
+
+		if (Ext.bIsMutation)
+		{
+			MutationEndpoints.Add(Ext.EndpointKey);
+		}
+	}
 }
 
 // ============================================================
