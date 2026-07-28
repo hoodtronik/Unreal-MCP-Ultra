@@ -441,6 +441,74 @@ could each sink it: the plugin is Experimental and may not link cleanly (**[UNTE
 requires editor and cannot be part of a cooked runtime path (**[SOURCE]**, accepted); and the VAT
 material layer must be wired for each mesh's material slots (**[UNTESTED]**).
 
+### 11a. Confirmed against Epic's own Mass crowd (CitySample)
+
+**[SOURCE]** A local copy of Epic's **CitySample** (`F:\__PROJECTS\CitySample`) ships
+`Plugins/CitySampleMassCrowd` with full C++ source. It is the reference implementation of a
+Mass-driven crowd at city scale, and it answers the Tier 3 question directly.
+
+> **Licence boundary.** CitySample is Epic sample content under the Unreal Engine EULA. This
+> repository is public and MIT. It is used here as a **technique reference only** — no code, no
+> content, and no assets are copied across. Every conclusion below is a description of an approach,
+> not a transcription.
+
+**[SOURCE]** `Public/MassCrowdAnimationTypes.h:57-63`
+
+```cpp
+struct CITYSAMPLEMASSCROWD_API FCrowdAnimationFragment : public FMassFragment
+{
+    TWeakObjectPtr<UAnimToTextureDataAsset> AnimToTextureData;
+    float GlobalStartTime = 0.0f;
+    float PlayRate = 1.0f;
+    // ... AnimationStateIndex
+};
+```
+
+**[SOURCE]** `Private/MassCrowdUpdateISMVertexAnimationProcessor.cpp:64-70`
+
+```cpp
+void UMassCrowdUpdateISMVertexAnimationProcessor::UpdateISMVertexAnimation(
+    FMassInstancedStaticMeshInfo& ISMInfo, FCrowdAnimationFragment& AnimationData,
+    const float LODSignificance, const float PrevLODSignificance, const int32 NumFloatsToPad)
+{
+    UMassTrafficInstancePlaybackLibrary::AnimStateFromDataAsset(
+        AnimationData.AnimToTextureData.Get(), AnimationData.AnimationStateIndex, InstanceData.CurrentState);
+    ISMInfo.AddBatchedCustomData<FMassTrafficInstancePlaybackData>(
+        InstanceData, LODSignificance, PrevLODSignificance, NumFloatsToPad);
+}
+```
+
+Three conclusions, all of which change this milestone's plan:
+
+1. **§11's assessment is confirmed, not overturned.** Epic's distant crowd is AnimToTexture VAT on
+   instanced static meshes, driven by a **baked `UAnimToTextureDataAsset` per character**. Epic bakes
+   those offline as project content. Tier 3 really is an asset-production pipeline rather than a
+   runtime feature — that cost is inherent, not a shortcoming of our approach.
+
+2. **The far tier should use the engine ISM layer after all.** Animation state reaches the shader as
+   **per-instance custom-data floats**, pushed through `FMassInstancedStaticMeshInfo::AddBatchedCustomData`
+   (**[SOURCE]** `MassRepresentationTypes.h:685-701`, the same API surveyed in §3). The bespoke
+   stable-slot raw-ISM path implemented for this milestone would have to hand-manage
+   `PerInstanceSMCustomData` to do the same job.
+
+   **This partially reverses the decision recorded in `RiotRepresentation.h`.** That decision remains
+   correct for tier *selection* — budgets, absolute-uu hysteresis and manual promotion are all things
+   the engine's distance-driven processor cannot express. It is wrong for far-tier *rendering*. The
+   target shape is a hybrid: keep bespoke tier decisions, route far-tier drawing through
+   `FMassInstancedStaticMeshInfo`.
+
+3. **`UMassRepresentationActorManagement` is a supported override seam.** **[SOURCE]**
+   `Public/CitySampleMassCrowdRepresentationActorManagement.h` subclasses it, and
+   `FMassRepresentationParameters::RepresentationActorManagementClass`
+   (**[SOURCE]** `MassRepresentationFragments.h:108-109`) is how it is installed. Manual control over
+   actor promotion was one of the three reasons given for going bespoke; this seam weakens that
+   specific argument and should be re-examined before the bespoke manager is treated as settled.
+
+**Also worth noting [SOURCE]:** CitySample separates `MassCrowdAnimInstance` /
+`MassCrowdAnimationProcessor` (near-tier skeletal, real Animation Blueprints) from the ISM vertex-
+animation path (far tier). That is the same near/far split this milestone arrived at independently,
+which is reassuring about the overall tier shape even where the implementation differs.
+
 **Planned order:** implement Tiers 1 and 2 first and prove them, then attempt Tier 3. If Tier 3
 cannot be proven, the brief's instruction is explicit — prove why, ship the most efficient supported
 fallback, and mark background animated instancing **blocked or incomplete** rather than claiming
