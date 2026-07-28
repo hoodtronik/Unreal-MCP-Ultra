@@ -519,7 +519,15 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 		}
 
 		case ERiotAgentState::PassedBlockade:
+		{
+			// Dispersed past the line; on reaching the scatter point they stop participating,
+			// mirroring Retreating. Without this they stand (previously: oscillate) forever.
+			if (FVector::Dist2D(Location, Target.Destination) < 200.0)
+			{
+				Agent.State = ERiotAgentState::Inactive;
+			}
 			break;
+		}
 
 		case ERiotAgentState::Breaching:
 		{
@@ -535,6 +543,23 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 					Agent.State = ERiotAgentState::PassedBlockade;
 					Agent.TargetBlockadeIndex = INDEX_NONE;
 					++Scenario.AgentsPassedBlockade;
+
+					// CLAUDE-NOTE: disperse. Breachers were all handed the SAME onward point
+					// (Location + Forward * Depth*4), and PassedBlockade had no arrival handling, so
+					// every passed agent converged there and oscillated - the fused blob. Each agent
+					// now gets its own scatter point past the line, derived from SeedSalt so the
+					// same seed reproduces the same dispersal, and deactivates on arrival exactly
+					// like Retreating does. No new behaviour concept; this closes an arrival hole.
+					const FVector Right =
+						FRotator(0.0, Blockade.YawDegrees, 0.0).RotateVector(FVector::RightVector);
+					const double Lateral =
+						((double)(Agent.SeedSalt % 2001u) / 1000.0 - 1.0) * (Blockade.Width * 0.5);
+					const double Onward =
+						Blockade.Depth * 4.0 + 600.0 + (double)((Agent.SeedSalt >> 12) % 1400u);
+					FRiotTargetFragment& PassTarget =
+						EntityManager->GetFragmentDataChecked<FRiotTargetFragment>(Entity);
+					PassTarget.Destination =
+						Blockade.Location + Forward * Onward + Right * Lateral;
 				}
 			}
 			else

@@ -236,10 +236,24 @@ void ARiotCharacterActor::SetAgentState(ERiotAgentState State, ERiotFactionType 
 		// jog variants switches clip when the agent crosses the threshold, not only when the state
 		// changes. The new clip starts at the agent's deterministic phase offset (same as any clip
 		// start), which for cyclic locomotion reads as a swap rather than a snap-to-frame-zero.
+		//
+		// A STATIONARY agent in a locomotion state plays idle instead. ReferenceSpeed doubles as the
+		// "this clip moves the character" marker, so the rule is data-driven: a stopped agent whose
+		// state maps to a walk/run treadmills in place without this, while a stopped agent whose
+		// state maps to an attack (ReferenceSpeed 0) correctly keeps punching.
+		ERiotAnimationSlot EffectiveSlot = Slot;
+		if (Speed <= 10.f)
+		{
+			const FRiotAnimationBinding* Moving = ActiveProfile.FindBindingForSpeed(Slot, 1000.0);
+			if (Moving && Moving->ReferenceSpeed > 0.0)
+			{
+				EffectiveSlot = ERiotAnimationSlot::Idle;
+			}
+		}
 		const FRiotAnimationBinding* Desired =
-			ActiveProfile.FindBindingForSpeed(RiotAnimationSlotForStateResolved(Slot), Speed);
+			ActiveProfile.FindBindingForSpeed(EffectiveSlot, Speed);
 		const bool bClipChanged = Desired && Desired->AnimationPath != CurrentAnimationPath;
-		PlaySlotAnimation(Slot, bForceRestart || bClipChanged);
+		PlaySlotAnimation(EffectiveSlot, bForceRestart || bClipChanged);
 
 		// CLAUDE-NOTE: couple playback rate to ACTUAL travel speed, per the milestone requirement
 		// that animation speed derives from agent velocity. Without this, a jog clip authored at

@@ -20,11 +20,11 @@ namespace
 	 * Placeholder mesh used only when no valid character profile applies. Diagnostic, never a result.
 	 *
 	 * CLAUDE-NOTE: a CONE, not a cylinder, and that is a deliberate testing decision rather than
-	 * cosmetics. The foundation used a cylinder, which is rotationally symmetric — so when the
-	 * steering processor turned out never to write a rotation at all, the placeholder rendered
-	 * identically whether the facing was right or wrong, and the bug survived an entire milestone
-	 * undetected. It surfaced the instant a real character was drawn: the crowd strafed sideways
-	 * while playing a forward run.
+	 * cosmetics. The foundation used a cylinder, which is rotationally symmetric — so the mesh
+	 * forward-axis facing bug (see MeshYawOffsetDegrees) rendered identically whether the yaw was
+	 * right or wrong, and survived an entire milestone undetected. It surfaced the instant a real
+	 * character was drawn: the crowd strafed sideways while playing a forward run. The cylinder also
+	 * hid the arrival-oscillation blob at the breachers' shared destination for just as long.
 	 *
 	 * A directional placeholder cannot hide that class of defect. Rule of thumb worth keeping: a
 	 * stand-in that looks the same from every angle silently validates nothing about orientation.
@@ -572,19 +572,17 @@ void FRiotRepresentationManager::Update(FMassEntityManager& EntityManager, doubl
 		case ERiotRepresentationTier::Mid:
 			if (ARiotCharacterActor* Actor = Agent.Actor.Get())
 			{
-				// CLAUDE-NOTE: face the direction of travel, derived from velocity rather than taken
-				// from the Mass transform.
+				// CLAUDE-NOTE (corrected): face the direction of travel, derived from velocity.
 				//
-				// The steering processor moves agents without ever writing a rotation, so
-				// FTransformFragment's rotation stays at its spawn value. That was invisible for the
-				// entire foundation milestone because the placeholder was a CYLINDER — rotationally
-				// symmetric, so a wrong yaw looked identical to a right one. Put a character on it and
-				// the whole crowd visibly strafes sideways while playing a forward run.
-				//
-				// Fixed here rather than in the steering processor on purpose: facing is a
-				// presentation concern, Mass stays authoritative over position, and defenders (who
-				// have zero velocity and a deliberately authored blockade yaw) must keep the rotation
-				// they were spawned with rather than being snapped to an arbitrary direction.
+				// An earlier version of this note claimed the steering processor never writes a
+				// rotation. That was WRONG — it orients moving agents along travel
+				// (RiotCrowdSteeringProcessor.cpp, Direction.ToOrientationQuat()). The sideways-run
+				// bug the user reported was actually the MESH forward-axis convention, fixed by
+				// MeshYawOffsetDegrees. This velocity derivation is kept because (a) it guards
+				// zero-velocity agents — defenders keep their authored blockade yaw instead of a
+				// stale value, (b) the far-tier instances need a rotation to compose with the
+				// cone's tip-forward correction, and (c) presentation should not depend on which
+				// processor happened to write the transform.
 				FTransform ActorTransform = Transform;
 				const FVector Velocity =
 					EntityManager.GetFragmentDataChecked<FMassVelocityFragment>(Agent.Entity).Value;
