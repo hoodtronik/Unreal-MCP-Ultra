@@ -17,6 +17,17 @@
 // (af6ec58), NOT against this branch. Generating a baseline from the branch under test and then
 // comparing it to itself would make this check vacuous.
 //
+// BASELINE POLICY — the manifest is an audited contract, not a moving snapshot. Every one of these
+// fails the run:
+//   * a core tool removed
+//   * a core tool ADDED
+//   * a riot tool removed
+//   * an unexpected riot-prefixed tool added
+//   * any mismatch in total or non-riot counts
+// Additions fail for exactly the same reason removals do: the reviewed tool surface changed. The
+// fix is never to relax the check or to regenerate the baseline from this branch — it is to review
+// the change and consciously refresh tool-baseline.json.
+//
 // Usage:  cd Tools && node test/manual/riot-mcp-client.mjs
 //
 // Listing tools does not require a running editor. Calling riot_get_capabilities will report the
@@ -95,9 +106,14 @@ if (missingCore.length) {
   failures.push(`MISSING CORE TOOLS (regression): ${missingCore.join(", ")}`);
 }
 
-// Additive core tools are reported but are NOT a failure on their own — they are the expected shape
-// of intentional core work. They still surface here so a reviewer must consciously refresh the
-// manifest rather than have additions pass silently.
+// Added core tools are listed separately for diagnosis, but they still cause the harness to FAIL
+// via the strict total-count and non-riot-count checks above. That is intentional: the manifest is
+// an audited contract, not a moving snapshot, so any change to the tool surface — additions
+// included — requires deliberate review and a conscious refresh of tool-baseline.json.
+//
+// This list exists only so a failing run says WHICH tool appeared, instead of leaving a reviewer to
+// diff two counts by hand. It never softens the verdict, and the baseline must never be
+// regenerated automatically from the branch under test.
 const addedCore = sorted(seenCore.filter((n) => !expectedCore.has(n)));
 
 console.log(`Server            : ${SERVER}`);
@@ -110,7 +126,7 @@ console.log(`  non-riot tools              : ${seenCore.length}   (expected ${ex
 console.log(`Missing riot tools            : ${missingRiot.length ? missingRiot.join(", ") : "none"}`);
 console.log(`Unexpected riot tools         : ${unexpectedRiot.length ? unexpectedRiot.join(", ") : "none"}`);
 console.log(`Missing core tools            : ${missingCore.length ? missingCore.join(", ") : "none"}`);
-console.log(`Added core tools (informational): ${addedCore.length ? addedCore.join(", ") : "none"}`);
+console.log(`Added core tools (also fails)  : ${addedCore.length ? addedCore.join(", ") : "none"}`);
 
 // Round-trip one riot tool so the harness proves invocation, not just advertisement.
 let roundTrip = "not attempted";

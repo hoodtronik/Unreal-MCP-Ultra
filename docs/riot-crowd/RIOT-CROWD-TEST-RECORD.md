@@ -168,10 +168,24 @@ and **0** riot tools, confirming the source is genuinely riot-free.
 The third run is the one that proves the gap is actually closed. The manifest was restored to
 241/257 afterwards and re-verified.
 
+**`RIOT_FEATURE_NOT_INSTALLED` is now live-proven**, incidentally and against a real editor. During
+the policy-correction verification a second editor running an unrelated project (`VoxelWorld`, which
+has BlueprintMCP but *not* the riot plugin) held port 9847, so the harness reached it instead of the
+riot-enabled test project. `riot_get_capabilities` correctly returned `featureInstalled: false`,
+`supported: false` with the sibling-install instructions — the 404 → `RIOT_FEATURE_NOT_INSTALLED`
+path working end to end on an editor that genuinely lacks the plugin. It had previously been listed
+as untested. The intended run was then obtained on an isolated port without disturbing that editor.
+
 Checks enforced: total count, riot count exactly 16, core count, every expected riot tool present,
-no unexpected `riot_`-prefixed tool, and the complete core name set still present. Intentional core
-*additions* are reported but do not fail — they require a conscious manifest refresh rather than
-passing silently.
+no unexpected `riot_`-prefixed tool, and the complete core name set still present.
+
+**Baseline policy — the manifest is an audited contract, not a moving snapshot.** Core removals,
+core *additions*, riot removals, unexpected riot additions, and any total- or non-riot-count
+mismatch all fail the run. Intentional core-tool additions are listed separately by the harness for
+diagnosis, but they still fail the strict total-count and non-riot-count gates until
+`tool-baseline.json` is deliberately reviewed and refreshed. Additions fail for the same reason
+removals do: the reviewed tool surface changed. The baseline is never regenerated automatically from
+the branch under test.
 
 ### Gap B — durable evidence package
 
@@ -279,9 +293,6 @@ Stated explicitly, because skipped is not passed. Current as of the review close
 - `riot_delete_scenario` against a currently-spawned scenario (the reset-first branch)
 - `riot_add_hotspot` beyond authoring — hotspots activate but drive no behaviour
 - Defender fallback movement — `fallbackLocation` is stored and validated, nothing consumes it
-- `RIOT_FEATURE_NOT_INSTALLED` against a genuinely uninstalled plugin. The 404 path is asserted by
-  the vitest suite and by the harness's negative run against the riot-free baseline server, but a
-  real editor with the plugin physically absent was never exercised
 - `RIOT_RESET_FAILED` — reset succeeded on every attempt, so the downgrade branch never ran
 - `RIOT_UNSUPPORTED_ENGINE_VERSION` — only 5.6.1 was run
 - `RIOT_RUNTIME_STATE_MISMATCH` and `RIOT_LIVE_VERIFICATION_FAILED` — declared and asserted present,
@@ -307,5 +318,7 @@ Stated explicitly, because skipped is not passed. Current as of the review close
 
 **Tool-surface baseline**
 
-- Intentional core-tool *additions* are reported by the harness but do not fail it. A core tool
-  added without refreshing `tool-baseline.json` will be flagged in output only
+- No scenario was exercised in which the tool surface legitimately changes and the baseline is then
+  refreshed. Adding a core tool fails the harness by design (strict total- and non-riot-count
+  gates); the refresh-and-re-verify workflow that follows such a change has not itself been walked
+  through end to end

@@ -85,6 +85,13 @@ Three narrow evidence/regression gaps were closed after provisional acceptance.
 against a detached worktree of the merge-base commit `af6ec58` — **not** the branch under test.
 That run saw 241 tools, 0 riot.
 
+**Baseline policy:** the manifest is an audited contract, not a moving snapshot. Core removals, core
+**additions**, riot removals, unexpected riot additions, and any count mismatch all fail the
+harness. Added core tools are listed separately for diagnosis but still fail via the strict total-
+and non-riot-count gates. Any intentional change to the tool surface requires deliberate review and
+a conscious refresh of `tool-baseline.json`; it is never regenerated automatically from the branch
+under test.
+
 | Artefact | Path |
 |----------|------|
 | Contact sheet | `docs/riot-crowd/evidence/riot-stages-contact-sheet.jpg` (245 KB) |
