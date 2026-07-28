@@ -119,6 +119,16 @@ struct FRiotAnimationBinding
 	 * non-locomotion clips like attacks, deaths and idles.
 	 */
 	double ReferenceSpeed = 0.0;
+	/**
+	 * Minimum agent speed (uu/s) for this binding to apply. Lets one slot carry a walk clip from 0
+	 * and a jog clip from, say, 280, so clip CHOICE follows speed as well as playback rate.
+	 *
+	 * CLAUDE-NOTE: added because rate scaling alone could not make a mixed crowd read - the user
+	 * watched an advance where every agent played the walk clip, and at 400uu/s a 1.7x walk reads as
+	 * a runner, so "there are no walkers" even though the walk clip was playing everywhere. One clip
+	 * per state cannot express walk-or-run; a threshold per binding can.
+	 */
+	double MinSpeed = 0.0;
 };
 
 /**
@@ -178,6 +188,9 @@ struct FRiotCharacterProfile
 	FString FailureMessage;
 
 	const FRiotAnimationBinding* FindBinding(ERiotAnimationSlot Slot) const;
+
+	/** Speed-aware lookup: among this slot's bindings, the one with the highest MinSpeed <= Speed. */
+	const FRiotAnimationBinding* FindBindingForSpeed(ERiotAnimationSlot Slot, double Speed) const;
 
 	/** True when this profile may be used for an agent of the given faction type. */
 	bool SupportsFactionType(ERiotFactionType Type) const;

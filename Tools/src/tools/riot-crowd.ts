@@ -520,6 +520,12 @@ export function registerRiotCrowdTools(server: McpServer): void {
               .describe(
                 "Ground speed (uu/s) this clip was authored for. When set, playback rate scales with actual agent speed so feet track the ground. Leave unset for non-locomotion clips (attacks, idles, deaths)."
               ),
+            minSpeed: z
+              .number()
+              .optional()
+              .describe(
+                "Minimum agent speed (uu/s) for this binding. Bind the same slot twice with different minSpeed to get a walk/run split: walk from 0, jog from ~280. Default 0."
+              ),
           })
         )
         .optional()
@@ -574,6 +580,7 @@ export function registerRiotCrowdTools(server: McpServer): void {
             playRate: z.number().optional(),
             looping: z.boolean().optional(),
             referenceSpeed: z.number().optional(),
+            minSpeed: z.number().optional(),
           })
         )
         .optional()
@@ -698,6 +705,7 @@ export function registerRiotCrowdTools(server: McpServer): void {
             playRate: z.number().optional(),
             looping: z.boolean().optional(),
             referenceSpeed: z.number().optional(),
+            minSpeed: z.number().optional(),
           })
         )
         .optional(),

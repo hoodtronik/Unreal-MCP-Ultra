@@ -68,6 +68,8 @@ void ARiotCharacterActor::PrepareForPooling_Implementation()
 	bHasProfile = false;
 	ActiveProfile = FRiotCharacterProfile();
 	CurrentSlot = ERiotAnimationSlot::Max;
+	CachedResolvedSlot = ERiotAnimationSlot::Max;
+	CurrentAnimationPath.Reset();
 	CurrentTier = ERiotRepresentationTier::None;
 	CharacterProfileId.Reset();
 	bIsPromoted = false;
@@ -230,7 +232,14 @@ void ARiotCharacterActor::SetAgentState(ERiotAgentState State, ERiotFactionType 
 	// play. Only direct-sequence mode drives playback from here.
 	if (bHasProfile && ActiveProfile.AnimationMode == ERiotAnimationMode::SequenceSet)
 	{
-		PlaySlotAnimation(Slot, bForceRestart);
+		// CLAUDE-NOTE: the binding is re-selected by SPEED as well as slot, so a slot with walk and
+		// jog variants switches clip when the agent crosses the threshold, not only when the state
+		// changes. The new clip starts at the agent's deterministic phase offset (same as any clip
+		// start), which for cyclic locomotion reads as a swap rather than a snap-to-frame-zero.
+		const FRiotAnimationBinding* Desired =
+			ActiveProfile.FindBindingForSpeed(RiotAnimationSlotForStateResolved(Slot), Speed);
+		const bool bClipChanged = Desired && Desired->AnimationPath != CurrentAnimationPath;
+		PlaySlotAnimation(Slot, bForceRestart || bClipChanged);
 
 		// CLAUDE-NOTE: couple playback rate to ACTUAL travel speed, per the milestone requirement
 		// that animation speed derives from agent velocity. Without this, a jog clip authored at
@@ -260,12 +269,18 @@ void ARiotCharacterActor::PlaySlotAnimation(ERiotAnimationSlot Slot, bool bForce
 	{
 		return;
 	}
+	CachedResolvedSlot = Resolved;
 
-	const FRiotAnimationBinding* Binding = ActiveProfile.FindBinding(Resolved);
+	const FRiotAnimationBinding* Binding = ActiveProfile.FindBindingForSpeed(Resolved, Speed);
 	if (!Binding)
 	{
 		return;
 	}
+	if (Binding->AnimationPath == CurrentAnimationPath && Slot == CurrentSlot)
+	{
+		return; // same clip already playing; rate scaling continues in SetAgentState
+	}
+	CurrentAnimationPath = Binding->AnimationPath;
 
 	UAnimSequenceBase* Sequence =
 		Cast<UAnimSequenceBase>(FSoftObjectPath(Binding->AnimationPath).TryLoad());

@@ -142,4 +142,15 @@ private:
 	 *  re-resolve the fallback chain. Set by PlaySlotAnimation. */
 	float CurrentPlayRateBase = 1.f;
 	float CurrentReferenceSpeed = 0.f;
+
+	/** The clip currently on the mesh, so a speed-threshold crossing swaps clips exactly once. */
+	FString CurrentAnimationPath;
+	ERiotAnimationSlot CachedResolvedSlot = ERiotAnimationSlot::Max;
+
+	/** The slot after fallback resolution, cached by the last PlaySlotAnimation. */
+	ERiotAnimationSlot RiotAnimationSlotForStateResolved(ERiotAnimationSlot Requested) const
+	{
+		return CachedResolvedSlot != ERiotAnimationSlot::Max && Requested == CurrentSlot
+			? CachedResolvedSlot : Requested;
+	}
 };

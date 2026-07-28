@@ -193,6 +193,11 @@ bool ReadProfileFromBody(const TSharedPtr<FJsonObject>& Body, FRiotCharacterProf
 			{
 				Binding.ReferenceSpeed = ReferenceSpeed;
 			}
+			double MinSpeed = 0.0;
+			if ((*Entry)->TryGetNumberField(TEXT("minSpeed"), MinSpeed))
+			{
+				Binding.MinSpeed = MinSpeed;
+			}
 			OutProfile.AnimationSet.Add(Binding);
 		}
 	}

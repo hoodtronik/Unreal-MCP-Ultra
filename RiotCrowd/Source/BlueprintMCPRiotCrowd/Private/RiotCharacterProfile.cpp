@@ -243,9 +243,38 @@ ERiotAnimationSlot RiotAnimationSlotFallback(ERiotAnimationSlot Slot)
 
 const FRiotAnimationBinding* FRiotCharacterProfile::FindBinding(ERiotAnimationSlot Slot) const
 {
-	const FRiotAnimationBinding* Found = AnimationSet.FindByPredicate(
-		[Slot](const FRiotAnimationBinding& B) { return B.Slot == Slot; });
-	return (Found && !Found->AnimationPath.IsEmpty()) ? Found : nullptr;
+	// Slot-presence check and fallback resolution use the base binding (lowest MinSpeed), so a slot
+	// that only defines a fast variant still counts as bound.
+	const FRiotAnimationBinding* Best = nullptr;
+	for (const FRiotAnimationBinding& Binding : AnimationSet)
+	{
+		if (Binding.Slot == Slot && !Binding.AnimationPath.IsEmpty()
+			&& (!Best || Binding.MinSpeed < Best->MinSpeed))
+		{
+			Best = &Binding;
+		}
+	}
+	return Best;
+}
+
+const FRiotAnimationBinding* FRiotCharacterProfile::FindBindingForSpeed(ERiotAnimationSlot Slot,
+	double Speed) const
+{
+	// Highest threshold that the current speed clears; falls back to the slot's base binding so a
+	// stationary agent still resolves.
+	const FRiotAnimationBinding* Best = nullptr;
+	for (const FRiotAnimationBinding& Binding : AnimationSet)
+	{
+		if (Binding.Slot != Slot || Binding.AnimationPath.IsEmpty() || Binding.MinSpeed > Speed)
+		{
+			continue;
+		}
+		if (!Best || Binding.MinSpeed > Best->MinSpeed)
+		{
+			Best = &Binding;
+		}
+	}
+	return Best ? Best : FindBinding(Slot);
 }
 
 bool FRiotCharacterProfile::SupportsFactionType(ERiotFactionType Type) const
@@ -357,18 +386,22 @@ bool ValidateRiotCharacterProfileSchema(const FRiotCharacterProfile& Profile,
 		return false;
 	}
 
-	// Duplicate slot bindings are a configuration mistake that silently drops one of the two.
-	TSet<ERiotAnimationSlot> Seen;
+	// Duplicate (slot, minSpeed) pairs are a configuration mistake that silently drops one of the
+	// two. Same slot at DIFFERENT thresholds is the supported walk/run split.
+	TSet<uint64> Seen;
 	for (const FRiotAnimationBinding& Binding : Profile.AnimationSet)
 	{
+		const uint64 Key = (static_cast<uint64>(Binding.Slot) << 32)
+			^ static_cast<uint64>(FMath::RoundToInt(Binding.MinSpeed * 16.0));
 		bool bAlready = false;
-		Seen.Add(Binding.Slot, &bAlready);
+		Seen.Add(Key, &bAlready);
 		if (bAlready)
 		{
 			OutErrorCode = RiotErrorCodes::AnimationMappingIncomplete;
 			OutMessage = FString::Printf(
-				TEXT("Profile '%s' binds animation slot '%s' more than once. One of the bindings "
-					 "would be silently ignored."),
+				TEXT("Profile '%s' binds animation slot '%s' twice at the same minSpeed. One of the "
+					 "bindings would be silently ignored; use different minSpeed thresholds for "
+					 "speed-dependent variants."),
 				*Profile.ProfileId, LexToStringRiotAnimationSlot(Binding.Slot));
 			return false;
 		}
@@ -833,6 +866,7 @@ TSharedRef<FJsonObject> FRiotCharacterProfile::ToJson() const
 		BindingJson->SetNumberField(TEXT("playRate"), Binding.PlayRate);
 		BindingJson->SetBoolField(TEXT("looping"), Binding.bLooping);
 		BindingJson->SetNumberField(TEXT("referenceSpeed"), Binding.ReferenceSpeed);
+		BindingJson->SetNumberField(TEXT("minSpeed"), Binding.MinSpeed);
 		BindingArray.Add(MakeShared<FJsonValueObject>(BindingJson));
 	}
 	Json->SetArrayField(TEXT("animationSet"), BindingArray);
