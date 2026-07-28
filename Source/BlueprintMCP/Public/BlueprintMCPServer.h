@@ -158,13 +158,17 @@ public:
 	 * subsystem that owns the server is initialized. Registering after Start() logs a warning and
 	 * the endpoint will not be routed, because the HTTP routes are bound once inside Start().
 	 */
-	static void RegisterExternalEndpoint(FExternalEndpoint Endpoint);
+	// CLAUDE-NOTE: BLUEPRINTMCP_API on these three specifically, NOT on the whole class. The class
+	// is otherwise internal to this module and exporting all of it would drag every handler
+	// signature — many referencing editor-only types — into the DLL's export table for no reason.
+	// Only the seam needs to be reachable from the optional riot plugin.
+	BLUEPRINTMCP_API static void RegisterExternalEndpoint(FExternalEndpoint Endpoint);
 
 	/** All endpoints contributed so far. */
-	static const TArray<FExternalEndpoint>& GetExternalEndpoints();
+	BLUEPRINTMCP_API static const TArray<FExternalEndpoint>& GetExternalEndpoints();
 
 	/** True once Start() has bound routes; used to detect too-late registration. */
-	static bool HaveExternalEndpointsBeenBound();
+	BLUEPRINTMCP_API static bool HaveExternalEndpointsBeenBound();
 
 private:
 	// ----- TMap-based request dispatch -----

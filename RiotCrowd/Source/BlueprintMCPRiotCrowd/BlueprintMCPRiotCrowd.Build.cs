@@ -38,6 +38,12 @@ public class BlueprintMCPRiotCrowd : ModuleRules
 		{
 			"UnrealEd",
 			"EditorSubsystem",
+			"Projects", // IPluginManager, for capability detection
+
+			// CLAUDE-NOTE: depend on the core module rather than reimplementing it. Riot endpoints
+			// are contributed through FBlueprintMCPServer::RegisterExternalEndpoint so they reuse
+			// the core's router, request queue, game-thread marshalling and error conventions.
+			"BlueprintMCP",
 
 			// CLAUDE-NOTE: MassEntity is an ENGINE Runtime module in 5.6
 			// (Engine/Source/Runtime/MassEntity), NOT a plugin module — the plugin at
