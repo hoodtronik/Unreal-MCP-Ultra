@@ -509,6 +509,65 @@ Three conclusions, all of which change this milestone's plan:
 animation path (far tier). That is the same near/far split this milestone arrived at independently,
 which is reassuring about the overall tier shape even where the implementation differs.
 
+### 11b. Feasibility of a programmatic bake — decided: build it
+
+Owner decision: build the bake as an MCP tool rather than requiring a manual bake or shipping
+Tier 3 blocked. Feasibility was checked against source before accepting.
+
+**The non-obvious blocker.** **[SOURCE]** `AnimToTextureUtils.h:125-129`:
+
+```cpp
+FORCEINLINE_DEBUGGABLE bool AnimToTexture_Private::WriteVectorsToTexture(..., UTexture2D* Texture)
+{
+    if (!Texture || !NumFrames)
+    {
+        return false;
+    }
+```
+
+The data asset's texture fields are `TSoftObjectPtr<UTexture2D>` **inputs** (**[SOURCE]**
+`AnimToTextureDataAsset.h:205-234`). **The bake writes into textures that must already exist; it
+does not create them.** That is why the plugin ships `TX_BonePosition`, `TX_BoneRotation` and
+`TX_BoneWeight` as pre-made empty targets for its Mannequin sample (**[SOURCE]**
+`Content/Characters/Mannequin/Textures/BoneAnimation/`). `AnimationToTexture` returns a single bool
+for the whole operation, so a missing texture fails without saying which step failed.
+
+**Pipeline (5 steps).** Step 2 is the only one with no existing API:
+
+| # | Step | Provided by |
+|---|------|-------------|
+| 1 | `ConvertSkeletalMeshToStaticMesh(Mesh, PackageName, LODIndex)` | **[SOURCE]** `AnimToTextureBPLibrary.h:36` |
+| 2 | **Create three empty `UTexture2D` assets** | **nothing** — we implement it |
+| 3 | Create + configure `UAnimToTextureDataAsset` | all properties are `BlueprintReadWrite` |
+| 4 | `AnimationToTexture(DataAsset)` | **[SOURCE]** `AnimToTextureBPLibrary.h:30` |
+| 5 | MIC + `UpdateMaterialInstanceFromDataAsset` | **[SOURCE]** `AnimToTextureBPLibrary.h:48` |
+
+**Decision 1 — invoke via the Python bridge, do NOT link `AnimToTextureEditor`.**
+Linking it would make `BlueprintMCPRiotCrowd` hard-depend on an **Experimental** engine plugin, so
+every consumer would need AnimToTexture enabled merely to run a scenario. Every function above is
+`BlueprintCallable`, and this repo already has an `/api/run-python` bridge, so the whole pipeline is
+reachable with **zero link-time dependency**. The optional-sibling boundary is the constraint the
+entire foundation was designed around (findings §12 and the Build.cs CLAUDE-NOTE); it is not spent
+on a far-tier feature.
+
+Step 2 is implemented in our own C++ because it needs `NewObject<UTexture2D>` into a fresh package
+plus `FAssetRegistryModule::AssetCreated` — that requires no AnimToTexture types at all, so it costs
+nothing in dependency terms.
+
+**Decision 2 — we do not author materials.**
+**[SOURCE]** `AnimToTextureBPLibrary.cpp:674` sets texture parameters by fixed names
+(`AnimToTextureParamNames::BonePositionTexture`, …), so the **parent** material must already
+implement VAT sampling with those parameter names. The tool therefore takes a VAT-capable parent
+material path from the operator (defaulting to the plugin's shipped material) and returns a
+structured error when it is missing. It must never silently produce instances that render but do not
+animate — that is precisely the "looks successful, is not" failure the milestone brief forbids.
+
+**Accepted consequence.** The bake writes **persistent assets into the consuming project**: a static
+mesh, three textures, a data asset and a material instance per character. This is inherent to VAT and
+Epic pays the same cost (§11a). It is a real departure from Riot Crowd's in-process-only stance, so
+created assets are namespaced under a dedicated folder and every created asset path is returned in
+the tool response, making cleanup possible.
+
 **Planned order:** implement Tiers 1 and 2 first and prove them, then attempt Tier 3. If Tier 3
 cannot be proven, the brief's instruction is explicit — prove why, ship the most efficient supported
 fallback, and mark background animated instancing **blocked or incomplete** rather than claiming
