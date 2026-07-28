@@ -1,5 +1,37 @@
 # Riot Crowd — Status
 
+> **This file covers two milestones.** The rigged-representation milestone (below) supersedes the
+> foundation status further down; the foundation record is kept intact for history.
+
+## Milestone 2: Rigged animation + representation LOD — READY FOR HUMAN REVIEW
+
+Branch `feature/riot-crowd-rigged-animation-lod-ue56` (stacked on the merged foundation).
+Full detail: `docs/riot-crowd/RIOT-RIGGED-REPRESENTATION-*.md` and
+`RIOT-REPRESENTATION-PERFORMANCE.md`; claim classification in the human-review doc.
+
+**Proven live** (UE 5.6.1, disposable RiotRiggedTest project, flat proxy level, seed 20260728):
+- Project-owned rigged characters (Manny/Quinn) drive the crowd via 5 registered profiles;
+  zero placeholders on the success path; deterministic 2:2:1 selection stable across resets.
+- Three-tier LOD with exact budgets (24/200), absolute-uu hysteresis (zero flapping over six
+  threshold oscillations), idempotent promote/demote, zero duplicate bodies anywhere.
+- Speed-thresholded clip choice (walk/run split) + velocity-scaled playback rate.
+- 244 agents: 12.01 ms comparable peak vs the foundation's 64 ms (~81% better; hard gate 32 ms,
+  preferred 16.7 ms - both passed). 500: full cycle, 18.5 ms peak. 1,000: two clean cycles,
+  29.4 ms peak (ceiling for the current mix - far tier does not animate yet).
+- 3x repeat cycles bit-identical in distribution; editor reopen holds no stale state; abrupt
+  PIE-stop crash found and fixed; the foundation-era arrival-oscillation blob found and fixed.
+- Evidence: 10-frame contact sheet + SHA-256 in docs/riot-crowd/evidence/rigged-representation/,
+  captured by the agent itself via the new core capture_view tool (core baseline 241 -> 242 by
+  owner decision, also landed on main).
+
+**Open, stated plainly:** Tier 3 renders instanced cones and does not animate (VAT bake designed,
+not built); Animation Blueprint mode implemented but never run live; sequencer/explicit camera
+sources unproven; RSS-at-scale not captured; perf comparison is against the recorded baseline,
+not a same-session A/B. Tool surface: 269 (242 core + 27 riot), stdio-client-verified.
+
+---
+
+
 **Foundation provisionally accepted; review closeout complete.** Do not merge to `main`.
 
 This remains a **foundation** milestone. It is not production ready, and nothing in the closeout
