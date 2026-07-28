@@ -472,6 +472,7 @@ private:
 	FString HandleSetGameView(const FString& Body);
 	FString HandleTakeScreenshot(const FString& Body);
 	FString HandleTakeHighResScreenshot(const FString& Body);
+	FString HandleCaptureView(const FString& Body);
 	FString HandleScreenshotGraph(const FString& Body);
 	FString HandleViewportCapture(const FString& Body);
 	FString HandleSceneDigest(const FString& Body);

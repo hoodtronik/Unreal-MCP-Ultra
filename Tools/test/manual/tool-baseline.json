@@ -4,9 +4,10 @@
     "coreToolsSourceRef": "merge-base of feature/riot-crowd-foundation-ue56 with main",
     "coreToolsCapturedBy": "real MCP stdio client against a detached git worktree of that commit, NOT the feature branch",
     "note": "Refresh coreTools only when core tools are intentionally added or removed, and say so in the commit message. Do not regenerate it from the branch under test.",
-    "coreToolCount": 241,
+    "coreToolCount": 242,
     "riotToolCount": 16,
-    "expectedTotal": 257
+    "expectedTotal": 258,
+    "coreToolsAmendment": "capture_view added by explicit owner decision (2026-07-28): render any world from an ad-hoc or placed camera to PNG. Core 241 -> 242. The rest of coreTools remains the merge-base capture."
   },
   "coreTools": [
     "add_anim_node",
@@ -33,6 +34,7 @@
     "begin_transaction",
     "bind_widget_event",
     "build_graph",
+    "capture_view",
     "change_function_parameter_type",
     "change_struct_node_type",
     "change_variable_type",

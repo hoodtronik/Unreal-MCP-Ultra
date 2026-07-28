@@ -31,6 +31,13 @@
 #include "Selection.h"
 #include "FileHelpers.h"
 #include "UObject/Package.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
+#include "Components/SceneCaptureComponent2D.h"
+#include "Engine/SceneCapture2D.h"
+#include "EngineUtils.h"
+#include "HAL/FileManager.h"
+#include "RenderingThread.h"
 
 // ============================================================
 // HandleTakeScreenshot — capture a viewport screenshot
@@ -1140,5 +1147,200 @@ FString FBlueprintMCPServer::HandleSceneDigest(const FString& Body)
 	Result->SetNumberField(TEXT("dirtyPackageCount"), DirtyNames.Num());
 	Result->SetBoolField(TEXT("pieRunning"), bPieRunning);
 
+	return JsonToString(Result);
+}
+
+// ============================================================
+// HandleCaptureView — render from an arbitrary or placed camera
+// ============================================================
+
+// CLAUDE-NOTE: this tool exists because an agent driving the editor could not SEE what it was
+// doing. take_screenshot/viewport_capture photograph the EDITOR viewport, and PIE (as started by
+// start_pie) opens as a separate floating window the built-ins cannot reach, so every visual defect
+// in the Riot Crowd milestone was found by a human flying a camera around. The user then asked for
+// exactly this: "set up cameras facing each group... you should be able to see what's going on."
+//
+// A transient SceneCapture2D renders one frame from EITHER an ad-hoc transform OR an existing
+// CameraActor the user placed, into a PNG the agent reads back. Works on the PIE world when one is
+// running (crowds, gameplay), otherwise the editor world (level inspection) — overridable via
+// "world". Promoted to CORE from the riot plugin by explicit owner decision: seeing is not a
+// crowd-specific need.
+FString FBlueprintMCPServer::HandleCaptureView(const FString& Body)
+{
+	TSharedPtr<FJsonObject> Parsed = ParseBodyJson(Body);
+	if (!Parsed.IsValid())
+	{
+		return MakeErrorJson(TEXT("Request body must be valid JSON."));
+	}
+
+	// ----- world selection -----
+	FString WorldChoice = TEXT("auto");
+	Parsed->TryGetStringField(TEXT("world"), WorldChoice);
+
+	UWorld* World = nullptr;
+	FString WorldUsed;
+	const bool bPieAvailable = GEditor && GEditor->PlayWorld;
+	if (WorldChoice.Equals(TEXT("pie"), ESearchCase::IgnoreCase))
+	{
+		if (!bPieAvailable)
+		{
+			return MakeErrorJson(TEXT("world:'pie' was requested but PIE is not running. Use start_pie first, or world:'editor'."));
+		}
+		World = GEditor->PlayWorld;
+		WorldUsed = TEXT("pie");
+	}
+	else if (WorldChoice.Equals(TEXT("editor"), ESearchCase::IgnoreCase))
+	{
+		World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+		WorldUsed = TEXT("editor");
+	}
+	else
+	{
+		World = bPieAvailable ? GEditor->PlayWorld.Get()
+			: (GEditor ? GEditor->GetEditorWorldContext().World() : nullptr);
+		WorldUsed = bPieAvailable ? TEXT("pie") : TEXT("editor");
+	}
+	if (!World)
+	{
+		return MakeErrorJson(TEXT("No world is available to capture."));
+	}
+
+	// ----- camera source: an existing CameraActor by label, or an ad-hoc transform -----
+	FVector Location = FVector::ZeroVector;
+	FRotator Rotation = FRotator::ZeroRotator;
+	double Fov = 90.0;
+	FString CameraActorLabel;
+	bool bHaveCamera = false;
+
+	if (Parsed->TryGetStringField(TEXT("cameraActor"), CameraActorLabel) && !CameraActorLabel.IsEmpty())
+	{
+		for (TActorIterator<ACameraActor> It(World); It; ++It)
+		{
+			ACameraActor* Camera = *It;
+			if (Camera->GetActorLabel().Equals(CameraActorLabel, ESearchCase::IgnoreCase)
+				|| Camera->GetName().Equals(CameraActorLabel, ESearchCase::IgnoreCase))
+			{
+				Location = Camera->GetActorLocation();
+				Rotation = Camera->GetActorRotation();
+				if (const UCameraComponent* CameraComponent = Camera->GetCameraComponent())
+				{
+					Fov = CameraComponent->FieldOfView;
+				}
+				bHaveCamera = true;
+				break;
+			}
+		}
+		if (!bHaveCamera)
+		{
+			return MakeErrorJson(FString::Printf(
+				TEXT("No CameraActor labelled '%s' in the %s world. Place one, or pass location/lookAt instead."),
+				*CameraActorLabel, *WorldUsed));
+		}
+	}
+	else
+	{
+		const TSharedPtr<FJsonObject>* LocationObject = nullptr;
+		if (!Parsed->TryGetObjectField(TEXT("location"), LocationObject))
+		{
+			return MakeErrorJson(TEXT("Either cameraActor or location {x,y,z} is required."));
+		}
+		double X = 0, Y = 0, Z = 0;
+		(*LocationObject)->TryGetNumberField(TEXT("x"), X);
+		(*LocationObject)->TryGetNumberField(TEXT("y"), Y);
+		(*LocationObject)->TryGetNumberField(TEXT("z"), Z);
+		Location = FVector(X, Y, Z);
+
+		const TSharedPtr<FJsonObject>* LookAtObject = nullptr;
+		const TSharedPtr<FJsonObject>* RotationObject = nullptr;
+		if (Parsed->TryGetObjectField(TEXT("lookAt"), LookAtObject))
+		{
+			double LX = 0, LY = 0, LZ = 0;
+			(*LookAtObject)->TryGetNumberField(TEXT("x"), LX);
+			(*LookAtObject)->TryGetNumberField(TEXT("y"), LY);
+			(*LookAtObject)->TryGetNumberField(TEXT("z"), LZ);
+			Rotation = (FVector(LX, LY, LZ) - Location).Rotation();
+		}
+		else if (Parsed->TryGetObjectField(TEXT("rotation"), RotationObject))
+		{
+			double Pitch = 0, Yaw = 0, Roll = 0;
+			(*RotationObject)->TryGetNumberField(TEXT("pitch"), Pitch);
+			(*RotationObject)->TryGetNumberField(TEXT("yaw"), Yaw);
+			(*RotationObject)->TryGetNumberField(TEXT("roll"), Roll);
+			Rotation = FRotator(Pitch, Yaw, Roll);
+		}
+		Parsed->TryGetNumberField(TEXT("fov"), Fov);
+	}
+
+	double WidthIn = 1280.0, HeightIn = 720.0;
+	Parsed->TryGetNumberField(TEXT("width"), WidthIn);
+	Parsed->TryGetNumberField(TEXT("height"), HeightIn);
+	const int32 Width = FMath::Clamp(static_cast<int32>(WidthIn), 64, 3840);
+	const int32 Height = FMath::Clamp(static_cast<int32>(HeightIn), 64, 2160);
+
+	FString Name = TEXT("capture_view");
+	Parsed->TryGetStringField(TEXT("name"), Name);
+	Name = FPaths::MakeValidFileName(Name);
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.ObjectFlags |= RF_Transient;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ASceneCapture2D* CaptureActor = World->SpawnActor<ASceneCapture2D>(Location, Rotation, SpawnParams);
+	if (!CaptureActor)
+	{
+		return MakeErrorJson(TEXT("Failed to spawn the capture camera."));
+	}
+
+	USceneCaptureComponent2D* Capture = CaptureActor->GetCaptureComponent2D();
+	UTextureRenderTarget2D* RenderTarget = NewObject<UTextureRenderTarget2D>(GetTransientPackage());
+	RenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+	RenderTarget->InitAutoFormat(Width, Height);
+	RenderTarget->UpdateResourceImmediate(true);
+
+	Capture->TextureTarget = RenderTarget;
+	Capture->FOVAngle = static_cast<float>(Fov);
+	// FinalColorLDR = the post-processed image a player would see, not raw scene colour.
+	Capture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	Capture->bCaptureEveryFrame = false;
+	Capture->bAlwaysPersistRenderingState = true;
+	Capture->CaptureScene();
+	FlushRenderingCommands();
+
+	TArray<FColor> Pixels;
+	FTextureRenderTargetResource* Resource = RenderTarget->GameThread_GetRenderTargetResource();
+	const bool bRead = Resource && Resource->ReadPixels(Pixels);
+	CaptureActor->Destroy();
+
+	if (!bRead || Pixels.Num() != Width * Height)
+	{
+		return MakeErrorJson(TEXT("Render target readback failed."));
+	}
+	for (FColor& Pixel : Pixels)
+	{
+		Pixel.A = 255;
+	}
+
+	TArray64<uint8> PngBytes;
+	FImageUtils::PNGCompressImageArray(Width, Height, Pixels, PngBytes);
+
+	const FString Directory = FPaths::ProjectSavedDir() / TEXT("Captures");
+	IFileManager::Get().MakeDirectory(*Directory, /*Tree=*/true);
+	const FString FilePath = Directory / (Name + TEXT(".png"));
+	if (!FFileHelper::SaveArrayToFile(PngBytes, *FilePath))
+	{
+		return MakeErrorJson(FString::Printf(TEXT("Could not write '%s'."), *FilePath));
+	}
+
+	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("path"), FPaths::ConvertRelativePathToFull(FilePath));
+	Result->SetStringField(TEXT("world"), WorldUsed);
+	if (bHaveCamera)
+	{
+		Result->SetStringField(TEXT("cameraActor"), CameraActorLabel);
+	}
+	Result->SetNumberField(TEXT("width"), Width);
+	Result->SetNumberField(TEXT("height"), Height);
+	Result->SetNumberField(TEXT("fov"), Fov);
+	Result->SetNumberField(TEXT("bytes"), static_cast<double>(PngBytes.Num()));
 	return JsonToString(Result);
 }
