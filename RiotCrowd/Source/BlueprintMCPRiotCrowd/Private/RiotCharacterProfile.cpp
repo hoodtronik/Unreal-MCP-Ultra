@@ -559,6 +559,30 @@ bool ValidateRiotCharacterProfileAssets(FRiotCharacterProfile& Profile,
 		}
 
 		UClass* AnimClass = LoadClass<UAnimInstance>(nullptr, *ClassPath);
+
+		// CLAUDE-NOTE: Mode A cannot be validated beyond "the class exists", and that gap is a
+		// silent VISUAL failure, so it is reported as a warning rather than left to be discovered on
+		// screen. Measured live against the Third Person template's ABP_Unarmed: the class loads, an
+		// instance runs, animationMode reads AnimationBlueprint - and the mesh does not animate,
+		// because that ABP reads its locomotion from a Character pawn owner and a Riot character
+		// actor is deliberately neither (Mass owns the transform; see ARiotCharacterActor). Its
+		// speed variable stays 0 and it plays idle. Numbers: a Mode A hand bone drifted +/-2uu while
+		// a SequenceSet one on the same frame swung across ~80uu.
+		//
+		// There is no generic fix - an ABP written against a Character cannot be satisfied by a
+		// non-Character without becoming one, which would put a movement component in contention
+		// with Mass. The operator's ABP must read this actor's exposed parameters instead.
+		if (AnimClass)
+		{
+			Profile.Warnings.Add(
+				TEXT("animationMode 'animationBlueprint': the Animation Blueprint class resolves, but "
+					 "whether it ANIMATES cannot be validated. It must read its parameters from its "
+					 "owning actor (GetOwningActor -> cast to RiotCharacterActor -> RiotState, Speed, "
+					 "NormalizedSpeed, FactionType, SeedPhase, IsMoving, IsPromoted). An ABP written "
+					 "for a Character pawn - including the Third Person template's ABP_Unarmed - will "
+					 "load, instance and run, but stay in idle. Verify on screen before relying on it."));
+		}
+
 		if (!AnimClass)
 		{
 			return Fail(RiotErrorCodes::AnimBlueprintInvalid, FString::Printf(

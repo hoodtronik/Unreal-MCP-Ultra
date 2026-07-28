@@ -50,3 +50,41 @@ panicked, retreating, fallback` · `holding ← bracing`
 4. Transitions swap clips at the agent's deterministic phase offset; no blending yet (single-node
    playback). Cross-fade blending is a known polish item for the next phase, honestly: fast state
    flips can pop.
+
+
+## Mode A (Animation Blueprint) — the contract, and what it costs to ignore it
+
+**Live finding, 2026-07-28.** Registering a profile with `animationMode: "animationBlueprint"`
+against the Third Person template's `ABP_Unarmed` produces a profile that validates as `valid`,
+loads its class, instances it, reports `animationMode = AnimationBlueprint`… **and does not
+animate.** Measured on the same frame, same 1-second intervals:
+
+| | `hand_r` drift while travelling |
+|---|---|
+| Mode A (`ABP_Unarmed`) | ±2 uu — idle pose, despite `Speed = 414` |
+| Mode B (SequenceSet) | (−4, −26, 92) → (−39, 4, 110) → (−67, −41, 137) — a real run cycle |
+
+**Cause, not a defect:** `ABP_Unarmed` reads locomotion from a **Character pawn owner**.
+`ARiotCharacterActor` is deliberately neither a Character nor a Pawn — Mass owns the transform, and
+adding a movement component would put two systems in charge of it. The ABP's speed variable stays
+0, so it plays idle forever. There is no generic fix: an ABP written against a Character cannot be
+satisfied without becoming one.
+
+**Therefore an operator-supplied ABP must read the actor.** In the ABP event graph:
+
+```
+Event Blueprint Update Animation
+  → Get Owning Actor
+  → Cast To RiotCharacterActor
+      → Speed / NormalizedSpeed  → drive a locomotion blendspace
+      → RiotState / RiotAnimationSlot (FName) → drive a state machine
+      → IsMoving / IsPromoted / SeedPhase / FactionType / CharacterProfileId
+```
+
+`SeedPhase` (0–1, deterministic per agent) is the right input for start-time offset so a Mode A
+crowd does not move in lockstep — Mode B does this automatically, Mode A must do it itself.
+
+Registration now emits a **warning** saying exactly this, because the failure is otherwise silent
+and visual: everything reports success and the crowd stands still. Mode A remains
+**implemented-and-loadable but not animation-proven** until someone supplies a conforming ABP —
+that is a real remaining gap, not a formality.

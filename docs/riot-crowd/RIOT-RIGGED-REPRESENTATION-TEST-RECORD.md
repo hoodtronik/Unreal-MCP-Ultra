@@ -48,6 +48,8 @@ differ by animation set and rates. This is not five unique models.**
 | Pause policy | PASS — agent states freeze; representation LOD continues following the camera (documented behaviour) |
 | Reset | PASS — all counts to zero, pooled/skeletal 0, idempotent double-reset, zero riot actors in the editor world after |
 | 3× repeat cycles | PASS — identical tier counts and identical per-profile distribution every cycle; 10.5–11.9 ms mid-run |
+| Defender fallback + facing | PASS — line braces at x=1500 facing the crowd, retreats to x=499 on break with lateral spread (−899..899) intact, then holds |
+| Mode A (Animation Blueprint) | **PARTIAL — loads and runs, does not animate** with `ABP_Unarmed`; measured ±2 uu bone drift vs ~80 uu for Mode B. Contract documented, warning added |
 | Editor close + reopen | PASS — after restart: 0 profiles, 0 scenarios (in-process by design, nothing stale); cold re-author + full run works |
 | PIE stopped abruptly with a live crowd | PASS — editor survives (regression-fixed this milestone; previously a fatal `EntityManager` assert) |
 | 244 perf gate | **PASS — 12.01 ms comparable peak vs 64 ms baseline; see performance doc** |
@@ -85,7 +87,9 @@ user watching or free-flying, which is why human fly-through should remain an ac
 ## Not tested / explicitly out of evidence
 
 - Tier 3 renders instanced cones and **does not animate** (AnimToTexture deferred; report warns).
-- Animation Blueprint mode (mode A): implemented, compiles, **never run live**.
+- Animation Blueprint mode (mode A): **run live and measured — loads, instances, does NOT animate**
+  with a Character-expecting ABP. See the Mode A contract section in the animation-mapping doc.
+  Registration now warns. Not animation-proven until a conforming ABP exists.
 - `sequencerCamera` / `explicitTransform` camera sources: schema exists, **not live-proven**.
 - Editor RSS during scale runs: sampler broke, noticed post-teardown, not re-run.
 - Unreal Insights trace; same-conditions A/B against the foundation build.

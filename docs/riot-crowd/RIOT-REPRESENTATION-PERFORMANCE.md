@@ -136,3 +136,42 @@ representation mix only.
 | Same-conditions A/B against the foundation build | **not run** |
 
 Do not read the completed runs as evidence for these.
+
+
+---
+
+## 6. Recommended thresholds and budgets (measured, not guessed)
+
+Owner asked for a recommendation rather than shipping the tested values blind. Four configurations,
+same 244-agent scenario and seed, sampled t=4.5-8 s while **all 244 are live**. (The first attempt
+sampled after the crowd had drained and produced meaningless near-identical numbers - recorded
+because it is exactly the trap that makes tuning data worthless.)
+
+| Config | near / mid / far (uu) | budgets | peak ms | tiers near/mid/far | skeletal |
+|---|---|---|---:|---|---:|
+| A (as tested) | 1500 / 4000 / 14000 | 24 / 200 | 11.7 | 24 / 162 / 40 | 186 |
+| B | 2000 / 6000 / 20000 | 32 / 200 | 13.6 | 32 / 186 / 8 | 218 |
+| **C** | **2500 / 7000 / 20000** | **48 / 244** | **11.6** | **48 / 178 / 0** | **226** |
+| D (frugal) | 1200 / 3000 / 12000 | 16 / 120 | 10.3 | 16 / 120 / 90 | 136 |
+
+**What the numbers say.** Cost tracks the total *skeletal* count, and even 226 skeletal actors sits
+at 11.6 ms - roughly a third of the 32 ms gate. The 13.6 ms on B versus 11.6 ms on C, despite C
+carrying *more* skeletal actors, is single-frame sampling noise, not a config effect:
+`get_frame_timing` is a snapshot, so differences under ~2 ms here are not real. The honest
+conclusion is that **at 244 agents the thresholds are not the constraint** - anything in this range
+fits comfortably.
+
+**Recommended defaults, scaled by crowd size:**
+
+| Crowd | near / mid / far | maxNear / maxMid | Rationale |
+|---|---|---|---|
+| <= 250 | 2500 / 7000 / 20000 | 48 / 250 | Config C. Every agent skeletal, zero far-tier stand-ins, ~12 ms. Best-looking option still ~3x inside budget |
+| ~500 | 2500 / 7000 / 20000 | 32 / 200 | Same distances; budgets cap skeletal cost, remainder instanced. Measured 18.5 ms peak at 500 |
+| ~1000 | 2000 / 6000 / 20000 | 24 / 200 | Measured 29.4 ms peak; the far tier absorbs the rest |
+
+**Hysteresis: ~20 % of `nearDistance`** (500 uu at near 2500). 300 uu was verified flap-free at near
+1500, the same ratio; the absolute value matters less than staying well under half the narrowest
+band, which validation enforces anyway.
+
+**Caveats, unchanged:** sampled peaks, not traced; the far tier does not animate yet, so far-heavy
+configurations will cost more once VAT lands; one machine, one scenario shape, one seed.
