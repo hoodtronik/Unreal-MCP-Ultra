@@ -59,7 +59,14 @@ struct FRiotBlockade
 	FString Id;
 	FString DefendingFactionId;
 	FVector Location = FVector::ZeroVector;
-	/** Yaw only. The blockade is a line segment centred on Location, facing YawDegrees. */
+	/**
+	 * Yaw only. The blockade is a line segment centred on Location.
+	 *
+	 * CLAUDE-NOTE: YawDegrees defines the direction the CROWD TRAVELS THROUGH the line, not the way
+	 * defenders look. Defenders are spawned facing -Forward (into the oncoming crowd) and fall back
+	 * along +Forward. Getting this backwards spawned the whole police line with its back to the riot
+	 * for two milestones - invisible while defenders were cubes.
+	 */
 	double YawDegrees = 0.0;
 	double Width = 800.0;
 	double Depth = 200.0;
@@ -72,8 +79,11 @@ struct FRiotBlockade
 	double HoldThreshold = 40.0;
 	/** Pressure at or above which the segment breaks. Must exceed HoldThreshold. */
 	double BreakThreshold = 100.0;
-	/** Where defenders go once broken. Zero vector = fall straight back along the facing normal. */
+	/** Where defenders go once broken. Zero vector = fall straight back along +Forward. */
 	FVector FallbackLocation = FVector::ZeroVector;
+
+	/** Speed defenders move at while falling back, uu/s. */
+	double FallbackSpeed = 200.0;
 
 	// ----- runtime -----
 	bool bBroken = false;

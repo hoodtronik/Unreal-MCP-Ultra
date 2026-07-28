@@ -342,6 +342,8 @@ export function registerRiotCrowdTools(server: McpServer): void {
       holdThreshold: z.number().optional().describe("Pressure at which the line is straining but holding (default 40)"),
       breakThreshold: z.number().optional().describe("Pressure at which it breaks (default 100)"),
       fallbackLocation: vec3.optional().describe("Where defenders withdraw to once broken"),
+
+      fallbackSpeed: z.number().optional().describe("Speed defenders move at while falling back, uu/s. Default 200."),
       dryRun: z.boolean().optional(),
     },
     async (args) => {

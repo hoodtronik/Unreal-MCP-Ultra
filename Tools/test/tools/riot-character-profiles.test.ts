@@ -303,6 +303,25 @@ describe("riot representation model", () => {
     );
   });
 
+  it("defenders are state-ticked and fall back as a line", () => {
+    // CLAUDE-NOTE: three regressions in one. (a) TickAgentStates iterated OwnedRioters ONLY, so
+    // defenders never reached the state machine and FallbackLocation moved nobody for two
+    // milestones. (b) Defenders spawned with the blockade's rotation, i.e. the direction the crowd
+    // TRAVELS, putting the whole line's back to the riot - invisible while they were cubes.
+    // (c) Falling back to a single point would re-converge them into the clump the breacher
+    // dispersal fix just removed.
+    const subsystemCpp = read(RIOT_SRC, "Private", "RiotCrowdSubsystem.cpp");
+    expect(subsystemCpp, "defenders must be ticked too").toContain(
+      "for (const FMassEntityHandle& Entity : OwnedDefenders)",
+    );
+    expect(subsystemCpp, "defenders must face -Forward, into the crowd").toMatch(
+      /BlockadeRotation \+ FRotator\(0\.0, 180\.0, 0\.0\)/,
+    );
+    expect(subsystemCpp, "fallback must preserve each defender's lateral offset").toMatch(
+      /Base \+ Right \* Lateral/,
+    );
+  });
+
   it("the old per-tick ISM rebuild is gone", () => {
     // The specific regression this milestone exists to fix. ClearInstances in the steady-state path
     // would silently restore the 64ms peak.

@@ -532,6 +532,7 @@ FString FRiotCrowdHandlers::HandleAddBlockade(const FString& Body)
 	Blockade.HoldThreshold = ReadNumber(Parsed, TEXT("holdThreshold"), 40.0);
 	Blockade.BreakThreshold = ReadNumber(Parsed, TEXT("breakThreshold"), 100.0);
 	ReadVector(Parsed, TEXT("fallbackLocation"), Blockade.FallbackLocation);
+	Blockade.FallbackSpeed = ReadNumber(Parsed, TEXT("fallbackSpeed"), Blockade.FallbackSpeed);
 
 	FRiotScenario Candidate = *Scenario;
 	Candidate.Blockades.Add(Blockade);

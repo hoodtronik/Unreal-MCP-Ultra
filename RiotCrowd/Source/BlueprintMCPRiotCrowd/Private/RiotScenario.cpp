@@ -159,6 +159,7 @@ TSharedRef<FJsonObject> FRiotScenario::ToJson() const
 		J->SetNumberField(TEXT("defenderCount"), B.DefenderCount);
 		J->SetNumberField(TEXT("holdThreshold"), B.HoldThreshold);
 		J->SetNumberField(TEXT("breakThreshold"), B.BreakThreshold);
+		J->SetNumberField(TEXT("fallbackSpeed"), B.FallbackSpeed);
 		J->SetBoolField(TEXT("broken"), B.bBroken);
 		J->SetNumberField(TEXT("currentPressure"), B.CurrentPressure);
 		J->SetNumberField(TEXT("peakPressure"), B.PeakPressure);

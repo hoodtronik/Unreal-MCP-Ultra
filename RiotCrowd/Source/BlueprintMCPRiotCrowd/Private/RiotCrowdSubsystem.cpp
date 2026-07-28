@@ -243,7 +243,13 @@ bool URiotCrowdSubsystem::SpawnScenario(const FString& ScenarioId, FString& OutE
 
 			FTransformFragment& TransformFrag = EntityManager->GetFragmentDataChecked<FTransformFragment>(Entity);
 			TransformFrag.GetMutableTransform().SetLocation(Position);
-			TransformFrag.GetMutableTransform().SetRotation(BlockadeRotation.Quaternion());
+			// CLAUDE-NOTE: -Forward, so the line FACES the oncoming crowd. BlockadeRotation is the
+			// direction the crowd travels through, so spawning defenders with it put the entire
+			// police line's back to the riot. It shipped that way through the foundation milestone
+			// and its acceptance review because defenders were cubes; it is obvious the moment they
+			// are people. Same lesson as the rioter facing bug.
+			TransformFrag.GetMutableTransform().SetRotation(
+				(BlockadeRotation + FRotator(0.0, 180.0, 0.0)).Quaternion());
 
 			FRiotAgentFragment& Agent = EntityManager->GetFragmentDataChecked<FRiotAgentFragment>(Entity);
 			Agent.FactionIndex = (uint8)FMath::Clamp(FactionIndex, 0, 255);
@@ -484,17 +490,29 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 
 	const FRiotPressureModel& Model = Scenario.PressureModel;
 
-	for (const FMassEntityHandle& Entity : OwnedRioters)
+	// CLAUDE-NOTE: this runs for rioters AND defenders. It used to iterate OwnedRioters only, so
+	// defenders were never state-ticked at all - which is the real reason FallbackLocation has been
+	// plumbed and validated since the foundation without ever moving anyone. (An earlier version of
+	// this note blamed a faction-blind state machine; that was wrong, and the wrong explanation is
+	// not left standing. The machine is faction-aware now AND defenders actually reach it.)
+	auto TickAgent = [&](const FMassEntityHandle& Entity)
 	{
 		if (!EntityManager->IsEntityValid(Entity))
 		{
-			continue;
+			return;
 		}
 
 		FRiotAgentFragment& Agent = EntityManager->GetFragmentDataChecked<FRiotAgentFragment>(Entity);
 		FRiotTargetFragment& Target = EntityManager->GetFragmentDataChecked<FRiotTargetFragment>(Entity);
 		const FTransformFragment& TransformFrag = EntityManager->GetFragmentDataChecked<FTransformFragment>(Entity);
 		const FVector Location = TransformFrag.GetTransform().GetLocation();
+
+		// Defenders read the same states from the other side of the line: the crowd pushing IS the
+		// defender bracing, and a break IS their line going. See RiotAnimationSlotForState.
+		const bool bIsDefender =
+			Scenario.Factions.IsValidIndex(Agent.FactionIndex)
+			&& (Scenario.Factions[Agent.FactionIndex].Type == ERiotFactionType::Police
+				|| Scenario.Factions[Agent.FactionIndex].Type == ERiotFactionType::Military);
 
 		switch (Agent.State)
 		{
@@ -504,10 +522,20 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 
 		case ERiotAgentState::Retreating:
 		{
-			// Retreat until far enough away, then stop participating.
 			if (FVector::Dist2D(Location, Target.Destination) < 200.0)
 			{
-				Agent.State = ERiotAgentState::Inactive;
+				if (bIsDefender)
+				{
+					// A fallen-back line HOLDS its new position - it does not leave the field. Speed
+					// drops to zero, and the stationary-locomotion rule then plays idle rather than
+					// treadmilling the walk-backwards clip in place.
+					Agent.Speed = 0.f;
+				}
+				else
+				{
+					// Rioters retreat off the field and stop participating.
+					Agent.State = ERiotAgentState::Inactive;
+				}
 			}
 			break;
 		}
@@ -574,6 +602,39 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 		case ERiotAgentState::Pressuring:
 		default:
 		{
+			if (bIsDefender)
+			{
+				// Defenders hold their own segment and only ever react to IT breaking.
+				const int32 DefendedIndex = Agent.TargetBlockadeIndex;
+				if (Scenario.Blockades.IsValidIndex(DefendedIndex))
+				{
+					const FRiotBlockade& Defended = Scenario.Blockades[DefendedIndex];
+					if (Defended.bBroken)
+					{
+						const FRotator BlockadeRotation(0.0, Defended.YawDegrees, 0.0);
+						const FVector Forward = BlockadeRotation.RotateVector(FVector::ForwardVector);
+						const FVector Right = BlockadeRotation.RotateVector(FVector::RightVector);
+
+						// CLAUDE-NOTE: fall back as a LINE, not to a point. Each defender keeps its
+						// lateral offset along the segment and only the along-axis position moves, so
+						// the formation retreats intact. Sending all 34 to one FallbackLocation would
+						// converge them into a clump - the same shared-destination mistake that
+						// produced the breacher blob, which is exactly the kind of thing that gets
+						// re-introduced one function over unless it is named.
+						const double Lateral =
+							FVector::DotProduct(Location - Defended.Location, Right);
+						const FVector Base = Defended.FallbackLocation.IsNearlyZero()
+							? Defended.Location + Forward * 1200.0
+							: Defended.FallbackLocation;
+						Target.Destination = Base + Right * Lateral;
+						Agent.State = ERiotAgentState::Retreating;
+						Agent.Speed = static_cast<float>(Defended.FallbackSpeed);
+						Agent.PressingTime = 0.f;
+					}
+				}
+				break;
+			}
+
 			// Find the nearest blockade in front of this agent.
 			int32 NearestIndex = INDEX_NONE;
 			double NearestDistance = TNumericLimits<double>::Max();
@@ -624,6 +685,15 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 			break;
 		}
 		}
+	};
+
+	for (const FMassEntityHandle& Entity : OwnedRioters)
+	{
+		TickAgent(Entity);
+	}
+	for (const FMassEntityHandle& Entity : OwnedDefenders)
+	{
+		TickAgent(Entity);
 	}
 }
 
