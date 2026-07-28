@@ -1,0 +1,43 @@
+Riot Crowd foundation - visual evidence manifest
+=================================================
+
+Originals live at: F:\.bpmcp-build\RiotEvidence
+They are NOT committed (this repository has no precedent for committing test evidence).
+The contact sheet below IS committed, and these hashes authenticate the originals if they
+are ever produced for audit.
+
+D34684D8141F3920C1562DF48531F5C068796A3F9AC324437D1D0BE277520623  A_spawned.png
+                                                                  bytes=1306496  dimensions=1286x760
+                                                                  original stage capture (PNG, not committed)
+
+98F5E29A4038E201B8C5E94014727E54351D813E2D537F83B32CD11C0F43645E  B_approaching.png
+                                                                  bytes=1319379  dimensions=1286x760
+                                                                  original stage capture (PNG, not committed)
+
+FD18C30540812EC37A3117BA4C919161EBA623E99E908C501EF3D2B39069F5DF  C_pressing.png
+                                                                  bytes=1324076  dimensions=1286x760
+                                                                  original stage capture (PNG, not committed)
+
+17E4BBD8985A00FA8CE25B864B598439D7E5E42643852141582C79E3B0FF2805  D_breach.png
+                                                                  bytes=1319759  dimensions=1286x760
+                                                                  original stage capture (PNG, not committed)
+
+0D304DDB853578770F5E3B5F32A565AB7DA6F7D9E22F7CC8CBAF7F70C28EFB77  E_through_panic.png
+                                                                  bytes=1324007  dimensions=1286x760
+                                                                  original stage capture (PNG, not committed)
+
+D3CC1E39A4D6F69B5EDAE34C4CC025FF55F12FD53AC8087A48338B40416BE9EC  F_retreating.png
+                                                                  bytes=1329415  dimensions=1286x760
+                                                                  original stage capture (PNG, not committed)
+
+A5299CCD25311B31CAA545307A9B35C5AB084E25D2BD0DD0207534CC2635A6F3  G_after_reset.png
+                                                                  bytes=1326666  dimensions=1286x760
+                                                                  original stage capture (PNG, not committed)
+
+6464B62974CBC3B12B722EF1A22FEAF666ADECC33AC32707C9ADEBE7AA5F6D98  riot-stages-contact-sheet.jpg
+                                                                  bytes=245116  dimensions=1270x1618
+                                                                  compressed contact sheet (committed)
+
+33E67A3CF8FB3CF84ADF8E9F4F038B7EE07C9D55D0BEDC2063D2A210A54F6035  capture-riot-pie.ps1
+                                                                  bytes=7831  dimensions=-
+                                                                  capture helper used to produce the stage captures (committed)
