@@ -9,6 +9,7 @@
 #include "MassEntityHandle.h"
 #include "MassEntityTypes.h"
 #include "RiotCrowdTypes.h"
+#include "RiotRepresentation.h"
 #include "RiotScenario.h"
 
 #include "RiotCrowdSubsystem.generated.h"
@@ -74,6 +75,24 @@ public:
 	/** Full structured runtime report. */
 	TSharedRef<FJsonObject> BuildRuntimeReport() const;
 
+	/** Representation-only report: tiers, budgets, camera, per-profile counts. */
+	TSharedRef<FJsonObject> BuildRepresentationReport() const;
+
+	/**
+	 * Pin agents to the near tier. Selector resolution happens in the handler; this takes handles.
+	 * Idempotent per agent: promoting an already-promoted agent creates no second actor.
+	 */
+	int32 PromoteAgents(const TArray<FMassEntityHandle>& Entities, FString& OutErrorCode,
+		FString& OutMessage);
+	int32 DemoteAgents(const TArray<FMassEntityHandle>& Entities, FString& OutErrorCode,
+		FString& OutMessage);
+
+	/** Live agent handles, for selector resolution by the handlers. */
+	const TArray<FMassEntityHandle>& GetOwnedRioters() const { return OwnedRioters; }
+	const TArray<FMassEntityHandle>& GetOwnedDefenders() const { return OwnedDefenders; }
+
+	FRiotRepresentationManager& GetRepresentationManager() { return RepresentationManager; }
+
 private:
 	FMassEntityManager* GetEntityManager() const;
 
@@ -110,7 +129,21 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UInstancedStaticMeshComponent> DefenderISM = nullptr;
 
+	/**
+	 * Owns every visual representation of the crowd.
+	 *
+	 * CLAUDE-NOTE: a plain member rather than a UObject. It holds only weak actor pointers, and the
+	 * actors it spawns are kept alive by the world's actor list, so there is nothing here for GC to
+	 * need to see. Making it a UObject would add a second lifetime to reason about alongside this
+	 * subsystem's, for no benefit.
+	 */
+	FRiotRepresentationManager RepresentationManager;
+
 	FString ActiveScenarioId;
+
+	/** Representation profile applied at the next spawn. Empty = built-in defaults. */
+	FString ActiveRepresentationProfileId;
+
 	bool bSpawned = false;
 	bool bRunning = false;
 };

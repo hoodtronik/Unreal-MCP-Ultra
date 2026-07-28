@@ -123,6 +123,26 @@ bool URiotCrowdSubsystem::SpawnScenario(const FString& ScenarioId, FString& OutE
 
 	Scenario->ResetRuntimeState();
 
+	// CLAUDE-NOTE: the representation manager is initialised BEFORE any entity exists, and it is
+	// given a SNAPSHOT of the profile store rather than a live reference. Profiles registered while a
+	// scenario is running therefore do not change what is already spawned, which is what makes a
+	// re-run of the same seed reproduce the same character assignment — the alternative would let an
+	// unrelated registration mid-run silently alter the crowd.
+	{
+		const FRiotCharacterProfileStore& ProfileStore = FRiotCharacterProfileStore::Get();
+
+		FRiotRepresentationProfile RepProfile;
+		if (!ActiveRepresentationProfileId.IsEmpty())
+		{
+			if (const FRiotRepresentationProfile* Found =
+				ProfileStore.FindRepresentation(ActiveRepresentationProfileId))
+			{
+				RepProfile = *Found;
+			}
+		}
+		RepresentationManager.Initialize(GetWorld(), RepProfile, ProfileStore.All());
+	}
+
 	// CLAUDE-NOTE: ALL randomness derives from this one stream, and it is consumed in a fixed
 	// order (origins in array order, then agents in index order, then blockades). That fixed
 	// consumption order is what makes the same seed reproduce the same run — not the seed alone.
@@ -161,6 +181,9 @@ bool URiotCrowdSubsystem::SpawnScenario(const FString& ScenarioId, FString& OutE
 
 			FRiotTargetFragment& Target = EntityManager->GetFragmentDataChecked<FRiotTargetFragment>(Entity);
 			Target.Destination = Origin.InitialTarget;
+
+			RepresentationManager.RegisterAgent(
+				Entity, Scenario->Factions[FactionIndex].Type, Agent.SeedSalt);
 
 			OwnedRioters.Add(Entity);
 			++RioterTotal;
@@ -207,6 +230,9 @@ bool URiotCrowdSubsystem::SpawnScenario(const FString& ScenarioId, FString& OutE
 
 			FRiotTargetFragment& Target = EntityManager->GetFragmentDataChecked<FRiotTargetFragment>(Entity);
 			Target.Destination = Position;
+
+			RepresentationManager.RegisterAgent(
+				Entity, Scenario->Factions[FactionIndex].Type, Agent.SeedSalt);
 
 			OwnedDefenders.Add(Entity);
 			++DefenderTotal;
@@ -332,6 +358,13 @@ bool URiotCrowdSubsystem::ResetScenario(FString& OutErrorCode, FString& OutError
 	}
 
 	PendingReleases.Reset();
+
+	// CLAUDE-NOTE: representation is torn down BEFORE the placeholder visualizer, and after the
+	// entities are destroyed. Order matters: the manager holds weak actor pointers keyed by entity
+	// handle, so releasing it while entities still existed would leave actors parented to agents
+	// about to vanish, and the acceptance test's "no leaked actors after reset" check is exactly what
+	// that would fail.
+	RepresentationManager.Reset();
 	DestroyVisualizer();
 
 	if (FRiotScenario* Scenario = FRiotScenarioStore::Get().Find(ActiveScenarioId))
@@ -882,50 +915,55 @@ void URiotCrowdSubsystem::DestroyVisualizer()
 void URiotCrowdSubsystem::TickRepresentation()
 {
 	FMassEntityManager* EntityManager = GetEntityManager();
-	if (!EntityManager || !RioterISM || !DefenderISM)
+	if (!EntityManager)
 	{
 		return;
 	}
 
-	auto SyncInstances = [EntityManager](UInstancedStaticMeshComponent* ISM,
-		const TArray<FMassEntityHandle>& Entities, bool bHideInactive)
+	// CLAUDE-NOTE: the foundation's wholesale ClearInstances + AddInstance rebuild used to live here
+	// and was the dominant cost at 244 agents. It is replaced, not tuned.
+	//
+	// Its stated reason was sound: instance counts change every frame, and
+	// UInstancedStaticMeshComponent::RemoveInstance re-indexes every later instance, so any cached
+	// index goes stale within a few frames. FRiotRepresentationManager sidesteps that rather than
+	// solving it — instance slots are allocated once and never removed while a run is live; a
+	// released slot is parked at zero scale and recycled. Indices are then stable for the whole run,
+	// and the steady state is one transform write per visible agent plus a single render-state dirty.
+	//
+	// The manager also owns the tier assignment, actor pooling and budgets, so representation is now
+	// one call rather than a per-faction sync. See RiotRepresentation.h.
+	const UWorld* WorldPtr = GetWorld();
+	const double WorldTime = WorldPtr ? WorldPtr->GetTimeSeconds() : 0.0;
+	RepresentationManager.Update(*EntityManager, WorldTime, WorldPtr ? WorldPtr->GetDeltaSeconds() : 0.0);
+}
+
+TSharedRef<FJsonObject> URiotCrowdSubsystem::BuildRepresentationReport() const
+{
+	FMassEntityManager* EntityManager = GetEntityManager();
+	if (!EntityManager)
 	{
-		TArray<FTransform> Transforms;
-		Transforms.Reserve(Entities.Num());
+		TSharedRef<FJsonObject> Empty = MakeShared<FJsonObject>();
+		Empty->SetStringField(TEXT("cameraSource"), TEXT("unavailable"));
+		Empty->SetNumberField(TEXT("totalAgents"), 0);
+		return Empty;
+	}
 
-		for (const FMassEntityHandle& Entity : Entities)
-		{
-			if (!EntityManager->IsEntityValid(Entity))
-			{
-				continue;
-			}
+	TSharedRef<FJsonObject> Json =
+		const_cast<FRiotRepresentationManager&>(RepresentationManager).BuildReport(*EntityManager);
+	Json->SetStringField(TEXT("activeScenarioId"), ActiveScenarioId);
+	return Json;
+}
 
-			const FRiotAgentFragment& Agent = EntityManager->GetFragmentDataChecked<FRiotAgentFragment>(Entity);
-			if (bHideInactive &&
-				(Agent.State == ERiotAgentState::Queued || Agent.State == ERiotAgentState::Inactive))
-			{
-				continue;
-			}
+int32 URiotCrowdSubsystem::PromoteAgents(const TArray<FMassEntityHandle>& Entities,
+	FString& OutErrorCode, FString& OutMessage)
+{
+	return RepresentationManager.PromoteAgents(Entities, OutErrorCode, OutMessage);
+}
 
-			FTransform Transform = EntityManager->GetFragmentDataChecked<FTransformFragment>(Entity).GetTransform();
-			// BasicShapes are 100uu; scale down to something person-sized so a crowd reads as a crowd.
-			Transform.SetScale3D(FVector(0.5, 0.5, 1.0));
-			Transforms.Add(Transform);
-		}
-
-		// CLAUDE-NOTE: rebuild wholesale rather than diffing. Instance counts change every frame as
-		// agents are released and deactivated, and AddInstance/RemoveInstance shuffles indices, so
-		// index-based updates drift out of sync with the entity list within a few frames.
-		// BatchUpdateInstancesTransforms cannot change the count, hence Clear + Add.
-		ISM->ClearInstances();
-		for (const FTransform& Transform : Transforms)
-		{
-			ISM->AddInstance(Transform, /*bWorldSpace=*/true);
-		}
-	};
-
-	SyncInstances(RioterISM, OwnedRioters, /*bHideInactive=*/true);
-	SyncInstances(DefenderISM, OwnedDefenders, /*bHideInactive=*/false);
+int32 URiotCrowdSubsystem::DemoteAgents(const TArray<FMassEntityHandle>& Entities,
+	FString& OutErrorCode, FString& OutMessage)
+{
+	return RepresentationManager.DemoteAgents(Entities, OutErrorCode, OutMessage);
 }
 
 // ============================================================
