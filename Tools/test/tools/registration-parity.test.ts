@@ -24,9 +24,20 @@ function toolFiles(): string[] {
     .map((f) => path.join(TOOLS_DIR, f));
 }
 
+// CLAUDE-NOTE: comments must be stripped before matching. Found 2026-07-28 while proving the riot
+// invariant could fail: commenting out a TOOL_REGISTRATIONS entry left this test GREEN, because
+// `registry.includes("register: registerFooTools")` matches the text just as happily inside a
+// `//` comment as in live code. A commented-out registration is exactly the silent-drift this file
+// exists to catch, so the check was blind to its own failure mode.
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
 describe("tool registration parity", () => {
-  const registry = fs.readFileSync(path.join(SRC_DIR, "tool-registry.ts"), "utf-8");
-  const index = fs.readFileSync(path.join(SRC_DIR, "index.ts"), "utf-8");
+  const registry = stripComments(fs.readFileSync(path.join(SRC_DIR, "tool-registry.ts"), "utf-8"));
+  const index = stripComments(fs.readFileSync(path.join(SRC_DIR, "index.ts"), "utf-8"));
 
   const exported: { fn: string; file: string; toolCount: number }[] = [];
   for (const file of toolFiles()) {

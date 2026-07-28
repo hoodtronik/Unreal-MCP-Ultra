@@ -47,6 +47,7 @@ import { registerProfilingTools } from "./tools/profiling.js";
 import { registerVisionTools } from "./tools/vision.js";
 import { registerLightingTools } from "./tools/lighting.js";
 import { registerActorStateTools } from "./tools/actor-state.js";
+import { registerRiotCrowdTools } from "./tools/riot-crowd.js";
 
 // CLAUDE-NOTE: single source of truth for "every tool-registration function + a human-friendly
 // category label", consumed by index.ts (real registration), batch-schema-invariant.test.ts
@@ -112,4 +113,10 @@ export const TOOL_REGISTRATIONS: ToolRegistration[] = [
   // not catch it: the routes ARE referenced in src/, just from a file nothing calls. Found by
   // comparing the live server's tool count (238) against the source count (241).
   { register: registerActorStateTools, category: "Actor State" },
+  // CLAUDE-NOTE: riot tools are ALWAYS registered, even though the C++ feature is optional. The
+  // repo's convention is registered-but-reporting-unavailable rather than conditionally-absent:
+  // a tool that vanishes gives an agent no way to discover why, whereas riot_get_capabilities
+  // answering "featureInstalled: false" with install instructions is actionable. The tools detect
+  // the missing routes via 404 and return RIOT_FEATURE_NOT_INSTALLED.
+  { register: registerRiotCrowdTools, category: "Riot Crowd (optional)" },
 ];

@@ -12,6 +12,20 @@ const SERVER_CPP = path.resolve(
   "BlueprintMCPServer.cpp",
 );
 
+// CLAUDE-NOTE: the optional Riot Crowd plugin contributes its routes through the core's
+// external-endpoint seam, so they are registered in RiotCrowdRegistration.cpp rather than via
+// FHttpPath in BlueprintMCPServer.cpp. Without scanning it, every riot route the TS layer calls
+// would look like a missing C++ registration — the exact false positive that would train someone
+// to ignore this test. Registered externally, but still registered.
+const RIOT_REGISTRATION_CPP = path.resolve(
+  PLUGIN_ROOT,
+  "RiotCrowd",
+  "Source",
+  "BlueprintMCPRiotCrowd",
+  "Private",
+  "RiotCrowdRegistration.cpp",
+);
+
 const ROUTE_RE = /\/api\/[a-zA-Z0-9-]+/g;
 
 // CLAUDE-NOTE: /api/test-save is an intentional diagnostic-only endpoint with no MCP tool wrapper
@@ -45,6 +59,14 @@ describe("TS/C++ route parity", () => {
       (m) => m[1],
     ),
   );
+
+  // External endpoints: Add(TEXT("/api/riot-spawn"), TEXT("riot-spawn"), ...)
+  const riotSource = fs.existsSync(RIOT_REGISTRATION_CPP)
+    ? fs.readFileSync(RIOT_REGISTRATION_CPP, "utf-8")
+    : "";
+  for (const m of riotSource.matchAll(/TEXT\("(\/api\/[a-zA-Z0-9-]+)"\)/g)) {
+    cppRoutes.add(m[1]);
+  }
 
   it("has a C++ route registration for every route the TS layer calls", () => {
     const missingInCpp = [...tsRoutes].filter((r) => !cppRoutes.has(r)).sort();
