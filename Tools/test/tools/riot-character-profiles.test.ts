@@ -270,6 +270,36 @@ describe("riot representation model", () => {
     expect(representationCpp).toMatch(/never dropped from the simulation/i);
   });
 
+  it("Mass is never touched while the world is tearing down", () => {
+    // CLAUDE-NOTE: guards a real editor crash. UMassEntitySubsystem exposes only asserting accessors
+    // (check(EntityManager)) and keeps the member protected, so there is no way to ask whether the
+    // manager is still alive. Ending PIE with a crowd still spawned therefore killed the editor with
+    // "Assertion failed: EntityManager [MassEntitySubsystem.h] [Line: 36]". The world's teardown flag
+    // is the only available signal. Removing either guard reintroduces the crash.
+    const subsystemCpp = read(RIOT_SRC, "Private", "RiotCrowdSubsystem.cpp");
+
+    const accessor = subsystemCpp.slice(
+      subsystemCpp.indexOf("FMassEntityManager* URiotCrowdSubsystem::GetEntityManager"),
+      subsystemCpp.indexOf("bool URiotCrowdSubsystem::SpawnScenario"),
+    );
+    expect(accessor.length).toBeGreaterThan(100);
+    expect(accessor, "GetEntityManager must bail out while the world is tearing down").toContain(
+      "bIsTearingDown",
+    );
+    // The guard has to come before the asserting engine call, not after it.
+    expect(accessor.indexOf("bIsTearingDown")).toBeLessThan(
+      accessor.indexOf("GetMutableEntityManager"),
+    );
+
+    const tick = subsystemCpp.slice(
+      subsystemCpp.indexOf("void URiotCrowdSubsystem::Tick"),
+      subsystemCpp.indexOf("void URiotCrowdSubsystem::TickSpawning"),
+    );
+    expect(tick, "Tick must stop as soon as the world begins tearing down").toContain(
+      "bIsTearingDown",
+    );
+  });
+
   it("the old per-tick ISM rebuild is gone", () => {
     // The specific regression this milestone exists to fix. ClearInstances in the steady-state path
     // would silently restore the 64ms peak.

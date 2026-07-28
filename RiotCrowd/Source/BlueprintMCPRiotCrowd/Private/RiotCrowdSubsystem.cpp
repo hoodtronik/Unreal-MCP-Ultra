@@ -61,6 +61,29 @@ FMassEntityManager* URiotCrowdSubsystem::GetEntityManager() const
 		return nullptr;
 	}
 
+	// CLAUDE-NOTE: the bIsTearingDown guard is NOT defensive padding — without it, ending PIE while a
+	// crowd is still spawned crashes the editor outright:
+	//
+	//   LogSlate: Window 'RiotRiggedTest Preview [...]' being destroyed
+	//   Assertion failed: EntityManager [MassEntitySubsystem.h] [Line: 36]
+	//
+	// UMassEntitySubsystem exposes only GetEntityManager()/GetMutableEntityManager(), both of which
+	// check(EntityManager), and its EntityManager member is protected — so there is NO way to ask
+	// "is the manager still alive?" before touching it. World teardown releases it, subsystem
+	// deinitialisation order between UMassEntitySubsystem and this subsystem is not guaranteed, and
+	// this subsystem keeps ticking until it is told otherwise. The world's own teardown flag is the
+	// only signal available, and it is set before subsystems are torn down.
+	//
+	// Every caller already null-checks, and ResetScenario's null branch deliberately drops entity
+	// handles without touching a dead manager, so returning null here degrades safely.
+	//
+	// Found live: the previous milestone always called riot_reset before stopping PIE, so the abrupt
+	// path was never exercised until a PIE session was stopped by hand mid-run.
+	if (World->bIsTearingDown)
+	{
+		return nullptr;
+	}
+
 	UMassEntitySubsystem* EntitySubsystem = World->GetSubsystem<UMassEntitySubsystem>();
 	return EntitySubsystem ? &EntitySubsystem->GetMutableEntityManager() : nullptr;
 }
@@ -391,6 +414,14 @@ bool URiotCrowdSubsystem::ResetScenario(FString& OutErrorCode, FString& OutError
 void URiotCrowdSubsystem::Tick(float DeltaTime)
 {
 	if (!bSpawned)
+	{
+		return;
+	}
+
+	// Stop simulating the moment the world starts going away, so no part of this tick reaches a
+	// half-destroyed Mass manager or a destroyed representation actor. See GetEntityManager().
+	const UWorld* World = GetWorld();
+	if (!World || World->bIsTearingDown)
 	{
 		return;
 	}
