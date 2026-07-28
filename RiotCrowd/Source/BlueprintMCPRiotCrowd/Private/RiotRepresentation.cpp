@@ -12,11 +12,30 @@
 #include "MassCommonFragments.h"
 #include "MassEntityManager.h"
 #include "MassLODSubsystem.h"
+#include "MassMovementFragments.h"
 
 namespace
 {
-	/** Placeholder mesh used only when no valid character profile applies. Diagnostic, never a result. */
-	const TCHAR* PlaceholderMeshPath = TEXT("/Engine/BasicShapes/Cylinder.Cylinder");
+	/**
+	 * Placeholder mesh used only when no valid character profile applies. Diagnostic, never a result.
+	 *
+	 * CLAUDE-NOTE: a CONE, not a cylinder, and that is a deliberate testing decision rather than
+	 * cosmetics. The foundation used a cylinder, which is rotationally symmetric — so when the
+	 * steering processor turned out never to write a rotation at all, the placeholder rendered
+	 * identically whether the facing was right or wrong, and the bug survived an entire milestone
+	 * undetected. It surfaced the instant a real character was drawn: the crowd strafed sideways
+	 * while playing a forward run.
+	 *
+	 * A directional placeholder cannot hide that class of defect. Rule of thumb worth keeping: a
+	 * stand-in that looks the same from every angle silently validates nothing about orientation.
+	 */
+	const TCHAR* PlaceholderMeshPath = TEXT("/Engine/BasicShapes/Cone.Cone");
+
+	/**
+	 * Maps the cone's local +Z (its tip) onto the actor's local +X (forward), so the placeholder
+	 * literally points where the agent is travelling.
+	 */
+	const FQuat PlaceholderTipForward = FRotator(90.0, 0.0, 0.0).Quaternion();
 
 	/** Parking transform for a released instance slot: zero scale renders nothing. */
 	const FTransform ParkedInstanceTransform(
@@ -553,7 +572,29 @@ void FRiotRepresentationManager::Update(FMassEntityManager& EntityManager, doubl
 		case ERiotRepresentationTier::Mid:
 			if (ARiotCharacterActor* Actor = Agent.Actor.Get())
 			{
-				Actor->SetActorTransform(Transform, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
+				// CLAUDE-NOTE: face the direction of travel, derived from velocity rather than taken
+				// from the Mass transform.
+				//
+				// The steering processor moves agents without ever writing a rotation, so
+				// FTransformFragment's rotation stays at its spawn value. That was invisible for the
+				// entire foundation milestone because the placeholder was a CYLINDER — rotationally
+				// symmetric, so a wrong yaw looked identical to a right one. Put a character on it and
+				// the whole crowd visibly strafes sideways while playing a forward run.
+				//
+				// Fixed here rather than in the steering processor on purpose: facing is a
+				// presentation concern, Mass stays authoritative over position, and defenders (who
+				// have zero velocity and a deliberately authored blockade yaw) must keep the rotation
+				// they were spawned with rather than being snapped to an arbitrary direction.
+				FTransform ActorTransform = Transform;
+				const FVector Velocity =
+					EntityManager.GetFragmentDataChecked<FMassVelocityFragment>(Agent.Entity).Value;
+				const FVector Planar(Velocity.X, Velocity.Y, 0.0);
+				if (Planar.SizeSquared() > 1.0)
+				{
+					ActorTransform.SetRotation(FRotationMatrix::MakeFromX(Planar).ToQuat());
+				}
+
+				Actor->SetActorTransform(ActorTransform, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
 				Actor->SetAgentState(Fragment.State, Agent.FactionType, Fragment.Speed, Fragment.Speed);
 				Actor->bIsPromoted = Agent.bManualPromote;
 				++Counts.ActiveSkeletalMeshes;
@@ -568,6 +609,22 @@ void FRiotRepresentationManager::Update(FMassEntityManager& EntityManager, doubl
 				if (Agent.InstanceSlot != INDEX_NONE)
 				{
 					FTransform InstanceTransform = Transform;
+					// Same facing correction as the actor tiers: Mass never writes a rotation, so
+					// without this an instance keeps its spawn yaw for the whole run. Harmless while
+					// the mesh was a symmetric cylinder, wrong the moment it is not.
+					const FVector InstVelocity =
+						EntityManager.GetFragmentDataChecked<FMassVelocityFragment>(Agent.Entity).Value;
+					const FVector InstPlanar(InstVelocity.X, InstVelocity.Y, 0.0);
+					if (InstPlanar.SizeSquared() > 1.0)
+					{
+						// Facing first, then tip-forward alignment, so the cone's point tracks travel.
+						InstanceTransform.SetRotation(
+							FRotationMatrix::MakeFromX(InstPlanar).ToQuat() * PlaceholderTipForward);
+					}
+					else
+					{
+						InstanceTransform.SetRotation(Transform.GetRotation() * PlaceholderTipForward);
+					}
 					InstanceTransform.SetScale3D(FVector(0.5, 0.5, 1.0));
 					// Deferred dirty: one render-state update for the whole pass instead of one per
 					// agent. This plus stable slots is what replaces the per-tick rebuild.
