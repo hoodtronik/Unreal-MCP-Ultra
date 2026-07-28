@@ -763,7 +763,20 @@ int32 SelectRiotProfileForAgent(const TArray<const FRiotCharacterProfile*>& Elig
 	// consecutive-ish salts. Feeding those straight into a modulo would band the crowd into visible
 	// stripes of identical characters by spawn order. A hash decorrelates them while staying
 	// perfectly reproducible for a given seed.
-	const uint32 Hashed = HashCombine(SeedSalt, 0x9E3779B9u);
+	//
+	// The finalizer below is Murmur3-style (the "lowbias32" constants), NOT UE's HashCombine.
+	// HashCombine was measured live and is not uniform enough for this: with three profiles weighted
+	// 2:2:1 over 210 agents it produced 104/64/42 where 84/84/42 was expected — the weight-1.0 bucket
+	// was exact, so the total was right, but the two equal-weight profiles split badly. That reads on
+	// screen as one character being noticeably more common than its twin. HashCombine is built to mix
+	// several hashes together, not to avalanche a single near-sequential integer.
+	uint32 Hashed = SeedSalt;
+	Hashed ^= Hashed >> 16;
+	Hashed *= 0x7FEB352DU;
+	Hashed ^= Hashed >> 15;
+	Hashed *= 0x846CA68BU;
+	Hashed ^= Hashed >> 16;
+
 	const double Roll = (static_cast<double>(Hashed) / static_cast<double>(MAX_uint32)) * TotalWeight;
 
 	double Accumulated = 0.0;

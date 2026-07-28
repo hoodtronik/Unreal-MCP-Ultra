@@ -497,9 +497,16 @@ void FRiotRepresentationManager::Update(FMassEntityManager& EntityManager, doubl
 	for (TPair<FMassEntityHandle, FRiotAgentRepresentation>& Pair : Agents)
 	{
 		FRiotAgentRepresentation& Agent = Pair.Value;
-		if (!EntityManager.IsEntityValid(Agent.Entity) || Agent.Tier == ERiotRepresentationTier::None)
+
+		// CLAUDE-NOTE: skip only on an invalid ENTITY. An earlier version of this guard also
+		// short-circuited when Agent.Tier was None, which meant that on the very first frame — when
+		// every agent still holds the default tier of None — the loop skipped all of them and no
+		// agent was ever transitioned into a tier at all. Found live: the budget pass correctly
+		// assigned 24 near and 200 mid, and then every tier count reported zero. The tier an agent is
+		// LEAVING must never gate whether it is allowed to arrive somewhere.
+		if (!EntityManager.IsEntityValid(Agent.Entity))
 		{
-			if (Agent.Tier == ERiotRepresentationTier::None) { continue; }
+			continue;
 		}
 
 		const FRiotAgentFragment& Fragment =
