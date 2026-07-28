@@ -231,6 +231,18 @@ void ARiotCharacterActor::SetAgentState(ERiotAgentState State, ERiotFactionType 
 	if (bHasProfile && ActiveProfile.AnimationMode == ERiotAnimationMode::SequenceSet)
 	{
 		PlaySlotAnimation(Slot, bForceRestart);
+
+		// CLAUDE-NOTE: couple playback rate to ACTUAL travel speed, per the milestone requirement
+		// that animation speed derives from agent velocity. Without this, a jog clip authored at
+		// ~375uu/s plays at full rate under an agent moving at 260, and the feet visibly slide -
+		// which is how the user spotted it. Clamped so an outlier speed reads as urgency rather
+		// than slow motion or comedy fast-forward. Skipped for non-locomotion clips (ReferenceSpeed
+		// 0) and while stationary, where the clip fixed rate is correct.
+		if (CurrentReferenceSpeed > 0.f && Speed > 1.f && MeshComponent)
+		{
+			const float RateFromSpeed = FMath::Clamp(Speed / CurrentReferenceSpeed, 0.5f, 1.7f);
+			MeshComponent->SetPlayRate(CurrentPlayRateBase * PlayRateScale * RateFromSpeed);
+		}
 	}
 	CurrentSlot = Slot;
 }
@@ -264,7 +276,9 @@ void ARiotCharacterActor::PlaySlotAnimation(ERiotAnimationSlot Slot, bool bForce
 
 	MeshComponent->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 	MeshComponent->SetAnimation(Sequence);
-	MeshComponent->SetPlayRate(static_cast<float>(Binding->PlayRate) * PlayRateScale);
+	CurrentPlayRateBase = static_cast<float>(Binding->PlayRate);
+	CurrentReferenceSpeed = static_cast<float>(Binding->ReferenceSpeed);
+	MeshComponent->SetPlayRate(CurrentPlayRateBase * PlayRateScale);
 	MeshComponent->Play(Binding->bLooping);
 
 	// CLAUDE-NOTE: seek to a deterministic per-agent offset rather than starting every agent at

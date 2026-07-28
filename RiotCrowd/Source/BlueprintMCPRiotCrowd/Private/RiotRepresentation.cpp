@@ -595,7 +595,11 @@ void FRiotRepresentationManager::Update(FMassEntityManager& EntityManager, doubl
 				}
 
 				Actor->SetActorTransform(ActorTransform, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
-				Actor->SetAgentState(Fragment.State, Agent.FactionType, Fragment.Speed, Fragment.Speed);
+				// Actual planar speed for playback scaling; the agent's configured speed as the
+				// normalisation ceiling. Passing configured speed for both made NormalizedSpeed a
+				// constant 1.0, which defeated the parameter's purpose.
+				Actor->SetAgentState(Fragment.State, Agent.FactionType, Planar.Size(),
+					FMath::Max<double>(Fragment.Speed, 1.0));
 				Actor->bIsPromoted = Agent.bManualPromote;
 				++Counts.ActiveSkeletalMeshes;
 			}

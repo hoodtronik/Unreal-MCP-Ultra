@@ -514,6 +514,12 @@ export function registerRiotCrowdTools(server: McpServer): void {
             animationPath: z.string().describe("Object path to an AnimSequence authored for this skeleton."),
             playRate: z.number().optional().describe("Base play rate. Per-agent variation multiplies this."),
             looping: z.boolean().optional().describe("Default true."),
+            referenceSpeed: z
+              .number()
+              .optional()
+              .describe(
+                "Ground speed (uu/s) this clip was authored for. When set, playback rate scales with actual agent speed so feet track the ground. Leave unset for non-locomotion clips (attacks, idles, deaths)."
+              ),
           })
         )
         .optional()
@@ -567,6 +573,7 @@ export function registerRiotCrowdTools(server: McpServer): void {
             animationPath: z.string(),
             playRate: z.number().optional(),
             looping: z.boolean().optional(),
+            referenceSpeed: z.number().optional(),
           })
         )
         .optional()
@@ -690,6 +697,7 @@ export function registerRiotCrowdTools(server: McpServer): void {
             animationPath: z.string(),
             playRate: z.number().optional(),
             looping: z.boolean().optional(),
+            referenceSpeed: z.number().optional(),
           })
         )
         .optional(),

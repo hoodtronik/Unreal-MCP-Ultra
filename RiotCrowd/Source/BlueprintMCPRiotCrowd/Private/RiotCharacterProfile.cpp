@@ -832,6 +832,7 @@ TSharedRef<FJsonObject> FRiotCharacterProfile::ToJson() const
 		BindingJson->SetStringField(TEXT("animationPath"), Binding.AnimationPath);
 		BindingJson->SetNumberField(TEXT("playRate"), Binding.PlayRate);
 		BindingJson->SetBoolField(TEXT("looping"), Binding.bLooping);
+		BindingJson->SetNumberField(TEXT("referenceSpeed"), Binding.ReferenceSpeed);
 		BindingArray.Add(MakeShared<FJsonValueObject>(BindingJson));
 	}
 	Json->SetArrayField(TEXT("animationSet"), BindingArray);

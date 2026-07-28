@@ -137,4 +137,9 @@ private:
 
 	float PhaseOffset = 0.f;
 	float PlayRateScale = 1.f;
+
+	/** Rate parameters of the binding currently playing, cached so per-frame speed scaling does not
+	 *  re-resolve the fallback chain. Set by PlaySlotAnimation. */
+	float CurrentPlayRateBase = 1.f;
+	float CurrentReferenceSpeed = 0.f;
 };

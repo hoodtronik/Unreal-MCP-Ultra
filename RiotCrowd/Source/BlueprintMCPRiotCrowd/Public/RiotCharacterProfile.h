@@ -109,6 +109,16 @@ struct FRiotAnimationBinding
 	/** Base play rate. Per-agent deterministic variation multiplies this; see the architecture doc. */
 	double PlayRate = 1.0;
 	bool bLooping = true;
+	/**
+	 * Ground speed (uu/s) this clip was authored for. When > 0, playback rate is additionally scaled
+	 * by (actual agent speed / this), clamped, so feet track the ground instead of sliding.
+	 *
+	 * CLAUDE-NOTE: exists because the milestone requires playback speed to derive from agent
+	 * velocity, and because the mismatch is visible - the user watched agents travel slower than
+	 * their run cycle suggested. 0 (the default) means "play at the fixed rate", which is right for
+	 * non-locomotion clips like attacks, deaths and idles.
+	 */
+	double ReferenceSpeed = 0.0;
 };
 
 /**

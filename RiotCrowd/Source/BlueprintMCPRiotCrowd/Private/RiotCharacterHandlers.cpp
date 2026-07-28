@@ -188,6 +188,11 @@ bool ReadProfileFromBody(const TSharedPtr<FJsonObject>& Body, FRiotCharacterProf
 			double PlayRate = 1.0;
 			if ((*Entry)->TryGetNumberField(TEXT("playRate"), PlayRate)) { Binding.PlayRate = PlayRate; }
 			(*Entry)->TryGetBoolField(TEXT("looping"), Binding.bLooping);
+			double ReferenceSpeed = 0.0;
+			if ((*Entry)->TryGetNumberField(TEXT("referenceSpeed"), ReferenceSpeed))
+			{
+				Binding.ReferenceSpeed = ReferenceSpeed;
+			}
 			OutProfile.AnimationSet.Add(Binding);
 		}
 	}
