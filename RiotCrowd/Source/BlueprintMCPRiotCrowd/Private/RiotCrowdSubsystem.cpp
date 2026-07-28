@@ -132,14 +132,15 @@ bool URiotCrowdSubsystem::SpawnScenario(const FString& ScenarioId, FString& OutE
 		const FRiotCharacterProfileStore& ProfileStore = FRiotCharacterProfileStore::Get();
 
 		FRiotRepresentationProfile RepProfile;
-		if (!ActiveRepresentationProfileId.IsEmpty())
+		if (!Scenario->RepresentationProfileId.IsEmpty())
 		{
 			if (const FRiotRepresentationProfile* Found =
-				ProfileStore.FindRepresentation(ActiveRepresentationProfileId))
+				ProfileStore.FindRepresentation(Scenario->RepresentationProfileId))
 			{
 				RepProfile = *Found;
 			}
 		}
+		ActiveRepresentationProfileId = Scenario->RepresentationProfileId;
 		RepresentationManager.Initialize(GetWorld(), RepProfile, ProfileStore.All());
 	}
 

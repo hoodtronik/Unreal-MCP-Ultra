@@ -25,6 +25,16 @@ struct FRiotFaction
 	ERiotFactionType Type = ERiotFactionType::Rioter;
 	int32 MaxSpawnCount = 0;
 	FLinearColor DebugColor = FLinearColor::White;
+
+	/**
+	 * Character profiles this faction may be represented by. Empty = fall back to any profile whose
+	 * factionTypes accept this faction's Type, and to the placeholder mesh if there are none.
+	 *
+	 * CLAUDE-NOTE: ids, not copies. Profiles live in FRiotCharacterProfileStore and are reusable
+	 * across scenarios, which is what makes "delete a profile that is in use" a real error rather
+	 * than an impossible one.
+	 */
+	TArray<FString> CharacterProfileIds;
 };
 
 struct FRiotFlowOrigin
@@ -171,6 +181,16 @@ struct FRiotScenario
 
 	ERiotLifecycle Lifecycle = ERiotLifecycle::Unconfigured;
 	FRiotPressureModel PressureModel;
+
+	/**
+	 * Representation profile governing LOD tiers for this scenario. Empty = built-in defaults.
+	 *
+	 * CLAUDE-NOTE: on the SCENARIO rather than on URiotCrowdSubsystem, because the subsystem dies
+	 * with the PIE world. Storing it there would silently reset the operator's configured distances
+	 * and budgets on every PIE stop, and the next run would use defaults while the tool that set them
+	 * still reported success.
+	 */
+	FString RepresentationProfileId;
 
 	TArray<FRiotFaction> Factions;
 	TArray<FRiotFlowOrigin> Origins;

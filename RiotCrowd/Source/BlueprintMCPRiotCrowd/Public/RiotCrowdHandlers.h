@@ -43,6 +43,21 @@ public:
 	static FString HandleResume(const FString& Body);
 	static FString HandleReset(const FString& Body);
 
+	// Rigged character profiles (rigged-animation-LOD milestone)
+	static FString HandleRegisterCharacterProfile(const FString& Body);
+	static FString HandleUpdateCharacterProfile(const FString& Body);
+	static FString HandleDeleteCharacterProfile(const FString& Body);
+	static FString HandleListCharacterProfiles(const FString& Body);
+	static FString HandleGetCharacterProfile(const FString& Body);
+	static FString HandleValidateCharacterProfile(const FString& Body);
+	static FString HandleAssignCharacterProfiles(const FString& Body);
+
+	// Representation
+	static FString HandleSetRepresentationProfile(const FString& Body);
+	static FString HandleGetRepresentationReport(const FString& Body);
+	static FString HandlePromoteAgents(const FString& Body);
+	static FString HandleDemoteAgents(const FString& Body);
+
 	/** Register every riot endpoint with the core server. Call from StartupModule(). */
 	static void RegisterEndpoints();
 
