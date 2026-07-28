@@ -28,9 +28,20 @@ For Ilyas. Everything below was observed on this machine; nothing is projected.
 6. `start_pie`, then `riot_spawn` → `riot_start`.
 7. Poll `riot_get_runtime_report` every 2–3 s.
 
-To capture images, use an OS-level grab of the **PIE window** (titled
-`RiotTest Preview [NetMode: Standalone 0]`). The helper used for this milestone is
-`scratchpad/run_evidence.ps1`. `viewport_capture` and `HighResShot` will *not* work — see below.
+To capture images, use the committed helper:
+
+```powershell
+cd Tools
+powershell -NoProfile -File .\test\manual\capture-riot-pie.ps1 `
+    -EvidenceRoot F:\.bpmcp-build\RiotEvidence -Name breach
+```
+
+It resolves the PIE window (titled `RiotTest Preview [NetMode: Standalone 0]`) by process name and
+title pattern, refuses to capture anything else, writes only inside `-EvidenceRoot`, verifies the
+PNG is non-zero, prints path/dimensions/bytes/SHA-256, and exits non-zero if the window is missing
+or the output was not produced. It never launches, closes, or modifies an editor or project.
+
+`viewport_capture` and `HighResShot` will *not* work here — see below.
 
 ## Expected visual sequence
 
@@ -63,17 +74,40 @@ Render-thread timings read 0.00 ms during PIE and are reported as **unavailable*
 
 ## Screenshots
 
-`F:\.bpmcp-build\RiotEvidence\` (outside the repo, not committed):
-`A_spawned`, `B_approaching`, `C_pressing`, `D_breach`, `E_through_panic`, `F_retreating`,
-`G_after_reset` — all 1286×760 PNG, ~1.3 MB each.
+**Committed, durable:**
+
+| Artefact | Path |
+|----------|------|
+| Contact sheet, all 7 stages labelled | `docs/riot-crowd/evidence/riot-stages-contact-sheet.jpg` (245 KB, 1270×1618) |
+| SHA-256 manifest | `docs/riot-crowd/evidence/EVIDENCE-SHA256.txt` (9 entries) |
+| Capture helper | `Tools/test/manual/capture-riot-pie.ps1` |
+| Package builder | `Tools/test/manual/build-evidence-package.ps1` |
+
+**Originals (not committed):** `F:\.bpmcp-build\RiotEvidence\` — `A_spawned`, `B_approaching`,
+`C_pressing`, `D_breach`, `E_through_panic`, `F_retreating`, `G_after_reset`, all 1286×760 PNG,
+1.31–1.33 MB each. The manifest hashes authenticate them if they are ever produced for audit. All
+nine hashes were re-verified independently after the manifest was written.
+
+The originals were **not** regenerated during closeout. A separate six-capture set produced while
+proving the helper works is kept apart under
+`F:\.bpmcp-build\RiotEvidence\closeout-verify\` (`verify_1_spawned` … `verify_6_after_reset`) so it
+cannot be confused with the reviewed evidence.
 
 ## Known limitations
 
 1. **Scenarios do not persist across editor restarts.** In-process by design, so PIE teardown cannot
    destroy them. Re-author or script it.
-2. **In-editor capture cannot see the simulation.** `viewport_capture` and `HighResShot` photograph
-   the editor viewport, where riot entities do not exist. They return valid-looking images of an
-   empty field — this genuinely misled the first evidence pass.
+2. **In-editor capture cannot see the simulation, in this PIE configuration.** `viewport_capture`
+   and `HighResShot` photograph the editor viewport, where riot entities do not exist. They return
+   valid-looking images of an empty field — this genuinely misled the first evidence pass.
+
+   Scope of that claim is deliberately narrow: it was measured for the floating-window PIE that
+   `start_pie` produces on UE 5.6.1 (`WorldType=PlayInEditor`, `DestinationSlateViewport=nullptr`).
+   Setting `LastExecutedPlayModeType=PlayMode_InViewPort` in
+   `DefaultEditorPerProjectUserSettings.ini` was tried and did **not** redirect it, because
+   `start_pie` sets the session params explicitly. A build that passes `DestinationSlateViewport`,
+   or Simulate-In-Editor, was **not** tested and may behave differently. This is not a claim about
+   every possible PIE configuration.
 3. **The whole crowd flips to breaching at once.** Any agent whose nearest blockade is broken
    breaches regardless of distance, so the compression phase is brief and the surge is uniform.
 4. **Defenders never move.** `fallbackLocation` is stored and validated but nothing consumes it.
@@ -97,6 +131,22 @@ None of these were reachable by the automated suite.
 Separately, proving the new invariant *could* fail exposed a real blind spot in the repo's existing
 `registration-parity.test.ts`: it matched text inside comments, so a commented-out registration
 passed. Fixed.
+
+## Audit note: the force-closed `ElevenWeekFallSeries` editor session
+
+During the foundation milestone an editor holding
+`F:\_UnrealProjects\Ilyas_ElevenWeekFallSeries_Dev\...\ElevenWeekFallSeries.uproject` was
+force-terminated because it held the Live Coding lock and blocked all C++ builds.
+
+For the record:
+
+- That project is **unrelated** to Riot Crowd and was **not** opened, loaded, read, or modified by
+  the Riot Crowd feature or by any part of this work.
+- The process was terminated **only after explicit owner instruction**, chosen from options that
+  included closing it manually and disabling Live Coding instead.
+- The only consequence was the loss of any unsaved editor state in that session. No file in that
+  project was written by this milestone.
+- All Riot Crowd building and testing used the disposable `BuildHost` and `RiotTest` projects.
 
 ## Questions requiring your decision
 

@@ -1,6 +1,9 @@
 # Riot Crowd — Status
 
-**Ready for human review.** Do not merge to `main`.
+**Foundation provisionally accepted; review closeout complete.** Do not merge to `main`.
+
+This remains a **foundation** milestone. It is not production ready, and nothing in the closeout
+changed that — no Riot Crowd behaviour was added and no C++ source changed.
 
 | | |
 |---|---|
@@ -67,6 +70,35 @@ None were reachable by the automated suite:
 Separately, proving the new invariant could fail exposed a **pre-existing blind spot in the repo's
 own `registration-parity.test.ts`** — it matched text inside comments, so a commented-out
 registration passed. Fixed there too.
+
+## Review closeout
+
+Three narrow evidence/regression gaps were closed after provisional acceptance.
+
+| Gap | Outcome |
+|-----|---------|
+| **A** — real-client regression check only caught missing *riot* tools | Hardened to diff the full tool surface both ways against a committed manifest. Proven to fail on a simulated core-tool removal. |
+| **B** — evidence existed only as machine-local PNGs | Committed contact sheet + SHA-256 manifest; 9/9 hashes independently re-verified. |
+| **C** — capture procedure referenced a scratchpad script | Committed `capture-riot-pie.ps1` with window validation, path confinement, and gated exit codes. |
+
+**Baseline provenance:** `tool-baseline.json` core tools were captured by running a real MCP client
+against a detached worktree of the merge-base commit `af6ec58` — **not** the branch under test.
+That run saw 241 tools, 0 riot.
+
+| Artefact | Path |
+|----------|------|
+| Contact sheet | `docs/riot-crowd/evidence/riot-stages-contact-sheet.jpg` (245 KB) |
+| SHA-256 manifest | `docs/riot-crowd/evidence/EVIDENCE-SHA256.txt` |
+| Capture helper | `Tools/test/manual/capture-riot-pie.ps1` |
+| Evidence packager | `Tools/test/manual/build-evidence-package.ps1` |
+| Tool baseline | `Tools/test/manual/tool-baseline.json` |
+
+Closeout verification: typecheck ✓ · build ✓ · **633/68/0** ✓ · core C++ ✓ · riot C++ relink ✓ ·
+stdio harness exit 0 ✓ · live spawn→breach→panic→reset ✓ · capture helper 3 negative + 6 positive ✓
+· 9/9 hashes ✓ · clean shutdown ✓
+
+Full detail, including an expanded list of exactly what remains untested, is in the
+[test record](docs/riot-crowd/RIOT-CROWD-TEST-RECORD.md).
 
 ## Documents
 

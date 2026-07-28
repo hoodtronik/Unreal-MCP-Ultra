@@ -142,9 +142,106 @@ not exercised. Marked unavailable rather than guessed.
 Stuck-agent and failed-movement counts: **not instrumented.** All 210 agents reached a terminal
 state in every run, so no stuck agents were observed, but there is no counter to prove it.
 
+## Review closeout (post-`ff5a56c`)
+
+Three narrow gaps were closed after the foundation was provisionally accepted. No Riot Crowd
+behaviour was added; no C++ source changed.
+
+### Gap A — hardened real-client regression check
+
+The original harness only asserted the 16 riot tools were present, so its exit code could **not**
+detect a core tool disappearing. It now diffs the full tool set against a committed manifest in both
+directions.
+
+**Baseline provenance (this is the part that matters):** `Tools/test/manual/tool-baseline.json`
+`coreTools` were captured by running a real MCP stdio client against a **detached git worktree of
+the merge-base commit `af6ec58`** — not against the feature branch. Generating a baseline from the
+branch under test and comparing it to itself would be vacuous. That baseline run reported 241 tools
+and **0** riot tools, confirming the source is genuinely riot-free.
+
+| Run | Result | Exit |
+|-----|--------|------|
+| Feature branch, live editor | **PASS** — 257 total / 16 riot / 241 core, none missing, none unexpected, `riot_get_capabilities` round-trips | 0 |
+| Against the riot-free baseline server (negative) | **FAIL** — 241 total, 16 riot tools missing; correctly reported "Missing core tools: none" | 1 |
+| Simulated core-tool removal (negative) | **FAIL** — `MISSING CORE TOOLS (regression): get_blueprint_THAT_WAS_REMOVED` | 1 |
+
+The third run is the one that proves the gap is actually closed. The manifest was restored to
+241/257 afterwards and re-verified.
+
+Checks enforced: total count, riot count exactly 16, core count, every expected riot tool present,
+no unexpected `riot_`-prefixed tool, and the complete core name set still present. Intentional core
+*additions* are reported but do not fail — they require a conscious manifest refresh rather than
+passing silently.
+
+### Gap B — durable evidence package
+
+| Artefact | Path | Size |
+|----------|------|------|
+| Contact sheet (7 labelled stages) | `docs/riot-crowd/evidence/riot-stages-contact-sheet.jpg` | 245,116 bytes, 1270×1618 |
+| SHA-256 manifest | `docs/riot-crowd/evidence/EVIDENCE-SHA256.txt` | 3,067 bytes, 9 entries |
+| Package builder | `Tools/test/manual/build-evidence-package.ps1` | committed |
+
+Covers the seven originals (1286×760, 1,306,496 – 1,329,415 bytes each), the contact sheet, and the
+capture helper. All nine hashes were **independently re-verified** against the files after the
+manifest was written: 9 OK, 0 failed.
+
+The seven full-resolution PNGs remain uncommitted, consistent with this repository having no
+precedent for committing test evidence. The originals were not altered or regenerated.
+
+### Gap C — reproducible capture procedure
+
+`Tools/test/manual/capture-riot-pie.ps1` replaces the scratchpad script the review document
+previously referenced.
+
+| Verification | Result |
+|--------------|--------|
+| No PIE window open | **FAIL**, exit 1, no file created |
+| `-Name "..\escape"` traversal attempt | **FAIL**, exit 1, no file written outside the root |
+| Non-matching window title pattern | **FAIL**, exit 1 |
+| Live PIE, six sequential captures | **PASS**, exit 0 each; all 1286×760, 1,095,156 – 1,352,604 bytes |
+
+`Fail()` writes to stderr rather than using `Write-Error`, because `$ErrorActionPreference = "Stop"`
+would make `Write-Error` throw before `exit 1` ran — the documented exit code has to be deliberate,
+since callers gate on it.
+
+### Closeout live cycle
+
+Fresh scenario `closeout`, seed 20260728, run end to end:
+
+| Step | Result |
+|------|--------|
+| Dry-run spawn | planned 210/34, **spawned 0/0** |
+| Real spawn | 210 / 34 |
+| Approaching (t=11.0) | 210 advancing, ISM 210+34 |
+| Pressing (t=18.8) | 37 pressuring, pressure 31.9 |
+| Breach (t=25.5) | **BROKEN**, 96 passed, 71 retreating |
+| Panic (t=32.2) | 135 passed, 71 retreating |
+| Reset | success, live 0/0, 0 warnings, ISM released (−1/−1) |
+
+### Closeout verification matrix
+
+| Check | Result |
+|-------|--------|
+| TypeScript typecheck | Pass (exit 0) |
+| TypeScript build | Pass (exit 0) |
+| Full vitest suite | **633 passed / 68 skipped / 0 failed** (701 total) — unchanged |
+| Core `BlueprintMCP` C++ | Up to date, `Result: Succeeded` (no C++ changed) |
+| Optional Riot Crowd C++ | DLL deleted and **relinked from source**, `Result: Succeeded`, 415,232 bytes |
+| Real MCP stdio harness | Pass, exit 0 |
+| Live spawn/start/breach/panic/reset | Pass |
+| Capture-helper proof | Pass (3 negative, 6 positive) |
+| Evidence hash verification | 9/9 OK |
+| Clean editor shutdown | Pass |
+
+Note on the C++ builds: no C++ source changed during closeout, so the core module was already up to
+date. The riot module's DLL was deliberately deleted to force a genuine link step rather than
+accept a no-op. The full compile of both modules was performed at the reviewed commit and is
+recorded above.
+
 ## Visual evidence
 
-`F:\.bpmcp-build\RiotEvidence\` — outside the repository, **not committed**.
+`F:\.bpmcp-build\RiotEvidence\` — outside the repository, **not committed**. See the closeout
+section above for the committed contact sheet and hash manifest.
 
 | File | Size | Stage |
 |------|------|-------|
@@ -175,12 +272,40 @@ of a session. Root cause and fix in the commit history and findings §12.
 
 ## What was NOT tested
 
-Stated explicitly, because skipped is not passed:
+Stated explicitly, because skipped is not passed. Current as of the review closeout.
 
-- `riot_delete_scenario` against a currently-spawned scenario
-- `RIOT_FEATURE_NOT_INSTALLED` against a genuinely uninstalled plugin
-- `RIOT_RESET_FAILED` (reset never failed)
-- Any engine version other than 5.6.1
-- Whether a bare custom `UMassProcessor` auto-registers, isolated from the subsystem's own writes
-- Editor-world behaviour (the subsystem refuses to create there)
+**Riot behaviour and error paths**
+
+- `riot_delete_scenario` against a currently-spawned scenario (the reset-first branch)
+- `riot_add_hotspot` beyond authoring — hotspots activate but drive no behaviour
+- Defender fallback movement — `fallbackLocation` is stored and validated, nothing consumes it
+- `RIOT_FEATURE_NOT_INSTALLED` against a genuinely uninstalled plugin. The 404 path is asserted by
+  the vitest suite and by the harness's negative run against the riot-free baseline server, but a
+  real editor with the plugin physically absent was never exercised
+- `RIOT_RESET_FAILED` — reset succeeded on every attempt, so the downgrade branch never ran
+- `RIOT_UNSUPPORTED_ENGINE_VERSION` — only 5.6.1 was run
+- `RIOT_RUNTIME_STATE_MISMATCH` and `RIOT_LIVE_VERIFICATION_FAILED` — declared and asserted present,
+  never triggered
 - The 300-rioter / 40–60-defender stretch count
+
+**Engine and Mass**
+
+- Any engine version other than 5.6.1. No UE 5.8 code exists
+- Whether a bare custom `UMassProcessor` auto-registers into the PIE tick pipeline, isolated from
+  the subsystem's own transform writes. Agents move; which code moved them is not separated
+- Editor-world behaviour — `ShouldCreateSubsystem` refuses to create there, so that path is
+  unreachable by design and untested by consequence
+- Mass processor/archetype statistics. `MassInsights` is enabled by default but was never exercised
+- Stuck-agent and failed-movement counters — not instrumented. Every agent reached a terminal state
+  in every run, but there is no counter proving it
+
+**Capture**
+
+- Whether a PIE configuration that passes `DestinationSlateViewport`, or Simulate-In-Editor, would
+  be capturable by `viewport_capture` / `HighResShot`. The documented limitation is scoped to the
+  floating-window PIE that `start_pie` produces on 5.6.1 and is **not** a general claim
+
+**Tool-surface baseline**
+
+- Intentional core-tool *additions* are reported by the harness but do not fail it. A core tool
+  added without refreshing `tool-baseline.json` will be flagged in output only
