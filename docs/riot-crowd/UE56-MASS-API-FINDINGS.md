@@ -11,6 +11,7 @@ Every claim below carries one of:
 | Tier | Meaning |
 |------|---------|
 | **PROVEN-SOURCE** | Read directly out of the installed UE 5.6.1 tree on this machine |
+| **PROVEN-BUILD** | Confirmed by an actual UBT/UHT compile+link against UE 5.6.1 |
 | **PROVEN-LIVE** | Observed at runtime in a live editor/PIE session |
 | **DOCUMENTED** | Official UE 5.6 documentation only |
 | **INFERRED** | Strong reasoning from source read, but the specific behaviour was not executed |
@@ -18,7 +19,7 @@ Every claim below carries one of:
 | **UNSUPPORTED** | Confirmed unavailable |
 
 At the time of writing, **no PROVEN-LIVE claims exist in this document.** Everything is
-PROVEN-SOURCE or weaker. The live tier gets filled in by the acceptance run, not by this gate.
+PROVEN-BUILD or weaker. The live tier gets filled in by the acceptance run, not by this gate.
 
 ## Environment
 
@@ -117,10 +118,13 @@ cloning into `<Project>/Plugins/BlueprintMCP`. Therefore:
 The milestone brief anticipated this and instructs: prove the constraint, then choose the narrowest
 alternate architecture that preserves optional loading and capability detection.
 
-**Chosen architecture: a second module inside the existing `BlueprintMCP.uplugin`**, not a second
-plugin. Rationale and the mechanism for keeping Mass genuinely optional are recorded in
-`RIOT-CROWD-ARCHITECTURE.md`. The key point for this document is that the sibling-plugin option was
-rejected on measured evidence, not on convenience.
+**Initial conclusion — later overturned:** a second module inside the existing `BlueprintMCP.uplugin`.
+That was attempted, built, and **failed**. See §9, which supersedes this. The final architecture is a
+separate opt-in sibling plugin staged in this repo at `RiotCrowd/`.
+
+What survives from this section regardless: the sibling plugin **cannot ship pre-installed** by
+cloning this repo, because while it sits at `RiotCrowd/` inside the plugin it is never scanned.
+Installing it is an explicit copy/junction to `<Project>/Plugins/BlueprintMCPRiotCrowd`.
 
 ## 4. UE 5.6 API drift — signatures that changed
 
@@ -241,7 +245,70 @@ This is a deliberate narrowing of dependencies, not an inability to use them. It
 the capability matrix can report ZoneGraph/StateTree honestly as *available but unused* rather than
 implying they are wired in.
 
-## 8. Open questions the live run must answer
+## 9. UHT forbids reflected types inside preprocessor blocks — this killed the second-module design
+
+The first architecture attempt was a second module (`BlueprintMCPRiotCrowd`) inside
+`BlueprintMCP.uplugin`, with Mass made optional by a `WITH_RIOT_MASS` define: `Build.cs` would
+detect whether the host `.uproject` enabled MassGameplay, add the Mass modules only then, and guard
+all Mass-touching code with `#if WITH_RIOT_MASS`.
+
+**UBT accepted this. UHT rejected it outright.** — PROVEN-BUILD
+
+```
+RiotCrowdFragments.h(20): Error: 'USTRUCT' must not be inside preprocessor blocks,
+                                 except for WITH_EDITORONLY_DATA
+RiotCrowdFragments.h(26): Error: 'UPROPERTY' must not be inside preprocessor blocks, ...
+RiotCrowdSteeringProcessor.h(19): Error: 'UCLASS' must not be inside preprocessor blocks, ...
+Result: Failed (OtherCompilationError)
+```
+
+`WITH_EDITORONLY_DATA` is the *only* permitted conditional. Since Mass fragments **must** be
+`USTRUCT`s deriving `FMassFragment` and processors **must** be `UCLASS`es deriving `UMassProcessor`,
+there is no way to conditionally reflect them.
+
+**Therefore: the Mass link is all-or-nothing per module.** A single module cannot be "Mass-optional".
+Optionality has to live at the plugin boundary, which is what forced the final architecture.
+
+Two secondary findings from the same build:
+
+- The missing-plugin-dependency complaint is only a **warning**, not an error
+  (`"Plugin 'BlueprintMCP' does not list plugin 'MassGameplay' as a dependency, but module
+  'BlueprintMCPRiotCrowd' depends on module 'MassCommon'"`). So the conditional-Build.cs technique is
+  viable at the UBT layer — it is purely UHT that blocks it. Worth remembering for any future
+  non-reflected optional dependency. — PROVEN-BUILD
+- **Do not enable the `MassEntity` plugin.** UBT emits: `"Project 'UnrealEditor' depends on plugin
+  'MassEntity' which was deprecated in 5.5 and will soon be removed."` Naming the `MassEntity`
+  *module* in `PrivateDependencyModuleNames` is correct and sufficient, because it is an engine
+  Runtime module (§1). Enabling the deprecated shell plugin buys nothing and will break on a future
+  engine. — PROVEN-BUILD
+
+## 10. The final architecture builds
+
+`RiotCrowd/` is a complete, standalone plugin (`BlueprintMCPRiotCrowd.uplugin` + `Source/`) whose
+descriptor depends on `BlueprintMCP` and `MassGameplay`. Verified by junctioning both plugins as
+siblings into a disposable build host and building the editor target:
+
+```
+[610/784] Compile [x64] BlueprintMCPRiotCrowdModule.cpp
+[617/784] Compile [x64] Module.BlueprintMCPRiotCrowd.cpp
+[620/784] Link    [x64] UnrealEditor-BlueprintMCPRiotCrowd.lib
+[628/784] Link    [x64] UnrealEditor-BlueprintMCPRiotCrowd.dll
+Result: Succeeded
+Total execution time: 307.12 seconds
+```
+
+— PROVEN-BUILD
+
+This compile is what upgrades §4's signature claims from "read in a header" to "actually compiles":
+`ConfigureQueries(const TSharedRef<FMassEntityManager>&)`, the two-argument
+`ForEachEntityChunk(FMassExecutionContext&, ...)`, `FMassEntityQuery(UMassProcessor&)` construction,
+`FMassFragment`-derived `USTRUCT`s, and `FTransformFragment` / `FMassVelocityFragment` fragment views
+all built and linked together in `URiotCrowdSteeringProcessor`.
+
+**It does not prove the processor ever runs, or produces correct motion.** Compiling is not
+executing. That remains UNTESTED until the live run.
+
+## 11. Open questions the live run must answer
 
 These are **UNTESTED** and must not be asserted anywhere until the acceptance run settles them:
 

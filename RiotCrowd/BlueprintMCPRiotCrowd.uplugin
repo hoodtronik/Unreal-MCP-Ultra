@@ -1,0 +1,29 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "Blueprint MCP - Riot Crowd",
+	"Description": "Optional agent-directed cinematic riot crowd foundation for BlueprintMCP. Requires MassGameplay. Install as a SIBLING of BlueprintMCP, not inside it - see docs/riot-crowd/README.md.",
+	"Category": "Editor",
+	"CreatedBy": "",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "BlueprintMCPRiotCrowd",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "BlueprintMCP",
+			"Enabled": true
+		},
+		{
+			"Name": "MassGameplay",
+			"Enabled": true
+		}
+	]
+}
