@@ -308,19 +308,64 @@ all built and linked together in `URiotCrowdSteeringProcessor`.
 **It does not prove the processor ever runs, or produces correct motion.** Compiling is not
 executing. That remains UNTESTED until the live run.
 
-## 11. Open questions the live run must answer
+## 11. Answers from the live run
 
-These are **UNTESTED** and must not be asserted anywhere until the acceptance run settles them:
+The acceptance run settled the open questions. Tiers upgraded accordingly.
 
-1. Does enabling the `MassEntity` plugin change anything, given the module is engine-side? Or is
-   `MassGameplay` the only plugin that must be on?
-2. Do custom `UMassProcessor` subclasses auto-register into the tick pipeline in a PIE world, and at
-   which processing phase?
-3. Does `RandomSequence.h` give reproducible spawn ordering across runs with a fixed seed?
-4. Does `MassRepresentation` ISM rendering work without a `MassVisualizer` actor pre-placed in the
-   level?
-5. Is entity count observable cheaply enough to poll from an HTTP handler each frame?
-6. Confirm (5) — that processors genuinely do not tick in the editor world.
+1. **Is `MassGameplay` the only plugin that must be on?** — **Yes.** PROVEN-LIVE.
+   `riot_get_capabilities` reports `massEntity: false, massGameplay: true` and the simulation runs.
+   This confirms §1 empirically: the `MassEntity` *module* links and works with the deprecated shell
+   plugin disabled. Enabling it is unnecessary and warns.
+
+2. **Do custom `UMassProcessor` subclasses tick in PIE?** — Not directly answered, and worth being
+   precise. Motion is produced by `URiotCrowdSteeringProcessor`, and agents demonstrably move, but
+   the subsystem also writes transforms during orchestration. The run does **not** isolate which
+   one moved them. Still **UNTESTED** as a standalone claim; do not cite this as proof that a bare
+   custom processor auto-registers.
+
+3. **Does `RandomSequence.h` give reproducible ordering?** — Not used. Determinism is provided by a
+   single `FRandomStream` consumed in fixed order, and it holds: over three consecutive seeded runs
+   the counts were identical and breach time varied 0.01 s. PROVEN-LIVE for the hand-rolled
+   approach; `RandomSequence.h` itself remains UNTESTED.
+
+4. **Does ISM rendering work without a pre-placed `MassVisualizer`?** — **Yes**, using a plain
+   `UInstancedStaticMeshComponent` pair on a transient actor spawned at runtime. PROVEN-LIVE: 210
+   rioter + 34 defender instances with both meshes set, and the crowd is visible in PIE captures.
+   Note this does **not** use `MassRepresentation`'s traits — see the architecture doc.
+
+5. **Is entity count cheap enough to poll per request?** — **Yes.** PROVEN-LIVE. `CollectCounts()`
+   walks a few hundred handles per call and the report endpoint was polled every 2-3 s throughout
+   with no measurable cost.
+
+6. **Do processors tick in the editor world?** — Still **UNTESTED**. The subsystem is gated to game
+   worlds by `ShouldCreateSubsystem`, so the editor-world path was never exercised. The §5
+   conclusion remains INFERRED.
+
+## 12. Live findings that only appeared by running it
+
+Three defects surfaced in the acceptance run that no static test would have caught. All are fixed;
+they are recorded because each is a trap for the next person.
+
+- **A fixed `FActorSpawnParameters::Name` is fatal on respawn.** PROVEN-LIVE.
+  `Cannot generate unique name for 'RiotCrowdVisualizer'` (`LevelActor.cpp:585`) **crashed the
+  editor** on the second spawn of a session. After `Destroy()` the name stays reserved until GC, and
+  requesting it again is a fatal error — UE only auto-uniquifies when the name is left unset. It
+  survived the first run because that run spawned once; it took a spawn/reset/respawn cycle to
+  expose.
+
+- **PIE runs in a floating window, so in-editor capture cannot see the simulation.** PROVEN-LIVE.
+  Both `viewport_capture` and the `HighResShot` console command photograph the **editor** level
+  viewport, where riot entities do not exist. Setting
+  `LastExecutedPlayModeType=PlayMode_InViewPort` in `DefaultEditorPerProjectUserSettings.ini` did
+  **not** redirect it, because the core's `start_pie` sets `FRequestPlaySessionParams` explicitly.
+  Working evidence required an OS-level grab of the PIE window. Anyone planning to capture PIE
+  content through these tools should expect this.
+
+- **A trigger can fire against an empty eligible set and report success.** PROVEN-LIVE. A panic
+  trigger conditioned on `agents_passed` can only fire after a breach, by which time every agent has
+  flipped to `Breaching` — so the panic applied to nobody while still reporting `fired: true`.
+  Fixed by widening eligibility; the general lesson is that "trigger fired" and "trigger had an
+  effect" are different claims and the report should not conflate them.
 
 ---
 
