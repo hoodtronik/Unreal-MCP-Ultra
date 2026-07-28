@@ -342,7 +342,11 @@ bool URiotCrowdSubsystem::ResetScenario(FString& OutErrorCode, FString& OutError
 
 	bSpawned = false;
 	bRunning = false;
-	ActiveScenarioId.Reset();
+	// CLAUDE-NOTE: ActiveScenarioId is deliberately NOT cleared. Clearing it made
+	// riot_get_runtime_report answer "unconfigured" immediately after a successful reset, because
+	// it could no longer find the scenario to read its lifecycle — so a correct reset looked like
+	// the scenario had never been configured. Keeping the id lets the report say "reset", which is
+	// the truth. SpawnScenario overwrites it, so nothing goes stale.
 	return true;
 }
 
@@ -569,8 +573,15 @@ void URiotCrowdSubsystem::TickPressure(FRiotScenario& Scenario, double DeltaTime
 	for (int32 b = 0; b < Scenario.Blockades.Num(); ++b)
 	{
 		FRiotBlockade& Blockade = Scenario.Blockades[b];
+
+		// CLAUDE-NOTE: a broken segment decays to zero rather than freezing at its breaking value.
+		// The first live run left b_main reading 90.3 forever after it broke, which made the report
+		// look like the line was still under load long after the crowd had walked through it.
+		// PeakPressure retains the historical maximum, so nothing is lost by letting current fall.
 		if (Blockade.bBroken)
 		{
+			Blockade.CurrentPressure = FMath::Max(
+				0.0, Blockade.CurrentPressure - Model.DecayRatePerSecond * DeltaTime);
 			continue;
 		}
 
@@ -734,10 +745,20 @@ void URiotCrowdSubsystem::FirePanicTrigger(FRiotScenario& Scenario, FRiotTrigger
 			continue;
 		}
 		const FRiotAgentFragment& Agent = EntityManager->GetFragmentDataChecked<FRiotAgentFragment>(Entity);
+		// CLAUDE-NOTE: Breaching agents ARE eligible, and that is a bug fix rather than a widening.
+		// The first live acceptance run fired the panic trigger at t=17.9s and panicked exactly zero
+		// agents: the trigger's condition was "35 agents have passed", which by definition can only
+		// be true AFTER the blockade opens, and once it opens every remaining agent flips to
+		// Breaching within a frame. So the eligible set was empty every time, and panic silently did
+		// nothing while still reporting itself as fired.
+		// A crowd surging through a broken line turning into a rout is also the more realistic
+		// reading. Agents that already got through, or are already panicking/retreating/inactive,
+		// stay ineligible.
 		const bool bEligible =
 			Agent.State == ERiotAgentState::Advancing ||
 			Agent.State == ERiotAgentState::Blocked ||
-			Agent.State == ERiotAgentState::Pressuring;
+			Agent.State == ERiotAgentState::Pressuring ||
+			Agent.State == ERiotAgentState::Breaching;
 		if (bEligible)
 		{
 			Candidates.Add(Entity);
@@ -798,8 +819,22 @@ bool URiotCrowdSubsystem::EnsureVisualizer()
 	}
 
 	FActorSpawnParameters Params;
-	Params.Name = TEXT("RiotCrowdVisualizer");
+	// CLAUDE-NOTE: do NOT pin Params.Name to a fixed string. Doing so crashed the editor outright
+	// on the second spawn of a session:
+	//
+	//   Fatal error: LevelActor.cpp:585
+	//   Cannot generate unique name for 'RiotCrowdVisualizer' in level '.../UEDPIE_0_...'
+	//
+	// After riot_reset the previous visualizer has been Destroy()ed but not yet garbage collected,
+	// so its name is still reserved. Requesting that exact name again is a fatal error, not a
+	// fallback — UE only auto-uniquifies when you leave the name unset. This survived the first
+	// live run because that run only ever spawned once; it took the spawn/reset/respawn cycle the
+	// acceptance test requires to expose it.
+	//
+	// The actor is tracked by the VisualizerActor pointer, so it never needed a fixed name. The
+	// label is cosmetic and carries no uniqueness requirement.
 	Params.ObjectFlags |= RF_Transient;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	VisualizerActor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Params);
 	if (!VisualizerActor)
 	{
@@ -961,6 +996,19 @@ TSharedRef<FJsonObject> URiotCrowdSubsystem::BuildRuntimeReport() const
 	Report->SetNumberField(TEXT("spawnedRioters"), Scenario->SpawnedRioters);
 	Report->SetNumberField(TEXT("spawnedDefenders"), Scenario->SpawnedDefenders);
 	Report->SetNumberField(TEXT("agentsPassedBlockade"), Scenario->AgentsPassedBlockade);
+
+	// CLAUDE-NOTE: representation telemetry. Added after the first live run could not prove the
+	// crowd was rendering: PIE opens in a floating window, so both viewport_capture and HighResShot
+	// photograph the EDITOR level viewport, where riot entities do not exist. That left "the ISM is
+	// empty" and "the screenshot is of the wrong world" indistinguishable from the outside.
+	// Reporting the live instance counts separates them without needing a picture.
+	TSharedRef<FJsonObject> RepJson = MakeShared<FJsonObject>();
+	RepJson->SetBoolField(TEXT("visualizerActorValid"), VisualizerActor != nullptr);
+	RepJson->SetNumberField(TEXT("rioterInstances"), RioterISM ? RioterISM->GetInstanceCount() : -1);
+	RepJson->SetNumberField(TEXT("defenderInstances"), DefenderISM ? DefenderISM->GetInstanceCount() : -1);
+	RepJson->SetBoolField(TEXT("rioterMeshSet"), RioterISM && RioterISM->GetStaticMesh() != nullptr);
+	RepJson->SetBoolField(TEXT("defenderMeshSet"), DefenderISM && DefenderISM->GetStaticMesh() != nullptr);
+	Report->SetObjectField(TEXT("representation"), RepJson);
 
 	const FRiotRuntimeCounts Counts = CollectCounts();
 	TSharedRef<FJsonObject> CountsJson = MakeShared<FJsonObject>();
