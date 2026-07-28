@@ -4,6 +4,57 @@ import { ensureUE, uePost } from "../ue-bridge.js";
 
 export function registerScreenshotTools(server: McpServer): void {
   server.tool(
+    "capture_view",
+    "Render the world from a camera YOU choose and save a PNG: either an ad-hoc camera (location + lookAt/rotation) or an existing CameraActor placed in the level (by label). Captures the PIE world when PIE is running, otherwise the editor world (override with world:'pie'|'editor'). Unlike take_screenshot/viewport_capture this does not depend on any viewport or window, so it can see gameplay (crowds, simulations) from any vantage point.",
+    {
+      location: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .optional()
+        .describe("Camera position in world space. Required unless cameraActor is given."),
+      lookAt: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .optional()
+        .describe("Aim the camera at this world position. Takes precedence over rotation."),
+      rotation: z
+        .object({ pitch: z.number().optional(), yaw: z.number().optional(), roll: z.number().optional() })
+        .optional()
+        .describe("Explicit rotation when lookAt is omitted."),
+      cameraActor: z
+        .string()
+        .optional()
+        .describe("Capture through an existing CameraActor with this label instead of an ad-hoc transform. Uses its position, rotation and FOV."),
+      world: z
+        .enum(["auto", "pie", "editor"])
+        .optional()
+        .describe("Which world to render. Default auto: PIE if running, else editor."),
+      fov: z.number().optional().describe("Field of view in degrees for ad-hoc cameras. Default 90."),
+      width: z.number().optional().describe("Image width, 64-3840. Default 1280."),
+      height: z.number().optional().describe("Image height, 64-2160. Default 720."),
+      name: z.string().optional().describe("Output file name (no extension). Default capture_view."),
+    },
+    async (args) => {
+      const err = await ensureUE();
+      if (err) return { content: [{ type: "text" as const, text: err }] };
+
+      const data = await uePost("/api/capture-view", args);
+      if (data.error) {
+        return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
+      }
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: [
+              `Captured ${data.width}x${data.height} (${data.world} world${data.cameraActor ? `, camera '${data.cameraActor}'` : ""}).`,
+              `  file: ${data.path}`,
+            ].join("\n"),
+          },
+        ],
+      };
+    }
+  );
+
+  server.tool(
     "take_screenshot",
     "Capture a screenshot of the active viewport. Saves as PNG to the project's Saved/Screenshots folder. Requires editor mode.",
     {

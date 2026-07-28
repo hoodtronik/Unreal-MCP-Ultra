@@ -116,11 +116,14 @@ describe("riot character profile tools: audited baseline", () => {
     );
   });
 
-  it("the 241-tool core surface is untouched by this milestone", () => {
+  it("the core surface is exactly the audited 241 plus the owner-approved capture_view", () => {
     // CLAUDE-NOTE: the single most important assertion in this file. The whole architecture rests on
     // Riot Crowd being optional and additive; a core tool appearing or disappearing here means an
-    // optional plugin changed the surface every user sees.
-    expect(baseline.coreTools.length).toBe(241);
+    // optional plugin changed the surface every user sees. capture_view is the one sanctioned
+    // exception: the owner explicitly ordered camera features into core mid-milestone ("make the
+    // camera features for the Unreal MCP Ultra first"), and the baseline provenance records it.
+    expect(baseline.coreTools.length).toBe(242);
+    expect(baseline.coreTools).toContain("capture_view");
     expect(baseline.provenance.coreToolsSourceCommit).toBeTruthy();
     expect(baseline.coreTools.some((t: string) => t.startsWith("riot_"))).toBe(false);
   });

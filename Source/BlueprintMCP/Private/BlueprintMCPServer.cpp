@@ -916,6 +916,8 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 		QueuedHandler(TEXT("takeHighResScreenshot")));
 	Router->BindRoute(FHttpPath(TEXT("/api/viewport-capture")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("viewportCapture")));
+	Router->BindRoute(FHttpPath(TEXT("/api/capture-view")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("captureView")));
 	Router->BindRoute(FHttpPath(TEXT("/api/scene-digest")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("sceneDigest")));
 
@@ -1523,6 +1525,7 @@ void FBlueprintMCPServer::RegisterHandlers()
 
 	// Viewport screenshots
 	HandlerMap.Add(TEXT("takeScreenshot"),          [this](const TMap<FString, FString>&, const FString& B) { return HandleTakeScreenshot(B); });
+	HandlerMap.Add(TEXT("captureView"),             [this](const TMap<FString, FString>&, const FString& B) { return HandleCaptureView(B); });
 	HandlerMap.Add(TEXT("takeHighResScreenshot"),   [this](const TMap<FString, FString>&, const FString& B) { return HandleTakeHighResScreenshot(B); });
 	HandlerMap.Add(TEXT("viewportCapture"),         [this](const TMap<FString, FString>&, const FString& B) { return HandleViewportCapture(B); });
 	HandlerMap.Add(TEXT("sceneDigest"),             [this](const TMap<FString, FString>&, const FString& B) { return HandleSceneDigest(B); });

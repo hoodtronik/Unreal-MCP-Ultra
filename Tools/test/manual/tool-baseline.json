@@ -4,10 +4,11 @@
     "coreToolsSourceRef": "merge-base of feature/riot-crowd-foundation-ue56 with main",
     "coreToolsCapturedBy": "real MCP stdio client against a detached git worktree of that commit, NOT the feature branch",
     "note": "Refresh coreTools only when core tools are intentionally added or removed, and say so in the commit message. Do not regenerate it from the branch under test.",
-    "coreToolCount": 241,
+    "coreToolCount": 242,
     "riotToolCount": 27,
-    "expectedTotal": 268,
-    "riotToolsLastAudited": "rigged-animation-LOD milestone: +11 character-profile and representation tools, reviewed against a real MCP stdio client. coreTools deliberately untouched."
+    "expectedTotal": 269,
+    "riotToolsLastAudited": "rigged-animation-LOD milestone: +11 character-profile and representation tools, reviewed against a real MCP stdio client. riot_capture_view was briefly added then promoted to core as capture_view.",
+    "coreToolsAmendment": "capture_view added by explicit owner decision mid rigged-animation-LOD milestone: \"make the camera features for the Unreal MCP Ultra first\". Core count 241 -> 242. The rest of coreTools remains the merge-base capture."
   },
   "coreTools": [
     "add_anim_node",
@@ -34,6 +35,7 @@
     "begin_transaction",
     "bind_widget_event",
     "build_graph",
+    "capture_view",
     "change_function_parameter_type",
     "change_struct_node_type",
     "change_variable_type",
