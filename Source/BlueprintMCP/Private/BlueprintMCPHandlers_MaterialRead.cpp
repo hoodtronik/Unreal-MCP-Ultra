@@ -981,6 +981,14 @@ FString FBlueprintMCPServer::HandleValidateMaterial(const FString& Body)
 	// ERHIFeatureLevel::Type, not an EShaderPlatform. GMaxRHIShaderPlatform no longer
 	// converts implicitly, so pass GMaxRHIFeatureLevel (the global feature level) instead.
 	FMaterialResource* Resource = Material->GetMaterialResource(GMaxRHIFeatureLevel);
+
+	// CLAUDE-NOTE: a null Resource means the compile-error check never ran. This used to fall
+	// straight through with bValid still true, producing a response byte-identical to a genuinely
+	// clean material — "validated OK" when nothing had been validated. Fail closed instead, and
+	// report resourceChecked/unverifiedReason so a caller can tell "no errors found" apart from
+	// "no check performed". Expected to be false under -nullrhi (the test commandlet), where
+	// there is no shader platform to fetch a resource for.
+	const bool bResourceChecked = (Resource != nullptr);
 	if (Resource)
 	{
 		const TArray<FString>& CompileErrors = Resource->GetCompileErrors();
@@ -989,6 +997,10 @@ FString FBlueprintMCPServer::HandleValidateMaterial(const FString& Body)
 			bValid = false;
 			ErrorArray.Add(MakeShared<FJsonValueString>(Err));
 		}
+	}
+	else
+	{
+		bValid = false;
 	}
 
 	// Count expressions and connections
@@ -1018,9 +1030,21 @@ FString FBlueprintMCPServer::HandleValidateMaterial(const FString& Body)
 	Result->SetNumberField(TEXT("connectionCount"), ConnectionCount);
 	Result->SetArrayField(TEXT("errors"), ErrorArray);
 	Result->SetNumberField(TEXT("errorCount"), ErrorArray.Num());
+	Result->SetBoolField(TEXT("resourceChecked"), bResourceChecked);
+	if (!bResourceChecked)
+	{
+		Result->SetStringField(TEXT("unverifiedReason"),
+			TEXT("Could not obtain an FMaterialResource for the current shader platform, so "
+			     "compilation errors were not checked. This is expected when the editor is "
+			     "running without an RHI (-nullrhi). 'valid' is reported false because the "
+			     "material is unverified, not because it is known to be broken."));
+	}
 
 	UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: Material '%s' validation %s (%d errors)"),
-		*Material->GetName(), bValid ? TEXT("passed") : TEXT("failed"), ErrorArray.Num());
+		*Material->GetName(),
+		!bResourceChecked ? TEXT("UNVERIFIED (no material resource)")
+		                  : (bValid ? TEXT("passed") : TEXT("failed")),
+		ErrorArray.Num());
 
 	return JsonToString(Result);
 }

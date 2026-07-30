@@ -759,9 +759,15 @@ export function registerMaterialMutationTools(server: McpServer): void {
       const data = await uePost("/api/validate-material", { material });
       if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
 
+      // CLAUDE-NOTE: resourceChecked === false means the backend never obtained a material
+      // resource, so no compile check ran. Printing "Valid: No" there would assert the material
+      // is broken when it is merely unverified. Compare against false explicitly so an older
+      // backend that omits the field keeps the previous two-state behaviour.
+      const unverified = data.resourceChecked === false;
+
       const lines: string[] = [];
       lines.push(`Material: ${data.material || material}`);
-      lines.push(`Valid: ${data.valid ? "Yes" : "No"}`);
+      lines.push(`Valid: ${unverified ? "Unverified" : data.valid ? "Yes" : "No"}`);
       lines.push(`Expressions: ${data.expressionCount ?? 0}`);
       lines.push(`Connections: ${data.connectionCount ?? 0}`);
 
@@ -772,7 +778,14 @@ export function registerMaterialMutationTools(server: McpServer): void {
         }
       }
 
-      if (data.valid) {
+      if (unverified) {
+        lines.push(
+          `\nNot validated: ${data.unverifiedReason ?? "no material resource was available for the current shader platform."}`
+        );
+        lines.push(`\nNext steps:`);
+        lines.push(`  1. Re-run validate_material from an editor session with a live RHI`);
+        lines.push(`  2. Treat this result as "unknown", not as a pass or a failure`);
+      } else if (data.valid) {
         lines.push(`\nMaterial compiled successfully.`);
       } else {
         lines.push(`\nNext steps:`);
