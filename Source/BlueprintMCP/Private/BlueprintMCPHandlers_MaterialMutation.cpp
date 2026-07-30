@@ -402,10 +402,21 @@ FString FBlueprintMCPServer::HandleSetMaterialProperty(const FString& Body)
 			Material->PostEditChange();
 		}
 	}
+	// CLAUDE-NOTE: reads go through GetUsageByFlag() (public on 5.6 and 5.8), but the WRITES below
+	// deliberately still assign the bUsedWith* members directly on this 5.6 branch.
+	//
+	// UMaterial::SetUsageByFlag() is PRIVATE on 5.6 and only became public (ENGINE_API) in 5.8 —
+	// using it here fails with C2248, which is how this was found. Direct assignment is not
+	// deprecated on 5.6, so it compiles clean; the 5.8 branch uses SetUsageByFlag() because there
+	// the members ARE deprecated. Same behaviour either way: engine-side SetUsageByFlag() is a
+	// switch assigning the very same member.
+	//
+	// Deliberately NOT SetMaterialUsage(), which is public on both but additionally validates and
+	// can trigger a recompile — that would be a real behaviour change, not a deprecation fix.
 	else if (Property == TEXT("bUsedWithSkeletalMesh"))
 	{
 		bool bValue = Json->GetBoolField(TEXT("value"));
-		OldValue = Material->bUsedWithSkeletalMesh ? TEXT("true") : TEXT("false");
+		OldValue = Material->GetUsageByFlag(MATUSAGE_SkeletalMesh) ? TEXT("true") : TEXT("false");
 		NewValue = bValue ? TEXT("true") : TEXT("false");
 
 		if (!bDryRun)
@@ -418,7 +429,7 @@ FString FBlueprintMCPServer::HandleSetMaterialProperty(const FString& Body)
 	else if (Property == TEXT("bUsedWithMorphTargets"))
 	{
 		bool bValue = Json->GetBoolField(TEXT("value"));
-		OldValue = Material->bUsedWithMorphTargets ? TEXT("true") : TEXT("false");
+		OldValue = Material->GetUsageByFlag(MATUSAGE_MorphTargets) ? TEXT("true") : TEXT("false");
 		NewValue = bValue ? TEXT("true") : TEXT("false");
 
 		if (!bDryRun)
@@ -431,7 +442,7 @@ FString FBlueprintMCPServer::HandleSetMaterialProperty(const FString& Body)
 	else if (Property == TEXT("bUsedWithNiagaraSprites"))
 	{
 		bool bValue = Json->GetBoolField(TEXT("value"));
-		OldValue = Material->bUsedWithNiagaraSprites ? TEXT("true") : TEXT("false");
+		OldValue = Material->GetUsageByFlag(MATUSAGE_NiagaraSprites) ? TEXT("true") : TEXT("false");
 		NewValue = bValue ? TEXT("true") : TEXT("false");
 
 		if (!bDryRun)

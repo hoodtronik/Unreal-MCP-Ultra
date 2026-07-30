@@ -242,12 +242,17 @@ FString FBlueprintMCPServer::HandleGetMaterial(const TMap<FString, FString>& Par
 		Result->SetNumberField(TEXT("graphNodeCount"), GraphNodeCount);
 
 		// Usage flags
+		// CLAUDE-NOTE: read via GetUsageByFlag() rather than the bUsedWith* members. UE 5.8
+		// deprecated direct member access ("Always use the GetUsageByFlag() accessor") and Epic
+		// says the members go private in a later release. The accessor predates 5.6, so this one
+		// form compiles on both engines. Engine-side GetUsageByFlag() is a plain switch onto the
+		// same bits, so the reported values are identical — this is a compile-surface change only.
 		TSharedRef<FJsonObject> UsageFlags = MakeShared<FJsonObject>();
-		UsageFlags->SetBoolField(TEXT("bUsedWithSkeletalMesh"), Material->bUsedWithSkeletalMesh != 0);
-		UsageFlags->SetBoolField(TEXT("bUsedWithMorphTargets"), Material->bUsedWithMorphTargets != 0);
-		UsageFlags->SetBoolField(TEXT("bUsedWithNiagaraSprites"), Material->bUsedWithNiagaraSprites != 0);
-		UsageFlags->SetBoolField(TEXT("bUsedWithParticleSprites"), Material->bUsedWithParticleSprites != 0);
-		UsageFlags->SetBoolField(TEXT("bUsedWithStaticLighting"), Material->bUsedWithStaticLighting != 0);
+		UsageFlags->SetBoolField(TEXT("bUsedWithSkeletalMesh"), Material->GetUsageByFlag(MATUSAGE_SkeletalMesh));
+		UsageFlags->SetBoolField(TEXT("bUsedWithMorphTargets"), Material->GetUsageByFlag(MATUSAGE_MorphTargets));
+		UsageFlags->SetBoolField(TEXT("bUsedWithNiagaraSprites"), Material->GetUsageByFlag(MATUSAGE_NiagaraSprites));
+		UsageFlags->SetBoolField(TEXT("bUsedWithParticleSprites"), Material->GetUsageByFlag(MATUSAGE_ParticleSprites));
+		UsageFlags->SetBoolField(TEXT("bUsedWithStaticLighting"), Material->GetUsageByFlag(MATUSAGE_StaticLighting));
 		Result->SetObjectField(TEXT("usageFlags"), UsageFlags);
 
 		// Opacity mask clip value

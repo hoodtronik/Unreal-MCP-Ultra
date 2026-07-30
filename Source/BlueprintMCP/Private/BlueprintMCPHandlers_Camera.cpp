@@ -53,7 +53,13 @@ FString FBlueprintMCPServer::HandleGetViewportCamera(const FString& Body)
 	Result->SetObjectField(TEXT("rotation"), RotObj);
 
 	Result->SetNumberField(TEXT("fov"), ViewportClient->ViewFOV);
-	Result->SetNumberField(TEXT("cameraSpeed"), ViewportClient->GetCameraSpeedSetting());
+	// CLAUDE-NOTE: this reports the camera SPEED, not the old 1-8 speed-setting index.
+	// GetCameraSpeedSetting() was deprecated in 5.7 and its replacement
+	// (FEditorViewportCameraSpeedSettings) is float-only — there is no integer setting left to
+	// read, so the previous value is not reproducible. GetCameraSpeed() exists on 5.6 and 5.8
+	// alike and is what the field was always named for. Changed on 5.6 too, deliberately, to keep
+	// the two branches emitting the same thing.
+	Result->SetNumberField(TEXT("cameraSpeed"), ViewportClient->GetCameraSpeed());
 
 	return JsonToString(Result);
 }
