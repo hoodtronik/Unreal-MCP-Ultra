@@ -23,15 +23,22 @@ export async function ueGet(
   return resp.json();
 }
 
+// CLAUDE-NOTE: the 30s default is a client-side ceiling, not a server limit, and it suits endpoints
+// that touch a handful of fixtures. Whole-project sweeps instead scale with the HOST ENGINE's asset
+// count, which is not constant across engine versions — an unfiltered /api/validate-all-blueprints
+// passed on 5.6 but exceeds 30s on 5.8, which ships far more Blueprint-bearing plugins (26 Toolsets,
+// ModelContextProtocol, MetaHuman). Raising the global default would mask genuine hangs, so the
+// timeout is per-call and only the known-unbounded sweep opts into a longer one.
 export async function uePost(
   endpoint: string,
   body: Record<string, any>,
+  timeoutMs: number = 30_000,
 ): Promise<any> {
   const resp = await fetch(`${TEST_BASE_URL}${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   return resp.json();
 }

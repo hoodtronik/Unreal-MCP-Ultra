@@ -48,12 +48,20 @@ describe("validate_all_blueprints", () => {
     expect(typeof data.totalMatching).toBe("number");
   });
 
+  // CLAUDE-NOTE: unfiltered, this sweeps every Blueprint the host engine can see, so its runtime
+  // tracks the ENGINE's shipped asset count, not anything this repo controls. It fits inside the
+  // default 30s client timeout on 5.6 but not on 5.8. Budget raised on both the HTTP call and the
+  // test so a genuine hang still fails instead of hanging the suite indefinitely.
+  const UNFILTERED_SWEEP_TIMEOUT_MS = 180_000;
+
   it("validates with no filter (may take longer)", async () => {
-    const data = await uePost("/api/validate-all-blueprints", {});
+    const started = Date.now();
+    const data = await uePost("/api/validate-all-blueprints", {}, UNFILTERED_SWEEP_TIMEOUT_MS);
+    console.log(`[validate] unfiltered sweep took ${((Date.now() - started) / 1000).toFixed(1)}s`);
     expect(data.error).toBeUndefined();
     expect(data.totalChecked).toBeGreaterThanOrEqual(0);
     expect(typeof data.totalMatching).toBe("number");
-  });
+  }, UNFILTERED_SWEEP_TIMEOUT_MS + 30_000);
 });
 
 describe("validate_all_blueprints pagination", () => {
