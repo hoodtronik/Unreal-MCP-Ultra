@@ -304,6 +304,23 @@ describe("material mutation tools", () => {
       expect(data.expressionCount).toBeGreaterThanOrEqual(0);
     });
 
+    // CLAUDE-NOTE: regression guard. A null FMaterialResource used to skip the compile-error
+    // check and still return valid:true, so "checked and clean" was byte-identical to "never
+    // checked" — the tool claimed a pass it had not earned. resourceChecked separates the two,
+    // and valid:true is only ever legitimate when the check actually ran. Asserted as an
+    // invariant rather than a fixed expectation because resourceChecked is genuinely false
+    // under the -nullrhi test commandlet and true in a real editor.
+    it("never reports valid without having checked the material resource", async () => {
+      const data = await uePost("/api/validate-material", { material: matName });
+      expect(data.error).toBeUndefined();
+      expect(typeof data.resourceChecked).toBe("boolean");
+      expect(data.valid === true && data.resourceChecked === false).toBe(false);
+      if (data.resourceChecked === false) {
+        expect(data.valid).toBe(false);
+        expect(data.unverifiedReason).toBeTruthy();
+      }
+    });
+
     it("returns error for non-existent material", async () => {
       const data = await uePost("/api/validate-material", {
         material: "M_NonExistent_XYZ_999",
