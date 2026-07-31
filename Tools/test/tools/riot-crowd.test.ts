@@ -187,6 +187,81 @@ describe("riot crowd — optional-plugin boundary", () => {
   });
 });
 
+// CLAUDE-NOTE: this whole block exists because riot_get_capabilities reported a useless answer.
+// It probed for a *plugin* named MassEntity — a content-only shell this project deliberately leaves
+// disabled — so it answered `massEntity: false` on a healthy editor. On 5.6 that was at least
+// literally true of the plugin, and it still misled: three docs cited it as PROVEN-LIVE evidence
+// that only MassGameplay is required. On 5.8, where the shell plugin does not exist at all, the
+// same code flatly contradicted a running system. These assert the shape that prevents both.
+describe("riot crowd — capability probe honesty", () => {
+  const handlersRaw = fs.readFileSync(
+    path.join(RIOT_ROOT, "Source", "BlueprintMCPRiotCrowd", "Private", "RiotCrowdHandlers.cpp"),
+    "utf-8",
+  );
+
+  // CLAUDE-NOTE: assert against CODE, not comments. The first draft of these tests failed on the
+  // CLAUDE-NOTE that documents the bug, because the note quotes the banned call verbatim — exactly
+  // the text you want written down. A source-text invariant that a correct explanatory comment can
+  // break trains the next person to delete the explanation to get green, so strip comments first.
+  const handlersCpp = handlersRaw
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "");
+
+  it("never probes MassEntity or MassCore as a plugin", () => {
+    for (const engineModule of ["MassEntity", "MassCore"]) {
+      expect(
+        handlersCpp,
+        `${engineModule} is an engine Runtime module, not a plugin. IsPluginEnabled answers about ` +
+          `a shell this project keeps disabled, which is how the bug shipped — use IsModuleAvailable.`,
+      ).not.toContain(`IsPluginEnabled(TEXT("${engineModule}"))`);
+    }
+  });
+
+  it("probes the Mass ECS by module, covering both the 5.6 and 5.8 module names", () => {
+    expect(handlersCpp).toContain(`IsModuleAvailable(TEXT("MassEntity"))`);
+    expect(
+      handlersCpp,
+      "5.8 split Runtime/MassEntity into Runtime/Mass/{MassCore,...}. MassCore is absent on 5.6 and " +
+        "the check simply costs a false — kept so this file stays identical across engine branches.",
+    ).toContain(`IsModuleAvailable(TEXT("MassCore"))`);
+  });
+
+  it("does not report engine modules under the availablePlugins key", () => {
+    // Reported separately as availableModules. A name listed under "plugins" sends the reader to the
+    // plugin browser to enable something that cannot be enabled and does not need to be.
+    const availableBlock = handlersCpp.slice(
+      handlersCpp.indexOf("TSharedRef<FJsonObject> Available ="),
+      handlersCpp.indexOf('Result->SetObjectField(TEXT("availablePlugins"), Available);'),
+    );
+    expect(availableBlock.length).toBeGreaterThan(0);
+    expect(availableBlock).not.toContain("MassEntity");
+    expect(availableBlock).not.toContain("MassCore");
+    expect(handlersCpp).toContain('Result->SetObjectField(TEXT("availableModules"), Modules);');
+  });
+
+  it("warns about an untested engine only when the engine is not the one this branch targets", () => {
+    // This is the 5.6 branch, so 6. The 5.8 fork carries the identical file with an 8 — that single
+    // constant is the ONLY sanctioned divergence, and it is named so nobody syncs it as a stray
+    // literal. The 5.8 fork shipped a bare 6 here, warning every correct 5.8 install on every call.
+    expect(handlersCpp).toContain("constexpr int32 TargetEngineMinor = 6;");
+    expect(handlersCpp).toContain("Version.GetMinor() != TargetEngineMinor");
+  });
+
+  it("keeps the explicitly-unsupported flags as unconditional literals", () => {
+    // These were suspected of being collateral damage from the massEntity bug. They are not — they
+    // are milestone non-goals. If one ever becomes derived, that is a real capability change and
+    // this test should be updated deliberately alongside it, not silently.
+    for (const flag of [
+      "supportsHeroPromotion",
+      "supportsMelee",
+      "supportsZoneGraphNavigation",
+      "supportsStateTreeBehaviour",
+    ]) {
+      expect(handlersCpp).toContain(`Result->SetBoolField(TEXT("${flag}"), false);`);
+    }
+  });
+});
+
 describe("riot crowd — scenario model guarantees", () => {
   const scenarioCpp = fs.readFileSync(
     path.join(RIOT_ROOT, "Source", "BlueprintMCPRiotCrowd", "Private", "RiotScenario.cpp"),

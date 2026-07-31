@@ -23,7 +23,12 @@ For Ilyas. Everything below was observed on this machine; nothing is projected.
    ```
 3. Launch `F:\.bpmcp-build\RiotTest\RiotTest.uproject`. The MCP server auto-starts on port 9847.
 4. `riot_get_capabilities` — expect `featureInstalled: true`, `supported: true`, `5.6.1`,
-   `massGameplay: true`, `massEntity: false`.
+   `massGameplay: true`, `massEntity: true`, and `availableModules.MassEntity: true`.
+
+   `massEntity` reports on the engine **module**, which is always present — not on the deprecated
+   shell plugin, which stays off. It read `false` here until 2026-07-31; that was a probe bug, and a
+   `false` now means something is genuinely wrong. On a 5.8 editor also expect
+   `availableModules.MassCore: true`.
 5. Author the scenario (see the Quick start in [README.md](README.md), seed `20260728`).
 6. `start_pie`, then `riot_spawn` → `riot_start`.
 7. Poll `riot_get_runtime_report` every 2–3 s.

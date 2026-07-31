@@ -8,7 +8,8 @@
     "riotToolCount": 27,
     "expectedTotal": 269,
     "riotToolsLastAudited": "rigged-animation-LOD milestone: +11 character-profile and representation tools, reviewed against a real MCP stdio client. riot_capture_view was briefly added then promoted to core as capture_view.",
-    "coreToolsAmendment": "capture_view added by explicit owner decision mid rigged-animation-LOD milestone: \"make the camera features for the Unreal MCP Ultra first\". Core count 241 -> 242. The rest of coreTools remains the merge-base capture."
+    "coreToolsAmendment": "capture_view added by explicit owner decision (2026-07-28), mid rigged-animation-LOD milestone: \"make the camera features for the Unreal MCP Ultra first\". Renders any world from an ad-hoc or placed camera to PNG. Core count 241 -> 242. The rest of coreTools remains the merge-base capture.",
+    "mergeNote": "riotToolCount 27 / expectedTotal 269 are this branch's numbers; main carries 16 / 258 because the 11 character-profile and representation tools are unmerged. Resolved this way on the 2d261fe merge — do NOT 'fix' it back to main's counts while those tools exist here."
   },
   "coreTools": [
     "add_anim_node",
