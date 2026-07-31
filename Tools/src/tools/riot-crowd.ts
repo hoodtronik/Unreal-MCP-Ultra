@@ -128,6 +128,18 @@ export function registerRiotCrowdTools(server: McpServer): void {
         const required = (data.requiredPlugins ?? {})[name] !== undefined;
         lines.push(`  ${enabled ? "on " : "off"} ${name}${required ? "  (required)" : ""}`);
       }
+
+      // The Mass ECS ships as engine Runtime modules, not plugins, and their names differ by engine
+      // version (MassEntity on 5.6; MassEntity + MassCore on 5.8). Printed in their own section so
+      // nobody reads a missing one as "a plugin I forgot to enable" — there is nothing to enable.
+      const modules = Object.entries(data.availableModules ?? {});
+      if (modules.length > 0) {
+        lines.push("");
+        lines.push(`Engine modules (not plugins — nothing to enable):`);
+        for (const [name, present] of modules) {
+          lines.push(`  ${present ? "yes" : "no "} ${name}`);
+        }
+      }
       lines.push("");
       lines.push(`Supported:`);
       for (const key of Object.keys(data).filter((k) => k.startsWith("supports"))) {

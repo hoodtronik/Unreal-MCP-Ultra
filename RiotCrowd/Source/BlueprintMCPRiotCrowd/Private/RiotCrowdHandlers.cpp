@@ -10,6 +10,7 @@
 #include "Engine/World.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/EngineVersion.h"
+#include "Modules/ModuleManager.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -113,6 +114,28 @@ bool IsPluginEnabled(const TCHAR* PluginName)
 	return Plugin.IsValid() && Plugin->IsEnabled();
 }
 
+/**
+ * CLAUDE-NOTE: probe the MODULE, never a plugin, for anything that ships as engine Runtime code.
+ *
+ * `IsPluginEnabled(TEXT("MassEntity"))` was the wrong question. The MassEntity *plugin* is a
+ * content-only shell (no Source/ at all, see UE56-MASS-API-FINDINGS.md §1) that this project
+ * deliberately leaves disabled, while the ECS itself is an engine Runtime module this translation
+ * unit links against. So the old probe answered `massEntity: false` on a perfectly healthy editor.
+ *
+ * On 5.6 that false was at least literally true *of the plugin* — but nobody consumes the field to
+ * ask about the shell, and it misled in practice: three docs cited `massEntity: false` as
+ * PROVEN-LIVE evidence that only MassGameplay is required. On 5.8, where the shell plugin no longer
+ * exists at all, the same code became a flat contradiction of a running system. One fix for both.
+ *
+ * `ModuleExists` is the fallback for a module that is present but not yet demand-loaded;
+ * `IsModuleLoaded` covers the ones already up, which is the normal case for engine Runtime modules.
+ */
+bool IsModuleAvailable(const TCHAR* ModuleName)
+{
+	return FModuleManager::Get().IsModuleLoaded(ModuleName)
+		|| FModuleManager::Get().ModuleExists(ModuleName);
+}
+
 /** Look up a scenario, or produce the standard not-found error. */
 FRiotScenario* RequireScenario(const TSharedPtr<FJsonObject>& Body, FString& OutErrorJson)
 {
@@ -189,7 +212,15 @@ FString FRiotCrowdHandlers::HandleGetCapabilities(const FString& /*Body*/)
 		Version.GetMajor(), Version.GetMinor(), Version.GetPatch());
 	Result->SetStringField(TEXT("engineVersion"), VersionString);
 
-	const bool bMassEntity = IsPluginEnabled(TEXT("MassEntity"));
+	// CLAUDE-NOTE: MassEntity is a MODULE question, not a plugin question — see IsModuleAvailable.
+	// MassCore is checked because UE 5.8 split Runtime/MassEntity into Runtime/Mass/{MassCore,...}
+	// and moved the base element types there. It does not exist on 5.6, so the check costs a false
+	// here and nothing else — kept deliberately so this file stays identical across both engine
+	// branches. Only TargetEngineMinor below is allowed to differ.
+	const bool bMassEntityModule = IsModuleAvailable(TEXT("MassEntity"));
+	const bool bMassCoreModule = IsModuleAvailable(TEXT("MassCore"));
+	const bool bMassEntity = bMassEntityModule || bMassCoreModule;
+
 	const bool bMassGameplay = IsPluginEnabled(TEXT("MassGameplay"));
 	const bool bMassCrowd = IsPluginEnabled(TEXT("MassCrowd"));
 	const bool bZoneGraph = IsPluginEnabled(TEXT("ZoneGraph"));
@@ -209,13 +240,21 @@ FString FRiotCrowdHandlers::HandleGetCapabilities(const FString& /*Body*/)
 	Required->SetBoolField(TEXT("MassGameplay"), bMassGameplay);
 	Result->SetObjectField(TEXT("requiredPlugins"), Required);
 
+	// CLAUDE-NOTE: MassEntity deliberately does NOT appear here any more. Listing an engine Runtime
+	// module inside an object named "availablePlugins" is the exact category error that produced the
+	// false negative — a reader (human or agent) sees a plugin name and reaches for the plugin
+	// browser to turn it on, which is impossible and unnecessary. Modules are reported separately.
 	TSharedRef<FJsonObject> Available = MakeShared<FJsonObject>();
-	Available->SetBoolField(TEXT("MassEntity"), bMassEntity);
 	Available->SetBoolField(TEXT("MassGameplay"), bMassGameplay);
 	Available->SetBoolField(TEXT("MassCrowd"), bMassCrowd);
 	Available->SetBoolField(TEXT("ZoneGraph"), bZoneGraph);
 	Available->SetBoolField(TEXT("StateTree"), bStateTree);
 	Result->SetObjectField(TEXT("availablePlugins"), Available);
+
+	TSharedRef<FJsonObject> Modules = MakeShared<FJsonObject>();
+	Modules->SetBoolField(TEXT("MassEntity"), bMassEntityModule);
+	Modules->SetBoolField(TEXT("MassCore"), bMassCoreModule);
+	Result->SetObjectField(TEXT("availableModules"), Modules);
 
 	Result->SetBoolField(TEXT("deterministicSeed"), true);
 	Result->SetBoolField(TEXT("supportsFlowOrigins"), true);
@@ -226,6 +265,13 @@ FString FRiotCrowdHandlers::HandleGetCapabilities(const FString& /*Body*/)
 
 	// Explicitly unsupported, per the milestone's non-goals. Reported as false rather than omitted
 	// so an agent can branch on them instead of guessing from their absence.
+	//
+	// CLAUDE-NOTE: these four are UNCONDITIONAL literals, not derived from any plugin/module probe —
+	// checked deliberately while fixing the massEntity false negative, because they were suspected of
+	// being collateral damage from it. They are not. Enabling MassCrowd, ZoneGraph or StateTree will
+	// NOT flip them, and it should not: the foundation navigates by direct steering and has no
+	// ZoneGraph or StateTree code path to report on. They flip when the features are built, and the
+	// only honest way to change them is to change them here alongside that work.
 	Result->SetBoolField(TEXT("supportsHeroPromotion"), false);
 	Result->SetBoolField(TEXT("supportsMelee"), false);
 	Result->SetBoolField(TEXT("supportsZoneGraphNavigation"), false);
@@ -238,11 +284,19 @@ FString FRiotCrowdHandlers::HandleGetCapabilities(const FString& /*Body*/)
 		Warnings.Add(MakeShared<FJsonValueString>(
 			TEXT("MassGameplay is not enabled. Riot tools will reject spawn with RIOT_REQUIRED_PLUGIN_DISABLED.")));
 	}
-	if (Version.GetMajor() != 5 || Version.GetMinor() != 6)
+	// CLAUDE-NOTE: this is the ONE line that legitimately differs between the 5.6 and 5.8 branches —
+	// 6 here, 8 there. Named rather than inlined so the divergence is greppable instead of being a
+	// bare literal someone "helpfully" syncs. It was a bare 6 on the 5.8 fork too, which meant a
+	// correctly-installed 5.8 editor was warned on every call that it ran an untested engine.
+	// Left hard-coded rather than derived because the claim is "the engine this source was ported
+	// and tested against", which no runtime query can answer.
+	constexpr int32 TargetEngineMinor = 6;
+	if (Version.GetMajor() != 5 || Version.GetMinor() != TargetEngineMinor)
 	{
 		Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(
-			TEXT("This build targets UE 5.6; running on %s. Mass APIs changed in 5.6 and are untested here."),
-			*VersionString)));
+			TEXT("This build targets UE 5.%d; running on %s. Mass APIs have changed between engine ")
+			TEXT("releases and are untested here."),
+			TargetEngineMinor, *VersionString)));
 	}
 	if (bMassCrowd || bZoneGraph)
 	{

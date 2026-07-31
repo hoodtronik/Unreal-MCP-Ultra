@@ -313,9 +313,21 @@ executing. That remains UNTESTED until the live run.
 The acceptance run settled the open questions. Tiers upgraded accordingly.
 
 1. **Is `MassGameplay` the only plugin that must be on?** — **Yes.** PROVEN-LIVE.
-   `riot_get_capabilities` reports `massEntity: false, massGameplay: true` and the simulation runs.
-   This confirms §1 empirically: the `MassEntity` *module* links and works with the deprecated shell
-   plugin disabled. Enabling it is unnecessary and warns.
+   `riot_get_capabilities` reports `massGameplay: true` and the simulation runs with the deprecated
+   `MassEntity` shell plugin disabled. This confirms §1 empirically: the `MassEntity` *module* links
+   and works without it. Enabling the plugin is unnecessary and warns.
+
+   **Corrected 2026-07-31.** This answer originally cited `massEntity: false` as part of the proof.
+   That reading was wrong. The probe called `IsPluginEnabled("MassEntity")`, which asks about the
+   content-only shell — a question whose answer is *always* false here by design, so the field
+   carried no information about Mass at all. It now probes the module (`IsModuleAvailable`, checking
+   `MassEntity` and 5.8's `MassCore`) and answers `massEntity: true`. The *conclusion* above survives
+   unchanged — it was only ever supported by "the simulation runs", never by the broken field.
+
+   The same code on UE 5.8, where the shell plugin does not exist at all, returned `false` on an
+   editor with Mass loaded and all 16 endpoints serving. Watch for this shape: **a report that
+   agrees with your expectation for the wrong reason is indistinguishable from evidence until the
+   platform moves underneath it.**
 
 2. **Do custom `UMassProcessor` subclasses tick in PIE?** — Not directly answered, and worth being
    precise. Motion is produced by `URiotCrowdSteeringProcessor`, and agents demonstrably move, but
