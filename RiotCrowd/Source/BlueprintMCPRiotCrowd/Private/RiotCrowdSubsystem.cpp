@@ -61,6 +61,29 @@ FMassEntityManager* URiotCrowdSubsystem::GetEntityManager() const
 		return nullptr;
 	}
 
+	// CLAUDE-NOTE: the bIsTearingDown guard is NOT defensive padding — without it, ending PIE while a
+	// crowd is still spawned crashes the editor outright:
+	//
+	//   LogSlate: Window 'RiotRiggedTest Preview [...]' being destroyed
+	//   Assertion failed: EntityManager [MassEntitySubsystem.h] [Line: 36]
+	//
+	// UMassEntitySubsystem exposes only GetEntityManager()/GetMutableEntityManager(), both of which
+	// check(EntityManager), and its EntityManager member is protected — so there is NO way to ask
+	// "is the manager still alive?" before touching it. World teardown releases it, subsystem
+	// deinitialisation order between UMassEntitySubsystem and this subsystem is not guaranteed, and
+	// this subsystem keeps ticking until it is told otherwise. The world's own teardown flag is the
+	// only signal available, and it is set before subsystems are torn down.
+	//
+	// Every caller already null-checks, and ResetScenario's null branch deliberately drops entity
+	// handles without touching a dead manager, so returning null here degrades safely.
+	//
+	// Found live: the previous milestone always called riot_reset before stopping PIE, so the abrupt
+	// path was never exercised until a PIE session was stopped by hand mid-run.
+	if (World->bIsTearingDown)
+	{
+		return nullptr;
+	}
+
 	UMassEntitySubsystem* EntitySubsystem = World->GetSubsystem<UMassEntitySubsystem>();
 	return EntitySubsystem ? &EntitySubsystem->GetMutableEntityManager() : nullptr;
 }
@@ -123,6 +146,27 @@ bool URiotCrowdSubsystem::SpawnScenario(const FString& ScenarioId, FString& OutE
 
 	Scenario->ResetRuntimeState();
 
+	// CLAUDE-NOTE: the representation manager is initialised BEFORE any entity exists, and it is
+	// given a SNAPSHOT of the profile store rather than a live reference. Profiles registered while a
+	// scenario is running therefore do not change what is already spawned, which is what makes a
+	// re-run of the same seed reproduce the same character assignment — the alternative would let an
+	// unrelated registration mid-run silently alter the crowd.
+	{
+		const FRiotCharacterProfileStore& ProfileStore = FRiotCharacterProfileStore::Get();
+
+		FRiotRepresentationProfile RepProfile;
+		if (!Scenario->RepresentationProfileId.IsEmpty())
+		{
+			if (const FRiotRepresentationProfile* Found =
+				ProfileStore.FindRepresentation(Scenario->RepresentationProfileId))
+			{
+				RepProfile = *Found;
+			}
+		}
+		ActiveRepresentationProfileId = Scenario->RepresentationProfileId;
+		RepresentationManager.Initialize(GetWorld(), RepProfile, ProfileStore.All());
+	}
+
 	// CLAUDE-NOTE: ALL randomness derives from this one stream, and it is consumed in a fixed
 	// order (origins in array order, then agents in index order, then blockades). That fixed
 	// consumption order is what makes the same seed reproduce the same run — not the seed alone.
@@ -162,6 +206,9 @@ bool URiotCrowdSubsystem::SpawnScenario(const FString& ScenarioId, FString& OutE
 			FRiotTargetFragment& Target = EntityManager->GetFragmentDataChecked<FRiotTargetFragment>(Entity);
 			Target.Destination = Origin.InitialTarget;
 
+			RepresentationManager.RegisterAgent(
+				Entity, Scenario->Factions[FactionIndex].Type, Agent.SeedSalt);
+
 			OwnedRioters.Add(Entity);
 			++RioterTotal;
 
@@ -196,7 +243,13 @@ bool URiotCrowdSubsystem::SpawnScenario(const FString& ScenarioId, FString& OutE
 
 			FTransformFragment& TransformFrag = EntityManager->GetFragmentDataChecked<FTransformFragment>(Entity);
 			TransformFrag.GetMutableTransform().SetLocation(Position);
-			TransformFrag.GetMutableTransform().SetRotation(BlockadeRotation.Quaternion());
+			// CLAUDE-NOTE: -Forward, so the line FACES the oncoming crowd. BlockadeRotation is the
+			// direction the crowd travels through, so spawning defenders with it put the entire
+			// police line's back to the riot. It shipped that way through the foundation milestone
+			// and its acceptance review because defenders were cubes; it is obvious the moment they
+			// are people. Same lesson as the rioter facing bug.
+			TransformFrag.GetMutableTransform().SetRotation(
+				(BlockadeRotation + FRotator(0.0, 180.0, 0.0)).Quaternion());
 
 			FRiotAgentFragment& Agent = EntityManager->GetFragmentDataChecked<FRiotAgentFragment>(Entity);
 			Agent.FactionIndex = (uint8)FMath::Clamp(FactionIndex, 0, 255);
@@ -207,6 +260,9 @@ bool URiotCrowdSubsystem::SpawnScenario(const FString& ScenarioId, FString& OutE
 
 			FRiotTargetFragment& Target = EntityManager->GetFragmentDataChecked<FRiotTargetFragment>(Entity);
 			Target.Destination = Position;
+
+			RepresentationManager.RegisterAgent(
+				Entity, Scenario->Factions[FactionIndex].Type, Agent.SeedSalt);
 
 			OwnedDefenders.Add(Entity);
 			++DefenderTotal;
@@ -332,6 +388,13 @@ bool URiotCrowdSubsystem::ResetScenario(FString& OutErrorCode, FString& OutError
 	}
 
 	PendingReleases.Reset();
+
+	// CLAUDE-NOTE: representation is torn down BEFORE the placeholder visualizer, and after the
+	// entities are destroyed. Order matters: the manager holds weak actor pointers keyed by entity
+	// handle, so releasing it while entities still existed would leave actors parented to agents
+	// about to vanish, and the acceptance test's "no leaked actors after reset" check is exactly what
+	// that would fail.
+	RepresentationManager.Reset();
 	DestroyVisualizer();
 
 	if (FRiotScenario* Scenario = FRiotScenarioStore::Get().Find(ActiveScenarioId))
@@ -357,6 +420,14 @@ bool URiotCrowdSubsystem::ResetScenario(FString& OutErrorCode, FString& OutError
 void URiotCrowdSubsystem::Tick(float DeltaTime)
 {
 	if (!bSpawned)
+	{
+		return;
+	}
+
+	// Stop simulating the moment the world starts going away, so no part of this tick reaches a
+	// half-destroyed Mass manager or a destroyed representation actor. See GetEntityManager().
+	const UWorld* World = GetWorld();
+	if (!World || World->bIsTearingDown)
 	{
 		return;
 	}
@@ -419,17 +490,29 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 
 	const FRiotPressureModel& Model = Scenario.PressureModel;
 
-	for (const FMassEntityHandle& Entity : OwnedRioters)
+	// CLAUDE-NOTE: this runs for rioters AND defenders. It used to iterate OwnedRioters only, so
+	// defenders were never state-ticked at all - which is the real reason FallbackLocation has been
+	// plumbed and validated since the foundation without ever moving anyone. (An earlier version of
+	// this note blamed a faction-blind state machine; that was wrong, and the wrong explanation is
+	// not left standing. The machine is faction-aware now AND defenders actually reach it.)
+	auto TickAgent = [&](const FMassEntityHandle& Entity)
 	{
 		if (!EntityManager->IsEntityValid(Entity))
 		{
-			continue;
+			return;
 		}
 
 		FRiotAgentFragment& Agent = EntityManager->GetFragmentDataChecked<FRiotAgentFragment>(Entity);
 		FRiotTargetFragment& Target = EntityManager->GetFragmentDataChecked<FRiotTargetFragment>(Entity);
 		const FTransformFragment& TransformFrag = EntityManager->GetFragmentDataChecked<FTransformFragment>(Entity);
 		const FVector Location = TransformFrag.GetTransform().GetLocation();
+
+		// Defenders read the same states from the other side of the line: the crowd pushing IS the
+		// defender bracing, and a break IS their line going. See RiotAnimationSlotForState.
+		const bool bIsDefender =
+			Scenario.Factions.IsValidIndex(Agent.FactionIndex)
+			&& (Scenario.Factions[Agent.FactionIndex].Type == ERiotFactionType::Police
+				|| Scenario.Factions[Agent.FactionIndex].Type == ERiotFactionType::Military);
 
 		switch (Agent.State)
 		{
@@ -439,10 +522,20 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 
 		case ERiotAgentState::Retreating:
 		{
-			// Retreat until far enough away, then stop participating.
 			if (FVector::Dist2D(Location, Target.Destination) < 200.0)
 			{
-				Agent.State = ERiotAgentState::Inactive;
+				if (bIsDefender)
+				{
+					// A fallen-back line HOLDS its new position - it does not leave the field. Speed
+					// drops to zero, and the stationary-locomotion rule then plays idle rather than
+					// treadmilling the walk-backwards clip in place.
+					Agent.Speed = 0.f;
+				}
+				else
+				{
+					// Rioters retreat off the field and stop participating.
+					Agent.State = ERiotAgentState::Inactive;
+				}
 			}
 			break;
 		}
@@ -454,7 +547,15 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 		}
 
 		case ERiotAgentState::PassedBlockade:
+		{
+			// Dispersed past the line; on reaching the scatter point they stop participating,
+			// mirroring Retreating. Without this they stand (previously: oscillate) forever.
+			if (FVector::Dist2D(Location, Target.Destination) < 200.0)
+			{
+				Agent.State = ERiotAgentState::Inactive;
+			}
 			break;
+		}
 
 		case ERiotAgentState::Breaching:
 		{
@@ -470,6 +571,23 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 					Agent.State = ERiotAgentState::PassedBlockade;
 					Agent.TargetBlockadeIndex = INDEX_NONE;
 					++Scenario.AgentsPassedBlockade;
+
+					// CLAUDE-NOTE: disperse. Breachers were all handed the SAME onward point
+					// (Location + Forward * Depth*4), and PassedBlockade had no arrival handling, so
+					// every passed agent converged there and oscillated - the fused blob. Each agent
+					// now gets its own scatter point past the line, derived from SeedSalt so the
+					// same seed reproduces the same dispersal, and deactivates on arrival exactly
+					// like Retreating does. No new behaviour concept; this closes an arrival hole.
+					const FVector Right =
+						FRotator(0.0, Blockade.YawDegrees, 0.0).RotateVector(FVector::RightVector);
+					const double Lateral =
+						((double)(Agent.SeedSalt % 2001u) / 1000.0 - 1.0) * (Blockade.Width * 0.5);
+					const double Onward =
+						Blockade.Depth * 4.0 + 600.0 + (double)((Agent.SeedSalt >> 12) % 1400u);
+					FRiotTargetFragment& PassTarget =
+						EntityManager->GetFragmentDataChecked<FRiotTargetFragment>(Entity);
+					PassTarget.Destination =
+						Blockade.Location + Forward * Onward + Right * Lateral;
 				}
 			}
 			else
@@ -484,6 +602,39 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 		case ERiotAgentState::Pressuring:
 		default:
 		{
+			if (bIsDefender)
+			{
+				// Defenders hold their own segment and only ever react to IT breaking.
+				const int32 DefendedIndex = Agent.TargetBlockadeIndex;
+				if (Scenario.Blockades.IsValidIndex(DefendedIndex))
+				{
+					const FRiotBlockade& Defended = Scenario.Blockades[DefendedIndex];
+					if (Defended.bBroken)
+					{
+						const FRotator BlockadeRotation(0.0, Defended.YawDegrees, 0.0);
+						const FVector Forward = BlockadeRotation.RotateVector(FVector::ForwardVector);
+						const FVector Right = BlockadeRotation.RotateVector(FVector::RightVector);
+
+						// CLAUDE-NOTE: fall back as a LINE, not to a point. Each defender keeps its
+						// lateral offset along the segment and only the along-axis position moves, so
+						// the formation retreats intact. Sending all 34 to one FallbackLocation would
+						// converge them into a clump - the same shared-destination mistake that
+						// produced the breacher blob, which is exactly the kind of thing that gets
+						// re-introduced one function over unless it is named.
+						const double Lateral =
+							FVector::DotProduct(Location - Defended.Location, Right);
+						const FVector Base = Defended.FallbackLocation.IsNearlyZero()
+							? Defended.Location + Forward * 1200.0
+							: Defended.FallbackLocation;
+						Target.Destination = Base + Right * Lateral;
+						Agent.State = ERiotAgentState::Retreating;
+						Agent.Speed = static_cast<float>(Defended.FallbackSpeed);
+						Agent.PressingTime = 0.f;
+					}
+				}
+				break;
+			}
+
 			// Find the nearest blockade in front of this agent.
 			int32 NearestIndex = INDEX_NONE;
 			double NearestDistance = TNumericLimits<double>::Max();
@@ -534,6 +685,15 @@ void URiotCrowdSubsystem::TickAgentStates(FRiotScenario& Scenario, double DeltaT
 			break;
 		}
 		}
+	};
+
+	for (const FMassEntityHandle& Entity : OwnedRioters)
+	{
+		TickAgent(Entity);
+	}
+	for (const FMassEntityHandle& Entity : OwnedDefenders)
+	{
+		TickAgent(Entity);
 	}
 }
 
@@ -882,50 +1042,55 @@ void URiotCrowdSubsystem::DestroyVisualizer()
 void URiotCrowdSubsystem::TickRepresentation()
 {
 	FMassEntityManager* EntityManager = GetEntityManager();
-	if (!EntityManager || !RioterISM || !DefenderISM)
+	if (!EntityManager)
 	{
 		return;
 	}
 
-	auto SyncInstances = [EntityManager](UInstancedStaticMeshComponent* ISM,
-		const TArray<FMassEntityHandle>& Entities, bool bHideInactive)
+	// CLAUDE-NOTE: the foundation's wholesale ClearInstances + AddInstance rebuild used to live here
+	// and was the dominant cost at 244 agents. It is replaced, not tuned.
+	//
+	// Its stated reason was sound: instance counts change every frame, and
+	// UInstancedStaticMeshComponent::RemoveInstance re-indexes every later instance, so any cached
+	// index goes stale within a few frames. FRiotRepresentationManager sidesteps that rather than
+	// solving it — instance slots are allocated once and never removed while a run is live; a
+	// released slot is parked at zero scale and recycled. Indices are then stable for the whole run,
+	// and the steady state is one transform write per visible agent plus a single render-state dirty.
+	//
+	// The manager also owns the tier assignment, actor pooling and budgets, so representation is now
+	// one call rather than a per-faction sync. See RiotRepresentation.h.
+	const UWorld* WorldPtr = GetWorld();
+	const double WorldTime = WorldPtr ? WorldPtr->GetTimeSeconds() : 0.0;
+	RepresentationManager.Update(*EntityManager, WorldTime, WorldPtr ? WorldPtr->GetDeltaSeconds() : 0.0);
+}
+
+TSharedRef<FJsonObject> URiotCrowdSubsystem::BuildRepresentationReport() const
+{
+	FMassEntityManager* EntityManager = GetEntityManager();
+	if (!EntityManager)
 	{
-		TArray<FTransform> Transforms;
-		Transforms.Reserve(Entities.Num());
+		TSharedRef<FJsonObject> Empty = MakeShared<FJsonObject>();
+		Empty->SetStringField(TEXT("cameraSource"), TEXT("unavailable"));
+		Empty->SetNumberField(TEXT("totalAgents"), 0);
+		return Empty;
+	}
 
-		for (const FMassEntityHandle& Entity : Entities)
-		{
-			if (!EntityManager->IsEntityValid(Entity))
-			{
-				continue;
-			}
+	TSharedRef<FJsonObject> Json =
+		const_cast<FRiotRepresentationManager&>(RepresentationManager).BuildReport(*EntityManager);
+	Json->SetStringField(TEXT("activeScenarioId"), ActiveScenarioId);
+	return Json;
+}
 
-			const FRiotAgentFragment& Agent = EntityManager->GetFragmentDataChecked<FRiotAgentFragment>(Entity);
-			if (bHideInactive &&
-				(Agent.State == ERiotAgentState::Queued || Agent.State == ERiotAgentState::Inactive))
-			{
-				continue;
-			}
+int32 URiotCrowdSubsystem::PromoteAgents(const TArray<FMassEntityHandle>& Entities,
+	FString& OutErrorCode, FString& OutMessage)
+{
+	return RepresentationManager.PromoteAgents(Entities, OutErrorCode, OutMessage);
+}
 
-			FTransform Transform = EntityManager->GetFragmentDataChecked<FTransformFragment>(Entity).GetTransform();
-			// BasicShapes are 100uu; scale down to something person-sized so a crowd reads as a crowd.
-			Transform.SetScale3D(FVector(0.5, 0.5, 1.0));
-			Transforms.Add(Transform);
-		}
-
-		// CLAUDE-NOTE: rebuild wholesale rather than diffing. Instance counts change every frame as
-		// agents are released and deactivated, and AddInstance/RemoveInstance shuffles indices, so
-		// index-based updates drift out of sync with the entity list within a few frames.
-		// BatchUpdateInstancesTransforms cannot change the count, hence Clear + Add.
-		ISM->ClearInstances();
-		for (const FTransform& Transform : Transforms)
-		{
-			ISM->AddInstance(Transform, /*bWorldSpace=*/true);
-		}
-	};
-
-	SyncInstances(RioterISM, OwnedRioters, /*bHideInactive=*/true);
-	SyncInstances(DefenderISM, OwnedDefenders, /*bHideInactive=*/false);
+int32 URiotCrowdSubsystem::DemoteAgents(const TArray<FMassEntityHandle>& Entities,
+	FString& OutErrorCode, FString& OutMessage)
+{
+	return RepresentationManager.DemoteAgents(Entities, OutErrorCode, OutMessage);
 }
 
 // ============================================================

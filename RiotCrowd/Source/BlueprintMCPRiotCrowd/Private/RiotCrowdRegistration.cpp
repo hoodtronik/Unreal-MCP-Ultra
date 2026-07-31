@@ -60,4 +60,30 @@ void FRiotCrowdHandlers::RegisterEndpoints()
 	Add(TEXT("/api/riot-pause"),  TEXT("riot-pause"),  &FRiotCrowdHandlers::HandlePause);
 	Add(TEXT("/api/riot-resume"), TEXT("riot-resume"), &FRiotCrowdHandlers::HandleResume);
 	Add(TEXT("/api/riot-reset"),  TEXT("riot-reset"),  &FRiotCrowdHandlers::HandleReset);
+
+	// ----- rigged character profiles -----
+	Add(TEXT("/api/riot-register-character-profile"), TEXT("riot-register-character-profile"),
+		&FRiotCrowdHandlers::HandleRegisterCharacterProfile);
+	Add(TEXT("/api/riot-update-character-profile"), TEXT("riot-update-character-profile"),
+		&FRiotCrowdHandlers::HandleUpdateCharacterProfile);
+	Add(TEXT("/api/riot-delete-character-profile"), TEXT("riot-delete-character-profile"),
+		&FRiotCrowdHandlers::HandleDeleteCharacterProfile);
+	Add(TEXT("/api/riot-list-character-profiles"), TEXT("riot-list-character-profiles"),
+		&FRiotCrowdHandlers::HandleListCharacterProfiles, /*bIsPost=*/false);
+	Add(TEXT("/api/riot-get-character-profile"), TEXT("riot-get-character-profile"),
+		&FRiotCrowdHandlers::HandleGetCharacterProfile);
+	Add(TEXT("/api/riot-validate-character-profile"), TEXT("riot-validate-character-profile"),
+		&FRiotCrowdHandlers::HandleValidateCharacterProfile);
+	Add(TEXT("/api/riot-assign-character-profiles"), TEXT("riot-assign-character-profiles"),
+		&FRiotCrowdHandlers::HandleAssignCharacterProfiles);
+
+	// ----- representation -----
+	Add(TEXT("/api/riot-set-representation-profile"), TEXT("riot-set-representation-profile"),
+		&FRiotCrowdHandlers::HandleSetRepresentationProfile);
+	Add(TEXT("/api/riot-representation-report"), TEXT("riot-representation-report"),
+		&FRiotCrowdHandlers::HandleGetRepresentationReport);
+	Add(TEXT("/api/riot-promote-agents"), TEXT("riot-promote-agents"),
+		&FRiotCrowdHandlers::HandlePromoteAgents);
+	Add(TEXT("/api/riot-demote-agents"), TEXT("riot-demote-agents"),
+		&FRiotCrowdHandlers::HandleDemoteAgents);
 }

@@ -25,6 +25,16 @@ struct FRiotFaction
 	ERiotFactionType Type = ERiotFactionType::Rioter;
 	int32 MaxSpawnCount = 0;
 	FLinearColor DebugColor = FLinearColor::White;
+
+	/**
+	 * Character profiles this faction may be represented by. Empty = fall back to any profile whose
+	 * factionTypes accept this faction's Type, and to the placeholder mesh if there are none.
+	 *
+	 * CLAUDE-NOTE: ids, not copies. Profiles live in FRiotCharacterProfileStore and are reusable
+	 * across scenarios, which is what makes "delete a profile that is in use" a real error rather
+	 * than an impossible one.
+	 */
+	TArray<FString> CharacterProfileIds;
 };
 
 struct FRiotFlowOrigin
@@ -49,7 +59,14 @@ struct FRiotBlockade
 	FString Id;
 	FString DefendingFactionId;
 	FVector Location = FVector::ZeroVector;
-	/** Yaw only. The blockade is a line segment centred on Location, facing YawDegrees. */
+	/**
+	 * Yaw only. The blockade is a line segment centred on Location.
+	 *
+	 * CLAUDE-NOTE: YawDegrees defines the direction the CROWD TRAVELS THROUGH the line, not the way
+	 * defenders look. Defenders are spawned facing -Forward (into the oncoming crowd) and fall back
+	 * along +Forward. Getting this backwards spawned the whole police line with its back to the riot
+	 * for two milestones - invisible while defenders were cubes.
+	 */
 	double YawDegrees = 0.0;
 	double Width = 800.0;
 	double Depth = 200.0;
@@ -62,8 +79,11 @@ struct FRiotBlockade
 	double HoldThreshold = 40.0;
 	/** Pressure at or above which the segment breaks. Must exceed HoldThreshold. */
 	double BreakThreshold = 100.0;
-	/** Where defenders go once broken. Zero vector = fall straight back along the facing normal. */
+	/** Where defenders go once broken. Zero vector = fall straight back along +Forward. */
 	FVector FallbackLocation = FVector::ZeroVector;
+
+	/** Speed defenders move at while falling back, uu/s. */
+	double FallbackSpeed = 200.0;
 
 	// ----- runtime -----
 	bool bBroken = false;
@@ -171,6 +191,16 @@ struct FRiotScenario
 
 	ERiotLifecycle Lifecycle = ERiotLifecycle::Unconfigured;
 	FRiotPressureModel PressureModel;
+
+	/**
+	 * Representation profile governing LOD tiers for this scenario. Empty = built-in defaults.
+	 *
+	 * CLAUDE-NOTE: on the SCENARIO rather than on URiotCrowdSubsystem, because the subsystem dies
+	 * with the PIE world. Storing it there would silently reset the operator's configured distances
+	 * and budgets on every PIE stop, and the next run would use defaults while the tool that set them
+	 * still reported success.
+	 */
+	FString RepresentationProfileId;
 
 	TArray<FRiotFaction> Factions;
 	TArray<FRiotFlowOrigin> Origins;

@@ -59,6 +59,18 @@ public class BlueprintMCPRiotCrowd : ModuleRules
 			"MassRepresentation",
 			"MassSpawner",
 			"MassSimulation",
+
+			// CLAUDE-NOTE: added for the rigged-representation milestone. Both are modules of the
+			// SAME already-enabled MassGameplay plugin, so this adds no new plugin dependency for
+			// consuming projects and leaves the optional-sibling boundary intact.
+			//   MassLOD    - FMassViewerInfoFragment / FMassRepresentationLODFragment, and the
+			//                viewer abstraction that makes the PIE player camera the default LOD
+			//                source with no work on our side.
+			//   MassActors - FMassActorFragment, UMassActorSubsystem, UMassActorSpawnerSubsystem and
+			//                IMassActorPoolableInterface, i.e. engine-provided actor pooling.
+			// See docs/riot-crowd/UE56-RIGGED-REPRESENTATION-API-FINDINGS.md §1 and §6.
+			"MassLOD",
+			"MassActors",
 		});
 	}
 }

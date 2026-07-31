@@ -5,9 +5,11 @@
     "coreToolsCapturedBy": "real MCP stdio client against a detached git worktree of that commit, NOT the feature branch",
     "note": "Refresh coreTools only when core tools are intentionally added or removed, and say so in the commit message. Do not regenerate it from the branch under test.",
     "coreToolCount": 242,
-    "riotToolCount": 16,
-    "expectedTotal": 258,
-    "coreToolsAmendment": "capture_view added by explicit owner decision (2026-07-28): render any world from an ad-hoc or placed camera to PNG. Core 241 -> 242. The rest of coreTools remains the merge-base capture."
+    "riotToolCount": 27,
+    "expectedTotal": 269,
+    "riotToolsLastAudited": "rigged-animation-LOD milestone: +11 character-profile and representation tools, reviewed against a real MCP stdio client. riot_capture_view was briefly added then promoted to core as capture_view.",
+    "coreToolsAmendment": "capture_view added by explicit owner decision (2026-07-28), mid rigged-animation-LOD milestone: \"make the camera features for the Unreal MCP Ultra first\". Renders any world from an ad-hoc or placed camera to PNG. Core count 241 -> 242. The rest of coreTools remains the merge-base capture.",
+    "mergeNote": "riotToolCount 27 / expectedTotal 269 are this branch's numbers; main carries 16 / 258 because the 11 character-profile and representation tools are unmerged. Resolved this way on the 2d261fe merge — do NOT 'fix' it back to main's counts while those tools exist here."
   },
   "coreTools": [
     "add_anim_node",
@@ -258,17 +260,28 @@
     "riot_add_faction",
     "riot_add_flow_origin",
     "riot_add_hotspot",
+    "riot_assign_character_profiles",
     "riot_create_scenario",
+    "riot_delete_character_profile",
     "riot_delete_scenario",
+    "riot_demote_agents",
     "riot_get_capabilities",
+    "riot_get_character_profile",
+    "riot_get_representation_report",
     "riot_get_runtime_report",
     "riot_get_scenario",
+    "riot_list_character_profiles",
     "riot_list_scenarios",
     "riot_pause",
+    "riot_promote_agents",
+    "riot_register_character_profile",
     "riot_reset",
     "riot_resume",
+    "riot_set_representation_profile",
     "riot_set_trigger",
     "riot_spawn",
-    "riot_start"
+    "riot_start",
+    "riot_update_character_profile",
+    "riot_validate_character_profile"
   ]
 }

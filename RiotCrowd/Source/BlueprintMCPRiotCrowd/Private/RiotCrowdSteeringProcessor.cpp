@@ -57,6 +57,23 @@ void URiotCrowdSteeringProcessor::Execute(FMassEntityManager& EntityManager, FMa
 				continue;
 			}
 
+			// CLAUDE-NOTE: arrival handling. The original stop condition was Flat.IsNearlyZero() -
+			// sub-millimetre - which a 3-5uu per-frame step essentially never lands inside, so every
+			// agent OVERSHOT its destination and flipped direction each frame, oscillating there
+			// forever. Since breachers all shared one onward point, every agent that ever passed the
+			// blockade ended up fused into a single jittering blob at that point. It shipped in the
+			// foundation milestone unseen, because a stack of oscillating cylinders reads as nothing;
+			// it took a user free-flying a camera over a crowd of real characters to spot it.
+			const double Remaining = Flat.Size();
+			const double Step = Agent.Speed * DeltaTime;
+			if (Remaining <= FMath::Max(Step, 50.0))
+			{
+				Transform.SetLocation(FVector(
+					Targets[i].Destination.X, Targets[i].Destination.Y, Location.Z));
+				Velocities[i].Value = FVector::ZeroVector;
+				continue;
+			}
+
 			const FVector Direction = Flat.GetSafeNormal();
 			Velocities[i].Value = Direction * Agent.Speed;
 
