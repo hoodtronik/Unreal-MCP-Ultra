@@ -2,6 +2,8 @@
 
 A UE5 editor plugin that exposes 241 MCP tools for inspecting and modifying Blueprint assets. Targets **UE 5.6.1** — this is the version the plugin is built and tested against.
 
+> **CLAUDE-NOTE (2026-08-04): LED wall background content.** If working on the 11Weeks project / Wonderwall LED stage backgrounds, read `docs/led-wall-background-content.md` first — it documents the stage pixel map, where the 21:9 / 4K background plates live, and how to import them (Virtual Textures, BC7, sharp-vs-standard model choice).
+
 Two serving modes:
 - **Editor subsystem** (preferred): Auto-starts on port 9847 when the UE5 editor is open. Zero overhead.
 - **Standalone commandlet**: Spawns a headless `UnrealEditor-Cmd.exe` process (2-4 GB RAM, ~60s startup). Call `shutdown_server` when done.
