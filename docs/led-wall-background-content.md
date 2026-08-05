@@ -48,8 +48,26 @@ Working slideshow actor `BackgroundSlideshow` placed at the old BackdropCard_Cit
   (typed nodes only — see KNOWN-ISSUE-wildcard-pins.md for why arrays were avoided).
 - `r.VirtualTextures=True` added to VoxelWorld DefaultEngine.ini, but **streaming VT refused
   these NPOT textures** (engine requires power-of-two for SVT) — hence the Pad-to-POT route.
-- Not yet verified: lighting toggles' visual effect, PIE/runtime behavior, Renderstream
-  remote-parameter exposure.
+- **Lighting toggles fixed + verified 2026-08-05** (both were broken as first built):
+  - Plate now has `CastShadow=true`. It was false, so the level's sun blasted straight
+    through the plate and pooled on the set floor — light that read as "plane emissive
+    that won't turn off" but was never from the plate.
+  - `bPlaneEmissiveLighting` drives `SetAffectDynamicIndirectLighting` **and**
+    `SetEmissiveLightSource`. The EmissiveLightSource flag alone never gated anything —
+    under Lumen any emissive surface in the Lumen scene bounces light; only
+    AffectDynamicIndirectLighting actually removes it. Verified: off = plate is a pure
+    screen with zero spill; on = plate-coloured Lumen bounce on ceiling/set.
+  - `bEnvironmentLighting` (EnvLight SkyLight): template now has
+    `LowerHemisphereIsBlack=false`, `CastShadows=false`, intensity 1. **Engine limit:**
+    UE honours ONE sky light — enabling EnvLight *replaces* the level's realtime-capture
+    SkyLight with the T_LH cubemap. That swap (dim cubemap + black lower hemisphere) was
+    the "enabling it makes everything darker" bug; with the fixes the hero-cam A/B is now
+    visually identical indoors. **Physics limit:** the 11Weeks_C set is a sealed box whose
+    only aperture the plate now covers, so no skylight can light the interior under Lumen
+    (verified: 10× intensity, shadows off → still nothing). Indoors, plate light comes
+    from `bPlaneEmissiveLighting`; `bEnvironmentLighting` only does useful work in open /
+    partially open scenes (its real Renderstream use case).
+- Not yet verified: PIE/runtime behavior, Renderstream remote-parameter exposure.
 
 ## Using them in Unreal (as backgrounds cast to the LED)
 

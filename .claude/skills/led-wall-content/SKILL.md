@@ -31,8 +31,8 @@ Renderstream remote parameters so the d3 operator can drive them):
 
 - `BackgroundIndex` (int) — applied in **Construction Script** so scrubbing the number in Details swaps plates live in-editor without PIE
 - `bUseSharp` (bool) — resolves same index against `BackgroundsSharp[]` vs `BackgroundsStandard[]`; HDR lighting array stays shared (both variants derive from identical masters)
-- `bPlaneEmissiveLighting` (bool) — toggles mesh component "Emissive Light Source"/"Affect Dynamic Indirect Lighting" flags (Lumen area-light bounce), NOT a material swap
-- `bEnvironmentLighting` (bool) — large inverted sphere, same/HDR texture, `RenderInMainPass=false`, `RenderInDepthPass=false`, `AffectDynamicIndirectLighting=true` → camera-invisible Lumen wraparound light. Verify per-engine-version; fallback = SkyLight with specified cubemap from the `.hdr` set
+- `bPlaneEmissiveLighting` (bool) — toggles mesh component "Emissive Light Source" **and** "Affect Dynamic Indirect Lighting" flags (Lumen area-light bounce), NOT a material swap. AffectDynamicIndirectLighting is the flag that actually gates Lumen bounce; EmissiveLightSource alone gates nothing. The plate mesh must have `CastShadow=true` or the level's sun/sky shines straight through it and reads as un-killable "plate light"
+- `bEnvironmentLighting` (bool) — as built: SkyLight with per-index specified cubemap from the `.hdr` set (`LowerHemisphereIsBlack=false`, `CastShadows=false`). Caveats: UE honours one sky light, so enabling it REPLACES the level's SkyLight; and under Lumen no skylight reaches a sealed interior set — this toggle only does visible work in open/partially-open scenes
 - Add a TextRender showing current plate name for review sessions
 - `PopulateFromFolder` editor function (EditorAssetLibrary.ListAssets, sorted) to fill arrays — never hand-wire 24 entries
 
