@@ -57,17 +57,26 @@ Working slideshow actor `BackgroundSlideshow` placed at the old BackdropCard_Cit
     under Lumen any emissive surface in the Lumen scene bounces light; only
     AffectDynamicIndirectLighting actually removes it. Verified: off = plate is a pure
     screen with zero spill; on = plate-coloured Lumen bounce on ceiling/set.
-  - `bEnvironmentLighting` (EnvLight SkyLight): template now has
-    `LowerHemisphereIsBlack=false`, `CastShadows=false`, intensity 1. **Engine limit:**
-    UE honours ONE sky light — enabling EnvLight *replaces* the level's realtime-capture
-    SkyLight with the T_LH cubemap. That swap (dim cubemap + black lower hemisphere) was
-    the "enabling it makes everything darker" bug; with the fixes the hero-cam A/B is now
-    visually identical indoors. **Physics limit:** the 11Weeks_C set is a sealed box whose
-    only aperture the plate now covers, so no skylight can light the interior under Lumen
-    (verified: 10× intensity, shadows off → still nothing). Indoors, plate light comes
-    from `bPlaneEmissiveLighting`; `bEnvironmentLighting` only does useful work in open /
-    partially open scenes (its real Renderstream use case).
-- Not yet verified: PIE/runtime behavior, Renderstream remote-parameter exposure.
+  - `bEnvironmentLighting` **redesigned 2026-08-05 (second pass)**: now drives
+    `EnvRectLight`, a camera-invisible RectLightComponent at the plate (36 cm room-side,
+    aimed into the set) with **SourceTexture = the current plate** → an image-tinted wash
+    (blue for icebergs, warm for desert) on the set. New Instance Editable
+    `EnvLightIntensity` (default 1.0) trims it; intensity = 500 000 cd × that value.
+    The old EnvLight SkyLight and its T_LH cubemap loading were **removed** from the BP
+    (the `LightHDR/T_LH_*` assets remain on disk, unreferenced).
+    Hard-won constraints baked into this design, all live-verified:
+    - An emissive "GI booster" mesh can NOT be camera-invisible: primitives with
+      `RenderInMainPass=false` or `Visible=false` are dropped from the Lumen scene
+      entirely (AffectIndirectLightingWhileHidden did not help in the editor world).
+    - A SkyLight can never light the sealed set (Lumen sky occlusion) and silently
+      REPLACES the level's sky light (UE honours one) — the original "darker" bug.
+    - Rect lights **silently stop rendering at wall-scale source sizes** — 10600×4900
+      emitted nothing; 1000×460 works. Keep rect sources ≲ 10 m.
+    - The level's `PP_Exposure` volume locks EV100 at 6.5 (daylight), which crushes
+      ordinary light levels — hence the 500 000 cd base. If the exposure lock changes,
+      retune `EnvLightIntensity`/the base.
+- Not yet verified: PIE/runtime behavior, Renderstream remote-parameter exposure
+  (`EnvLightIntensity` should be exposed alongside the other four controls).
 
 ## Using them in Unreal (as backgrounds cast to the LED)
 
