@@ -78,6 +78,34 @@ Working slideshow actor `BackgroundSlideshow` placed at the old BackdropCard_Cit
 - Not yet verified: PIE/runtime behavior, Renderstream remote-parameter exposure
   (`EnvLightIntensity` should be exposed alongside the other four controls).
 
+## AS BUILT (2026-08-13): BP_BackgroundSlideshow-Vanish — 4:1 variant for the VANISH strip
+
+Sibling of `BP_BackgroundSlideshow-fix` sized for the VANISH surface (3584×896 = 4:1). All in
+VoxelWorld under `/Game/_Backgrounds/`:
+
+- **Textures:** `Vanish4x1/T_VBG_0..22` — 23 plates from
+  `F:\__PROJECTS\11Weeks\Images\GPT-Image\batch_20260813_120031` (7680×1920 true 4:1, all-sharp set).
+  Imported Pad-to-POT **8192×2048**, BC7, mips, sRGB, VT-stream off — same recipe as Std4K.
+  Index↔scene table: `VANISH_4x1_LEGEND.md` in the batch folder (scene names also live in the
+  source PNG filenames, e.g. `T_VBG_13_ArcticAurora.png`).
+- **Material:** `M_BackgroundSlideshow_Vanish` — same unlit emissive design, UV crop via TexCoord
+  tiling **0.9375** (uniform; 7680/8192 = 1920/2048).
+- **BP diffs vs -fix:** paths compose `Vanish4x1/T_VBG_<i>`; Clamp max 22; plane scale
+  (0.235, 103.4, **25.85**); `bUseSharp` and its branch REMOVED (single set); new
+  **`PlateBrightness`** (Instance Editable, default 180) pushed into the DMI's `Brightness` scalar —
+  180 suits the EV100-6.5-locked stage level, auto-exposure levels need ~1–10 or the plate blows out.
+- **Labels are numeric** (`T_VBG_<i>`), not scene names — descriptive labels need array indexing,
+  which the wildcard-pin bug blocks (re-confirmed; see KNOWN-ISSUE-wildcard-pins.md).
+- **Bug fixed in BOTH slideshow BPs (2026-08-13):** `SetAffectDynamicIndirectLighting` had a dangling
+  exec pin in the CS — never executed, so `bPlaneEmissiveLighting` visibly did nothing under Lumen.
+  Spliced SetEmissiveLightSource → SADIL → SetVisibility in `-Vanish` and `-fix`; flag-verified.
+- **Project-agnostic verified:** engine Cube mesh, pin defaults + component template self-contained,
+  `SlideTextures_MigrationAnchor` hard-refs all 23 plates, material's only hard dep is `T_VBG_0`
+  (two orphan samplers — one still referencing Std4K `T_BG_6` — were found and deleted; a
+  `delete_all_material_expressions` quirk leaves TextureSampleParameter2D expressions behind as
+  invisible orphans).
+- Not verified: PIE, Renderstream.
+
 ## Using them in Unreal (as backgrounds cast to the LED)
 
 1. **Use the 7672×3288 masters** for anything shown on the wall row. The combined row is 10912 px wide — wider than the masters — so every pixel of source resolution is used; the 2688 versions would need a ~4× soft blowup. Reserve resolution also holds up under virtual-camera punch-ins/pans where only a sub-region of the texture fills the wall.

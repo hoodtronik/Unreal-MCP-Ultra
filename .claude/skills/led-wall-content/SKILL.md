@@ -10,12 +10,18 @@ in this repo FIRST. Key numbers: wall row LEG1→LEG2 = 10912×2816 px (ROE BP2v
 2.84 mm); Vanish 3584×896 (4:1); pipeline is disguise Designer → RX III render nodes →
 Unreal via Renderstream, GhostFrame + MegaPixel HELIOS processing downstream.
 
-## Asset sets (F:\__PROJECTS\11Weeks\Images\NanoBanana\21x9\)
+## Asset sets
 
+21:9 wall-row plates (`F:\__PROJECTS\11Weeks\Images\NanoBanana\21x9\`):
 - `*.png` — 24 masters, 2688×1152, exact 21:9
 - `4K_7b\` — 7672×3288 SeedVR2 7B standard (**default choice**)
 - `4K_7b_sharp\` — same, sharp variant (A/B only; sharpening stacks with HELIOS processing → moiré risk on camera)
 - `lighting_2to1\` — ~2:1 light plates and `.hdr` highlight-expanded versions for image-based lighting
+
+4:1 VANISH-strip plates (`F:\__PROJECTS\11Weeks\Images\GPT-Image\batch_20260813_120031\`):
+- 23 masters, 7680×1920 exact 4:1, all-sharp (no standard/sharp split). Scene names in filenames +
+  `VANISH_4x1_LEGEND.md` there. In UE: `/Game/_Backgrounds/Vanish4x1/T_VBG_0..22`, driven by
+  `BP_BackgroundSlideshow-Vanish` (see below).
 
 ## Texture import rules (large NPOT stills)
 
@@ -35,6 +41,20 @@ Renderstream remote parameters so the d3 operator can drive them):
 - `bEnvironmentLighting` (bool) — as built: camera-invisible RectLight at the plate with SourceTexture = current plate (image-tinted wash), intensity 500 000 cd × `EnvLightIntensity` (Instance Editable float, default 1). Rejected designs, verified dead: hidden emissive booster meshes leave the Lumen scene (`RenderInMainPass=false`/`Visible=false` both); SkyLights can't reach a sealed set and silently replace the level's sky light. Rect lights silently stop rendering at wall-scale source sizes — keep sources ≲ 10 m. The 500k base compensates the level's EV100 6.5 exposure lock
 - Add a TextRender showing current plate name for review sessions
 - `PopulateFromFolder` editor function (EditorAssetLibrary.ListAssets, sorted) to fill arrays — never hand-wire 24 entries
+
+### Variants that exist (VoxelWorld, /Game/_Backgrounds/)
+
+- `BP_BackgroundSlideshow-fix` — the portable 21:9 wall-row variant (fresh drag-in works).
+- `BP_BackgroundSlideshow-Vanish` — 4:1 VANISH-strip variant (2026-08-13): 23 `Vanish4x1/T_VBG_<i>`
+  plates, index 0–22, no `bUseSharp`, plane scale (0.235, 103.4, 25.85), material
+  `M_BackgroundSlideshow_Vanish` (TexCoord tiling 0.9375 crops the POT pad).
+  **`PlateBrightness`** (Instance Editable, default 180) drives the DMI `Brightness` scalar —
+  180 assumes the stage level's EV100-6.5 lock; under auto-exposure use ~1–10 or it blows out.
+- **Both** BPs carry the 2026-08-13 exec-chain fix: `SetAffectDynamicIndirectLighting` must be IN the
+  CS exec chain (it was dangling → `bPlaneEmissiveLighting` looked dead under Lumen). If a new variant
+  is duplicated, verify that node's exec pin is wired.
+- Labels are numeric asset names (`T_VBG_<i>`) — scene-name labels need Array_Get, blocked by the
+  wildcard-pin bug (`docs/KNOWN-ISSUE-wildcard-pins.md`, re-confirmed 2026-08-13).
 
 ## Video plates (post-CD-review phase)
 

@@ -38,3 +38,13 @@ Then rebuild the plugin (UE 5.6, Win64) and restart the editor.
 BP_BackgroundSlideshow avoids all wildcard nodes: assets renamed to index-based names
 (`T_BG_<i>`), the graph composes soft object paths from the index with typed String ops,
 loads via `LoadAsset_Blocking`, and casts to `Texture2D`/`TextureCube`.
+
+## Re-confirmed 2026-08-13
+
+Reproduced while building `BP_BackgroundSlideshow-Vanish` (4:1 variant): `Array_Get` wired to a
+typed `TArray<UTexture2D*>` VariableGet output stayed `PC_Wildcard` after `connect_pins`,
+`refresh_all_nodes`, AND back-connecting `Item` into a typed `Texture` input (no back-propagation
+either). Compile error verbatim: *"The type of Item is undetermined. Connect something to Get to
+imply a specific type."* Real cost: descriptive scene-name plate labels were abandoned for numeric
+`T_VBG_<i>` names because index→array→display-name is unreachable. Also note `add_node` offers no
+Array-Get nodeType — the node must be created as CallFunction `KismetArrayLibrary.Array_Get`.
