@@ -18,10 +18,14 @@ Unreal via Renderstream, GhostFrame + MegaPixel HELIOS processing downstream.
 - `4K_7b_sharp\` — same, sharp variant (A/B only; sharpening stacks with HELIOS processing → moiré risk on camera)
 - `lighting_2to1\` — ~2:1 light plates and `.hdr` highlight-expanded versions for image-based lighting
 
-4:1 VANISH-strip plates (`F:\__PROJECTS\11Weeks\Images\GPT-Image\batch_20260813_120031\`):
-- 23 masters, 7680×1920 exact 4:1, all-sharp (no standard/sharp split). Scene names in filenames +
-  `VANISH_4x1_LEGEND.md` there. In UE: `/Game/_Backgrounds/Vanish4x1/T_VBG_0..22`, driven by
-  `BP_BackgroundSlideshow-Vanish` (see below).
+4:1 VANISH-strip plates (all 7680×1920 exact 4:1, all-sharp, no standard/sharp split):
+- Batch 1 (indices 0–22): `F:\__PROJECTS\11Weeks\Images\GPT-Image\batch_20260813_120031\` —
+  scene names in filenames + `VANISH_4x1_LEGEND.md` there (covers both batches).
+- Batch 2 (indices 23–27): `F:\__PROJECTS\11Weeks\Images\Vanish Options for 11- Week Fall Series\batch_20260813_163032\`
+- In UE: `/Game/_Backgrounds/Vanish4x1/T_VBG_<i>`, driven by `BP_BackgroundSlideshow-Vanish` (below).
+  **Copies have diverged:** MyLab_5_6 (`F:\_UnrealProjects\!MyLab\MyLab_5_6`) has all 28 (0–27);
+  VoxelWorld has only 0–22. Appending a batch = import+rename numeric, bump the CS Clamp Max,
+  refill `SlideTextures_MigrationAnchor`.
 
 ## Texture import rules (large NPOT stills)
 
@@ -50,6 +54,9 @@ Renderstream remote parameters so the d3 operator can drive them):
   `M_BackgroundSlideshow_Vanish` (TexCoord tiling 0.9375 crops the POT pad).
   **`PlateBrightness`** (Instance Editable, default 180) drives the DMI `Brightness` scalar —
   180 assumes the stage level's EV100-6.5 lock; under auto-exposure use ~1–10 or it blows out.
+  Better: kill auto-exposure the way the stage level does — unbound PostProcessVolume with
+  `auto_exposure_min_brightness = auto_exposure_max_brightness = 6.5` (+ both overrides true);
+  then 180 reads correctly everywhere. Verified in MyLab/NewMap 2026-08-13.
 - **Both** BPs carry the 2026-08-13 exec-chain fix: `SetAffectDynamicIndirectLighting` must be IN the
   CS exec chain (it was dangling → `bPlaneEmissiveLighting` looked dead under Lumen). If a new variant
   is duplicated, verify that node's exec pin is wired.

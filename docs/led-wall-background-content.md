@@ -83,11 +83,13 @@ Working slideshow actor `BackgroundSlideshow` placed at the old BackdropCard_Cit
 Sibling of `BP_BackgroundSlideshow-fix` sized for the VANISH surface (3584×896 = 4:1). All in
 VoxelWorld under `/Game/_Backgrounds/`:
 
-- **Textures:** `Vanish4x1/T_VBG_0..22` — 23 plates from
-  `F:\__PROJECTS\11Weeks\Images\GPT-Image\batch_20260813_120031` (7680×1920 true 4:1, all-sharp set).
-  Imported Pad-to-POT **8192×2048**, BC7, mips, sRGB, VT-stream off — same recipe as Std4K.
-  Index↔scene table: `VANISH_4x1_LEGEND.md` in the batch folder (scene names also live in the
-  source PNG filenames, e.g. `T_VBG_13_ArcticAurora.png`).
+- **Textures:** `Vanish4x1/T_VBG_<i>` (7680×1920 true 4:1, all-sharp). Imported Pad-to-POT
+  **8192×2048**, BC7, mips, sRGB, VT-stream off — same recipe as Std4K. Two batches:
+  0–22 from `F:\__PROJECTS\11Weeks\Images\GPT-Image\batch_20260813_120031`, 23–27 from
+  `...\Vanish Options for 11- Week Fall Series\batch_20260813_163032`. Index↔scene table:
+  `VANISH_4x1_LEGEND.md` in the batch-1 folder (scene names also live in the source PNG
+  filenames, e.g. `T_VBG_13_ArcticAurora.png`). **Copies diverged 2026-08-13:** MyLab_5_6 has
+  all 28; VoxelWorld has 0–22 only (Clamp Max 22 there vs 27 in MyLab).
 - **Material:** `M_BackgroundSlideshow_Vanish` — same unlit emissive design, UV crop via TexCoord
   tiling **0.9375** (uniform; 7680/8192 = 1920/2048).
 - **BP diffs vs -fix:** paths compose `Vanish4x1/T_VBG_<i>`; Clamp max 22; plane scale
