@@ -4,6 +4,8 @@ A UE5 editor plugin that exposes 241 MCP tools for inspecting and modifying Blue
 
 > **CLAUDE-NOTE (2026-08-04): LED wall background content.** If working on the 11Weeks project / Wonderwall LED stage backgrounds, read `docs/led-wall-background-content.md` first — it documents the stage pixel map, where the 21:9 / 4K background plates live, and how to import them (Virtual Textures, BC7, sharp-vs-standard model choice).
 
+> **CLAUDE-NOTE (2026-08-25): Substance Painter round-trip.** For UE ⇄ Painter texturing work (mesh export, parametric weathering materials, MEL graph builds), read `docs/ue-painter-roundtrip.md` first — it records the material-slot export trap, the MEL one-shot-rebuild rule and its crash mode, and the coverage-growth slider math. The Painter side lives in `F:\__PROJECTS\Substance-Paint-MCP` (its own CLAUDE.md + `docs/ue-painter-workflow.md`).
+
 Two serving modes:
 - **Editor subsystem** (preferred): Auto-starts on port 9847 when the UE5 editor is open. Zero overhead.
 - **Standalone commandlet**: Spawns a headless `UnrealEditor-Cmd.exe` process (2-4 GB RAM, ~60s startup). Call `shutdown_server` when done.
