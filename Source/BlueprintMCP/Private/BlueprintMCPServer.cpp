@@ -2133,15 +2133,16 @@ TSharedPtr<FJsonObject> FBlueprintMCPServer::SerializeNode(UEdGraphNode* Node)
 		}
 		NJ->SetArrayField(TEXT("parameters"), ParamArr);
 	}
-	else if (auto* Ev = Cast<UK2Node_Event>(Node))
-	{
-		NJ->SetStringField(TEXT("eventName"), Ev->EventReference.GetMemberName().ToString());
-		NJ->SetStringField(TEXT("nodeType"), Ev->bOverrideFunction ? TEXT("OverrideEvent") : TEXT("Event"));
-	}
+	// CLAUDE-NOTE: CustomEvent must be checked BEFORE the generic Event branch — UK2Node_CustomEvent
+	// derives from UK2Node_Event, so the old order made this branch dead code: custom events were
+	// reported as nodeType "Event" and their parameter list never serialized. Same inheritance trap
+	// as the CallParentFunction/CallFunction pair above.
 	else if (auto* CE = Cast<UK2Node_CustomEvent>(Node))
 	{
 		NJ->SetStringField(TEXT("eventName"), CE->CustomFunctionName.ToString());
 		NJ->SetStringField(TEXT("nodeType"), TEXT("CustomEvent"));
+		// Details-panel button flag (docs/KNOWN-ISSUE-call-in-editor.md)
+		NJ->SetBoolField(TEXT("callInEditor"), CE->bCallInEditor);
 
 		// Serialize UserDefinedPins (parameter names and types)
 		TArray<TSharedPtr<FJsonValue>> ParamArr;
@@ -2159,6 +2160,11 @@ TSharedPtr<FJsonObject> FBlueprintMCPServer::SerializeNode(UEdGraphNode* Node)
 			ParamArr.Add(MakeShared<FJsonValueObject>(ParamJ));
 		}
 		NJ->SetArrayField(TEXT("parameters"), ParamArr);
+	}
+	else if (auto* Ev = Cast<UK2Node_Event>(Node))
+	{
+		NJ->SetStringField(TEXT("eventName"), Ev->EventReference.GetMemberName().ToString());
+		NJ->SetStringField(TEXT("nodeType"), Ev->bOverrideFunction ? TEXT("OverrideEvent") : TEXT("Event"));
 	}
 	else if (auto* VG = Cast<UK2Node_VariableGet>(Node))
 	{

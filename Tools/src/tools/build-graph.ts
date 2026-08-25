@@ -13,7 +13,7 @@ const NodeSpec = z.object({
   nodeType: z.string().describe("Node type, same values as add_node: CallFunction, VariableGet, VariableSet, Branch, Sequence, CustomEvent, OverrideEvent, CallParentFunction, DynamicCast, MakeStruct, BreakStruct, ForEachLoop, ForLoop, ForLoopWithBreak, WhileLoop, SpawnActorFromClass, Select, Comment, Reroute."),
   posX: z.number().optional().describe("Graph X position. Omit to auto-place left-to-right."),
   posY: z.number().optional().describe("Graph Y position. Omit to auto-place."),
-}).passthrough().describe("Node spec. Type-specific fields are passed through to add_node unchanged — functionName, className, variableName, eventName, castTarget, actorClass, typeName, comment, width, height. Use the same field names you would pass to add_node.");
+}).passthrough().describe("Node spec. Type-specific fields are passed through to add_node unchanged — functionName, className, variableName, eventName, callInEditor, castTarget, actorClass, typeName, comment, width, height. Use the same field names you would pass to add_node.");
 
 const ConnectionSpec = z.object({
   from: z.string().describe("Source endpoint as 'RefOrNodeId.PinName' (e.g. 'BeginPlay.then'). The ref may be a node created in this call OR an existing node GUID already in the graph."),

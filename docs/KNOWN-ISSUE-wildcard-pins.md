@@ -1,7 +1,27 @@
-# Known issue: wildcard pins never resolve types via MCP connections
+# Known issue: wildcard pins never resolve types via MCP connections — FIXED 2026-08-25
 
 <!-- CLAUDE-NOTE: Filed 2026-08-04 by Claude Code after hitting this building BP_BackgroundSlideshow
-     in VoxelWorld. Do not remove without fixing the underlying issue. -->
+     in VoxelWorld. FIXED 2026-08-25 — kept for history; the "likely root cause" below turned out
+     to be WRONG, see the FIX section at the bottom for what it actually was. -->
+
+## FIX (2026-08-25)
+
+The root cause was **not** the connection path. `UEdGraphSchema::TryCreateConnection` already runs
+`PinConnectionListChanged` on both nodes (`EdGraphSchema.cpp`, under `WITH_EDITOR`), which drives
+`NotifyPinConnectionListChanged` — where wildcard propagation lives. The real bug: `add_node`
+spawned **every** function call as plain `UK2Node_CallFunction`, but the propagation logic for
+array functions lives on the subclass `UK2Node_CallArrayFunction`. The editor palette picks the
+subclass from function metadata (`UBlueprintFunctionNodeSpawner::Create`); the plugin never did.
+
+Fixed in `HandleAddNode` by mirroring the engine's chooser: `ArrayParm` →
+`UK2Node_CallArrayFunction`, `DataTablePin` → `UK2Node_CallDataTableFunction`,
+`MaterialParameterCollectionFunction` → `UK2Node_CallMaterialParameterCollectionFunction`,
+`CommutativeAssociativeBinaryOperator`+pure → `UK2Node_CommutativeAssociativeBinaryOperator`.
+(`UK2Node_PromotableOperator` intentionally not mirrored — feature-flag-gated, off by default.)
+`build_graph` delegates node creation to `HandleAddNode`, so both tools are fixed.
+
+Regression tests: `Tools/test/tools/wildcard-pins.test.ts` — asserts the node class, the resolved
+`TargetArray`/`Item` pin types after connect, and a clean compile with `Array_Get`+`Array_Length`.
 
 ## Symptom
 

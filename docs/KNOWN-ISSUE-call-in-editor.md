@@ -1,7 +1,21 @@
-# Known gap: no way to set "Call In Editor" on custom events via MCP
+# Known gap: no way to set "Call In Editor" on custom events via MCP — FIXED 2026-08-25
 
 <!-- CLAUDE-NOTE: Filed 2026-08-25 by Claude Code after building BP_MaterialCycler in MyLab_5_6.
-     GitHub issues are disabled on hoodtronik/Unreal-MCP-Ultra, so the request lives here. -->
+     GitHub issues are disabled on hoodtronik/Unreal-MCP-Ultra, so the request lives here.
+     FIXED same day — see the FIX section; the manual-workaround text below is only needed on
+     builds older than this fix. -->
+
+## FIX (2026-08-25)
+
+`add_node` (and `build_graph`, which passes node fields through) now accepts
+`callInEditor: bool` on `nodeType: "CustomEvent"` and sets `UK2Node_CustomEvent::bCallInEditor`
+before compile. The flag is also serialized back in the node JSON (`callInEditor`), which fixed a
+second latent bug on the way: `SerializeNode` checked `Cast<UK2Node_Event>` before
+`Cast<UK2Node_CustomEvent>`, so the CustomEvent branch was dead code — custom events reported as
+nodeType `"Event"` and their parameter list never serialized. Branch order swapped.
+
+Regression tests: `Tools/test/tools/add-node.test.ts` ("adds a CustomEvent with callInEditor",
+"defaults callInEditor to false when omitted").
 
 ## Symptom
 

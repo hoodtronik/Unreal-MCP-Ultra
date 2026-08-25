@@ -127,6 +127,38 @@ describe("add_node", () => {
     expect(data.saved).toBe(true);
   });
 
+  it("adds a CustomEvent with callInEditor (Details-panel button)", async () => {
+    // CLAUDE-NOTE: regression test for docs/KNOWN-ISSUE-call-in-editor.md — bCallInEditor is a
+    // bare UPROPERTY unreachable from editor python, so add_node's callInEditor option is the
+    // only scriptable path. The node JSON echoing it back is also the read-back path.
+    const data = await uePost("/api/add-node", {
+      blueprint: bpName,
+      graph: "EventGraph",
+      nodeType: "CustomEvent",
+      eventName: "TestEditorButton",
+      callInEditor: true,
+    });
+    expect(data.error).toBeUndefined();
+    expect(data.success).toBe(true);
+    expect(data.node?.callInEditor).toBe(true);
+    // Also locks in the SerializeNode branch-order fix: custom events used to be swallowed by
+    // the generic UK2Node_Event branch and reported as nodeType "Event".
+    expect(data.node?.nodeType).toBe("CustomEvent");
+  });
+
+  it("defaults callInEditor to false when omitted", async () => {
+    const data = await uePost("/api/add-node", {
+      blueprint: bpName,
+      graph: "EventGraph",
+      nodeType: "CustomEvent",
+      eventName: "TestPlainEvent",
+    });
+    expect(data.error).toBeUndefined();
+    expect(data.success).toBe(true);
+    expect(data.node?.callInEditor).toBe(false);
+    expect(data.node?.nodeType).toBe("CustomEvent");
+  });
+
   it("rejects CustomEvent without eventName", async () => {
     const data = await uePost("/api/add-node", {
       blueprint: bpName,

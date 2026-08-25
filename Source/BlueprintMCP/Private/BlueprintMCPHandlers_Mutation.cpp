@@ -11,6 +11,10 @@
 #include "EdGraphSchema_K2.h"
 #include "K2Node.h"
 #include "K2Node_CallFunction.h"
+#include "K2Node_CallArrayFunction.h"
+#include "K2Node_CallDataTableFunction.h"
+#include "K2Node_CallMaterialParameterCollectionFunction.h"
+#include "K2Node_CommutativeAssociativeBinaryOperator.h"
 #include "K2Node_Event.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_FunctionEntry.h"
@@ -1544,7 +1548,32 @@ FString FBlueprintMCPServer::HandleAddNode(const FString& Body)
 				*FunctionName, ClassName.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" in class '%s'"), *ClassName)));
 		}
 
-		UK2Node_CallFunction* CallNode = NewObject<UK2Node_CallFunction>(TargetGraph);
+		// CLAUDE-NOTE: root cause of docs/KNOWN-ISSUE-wildcard-pins.md — the editor palette spawns
+		// specialized UK2Node_CallFunction SUBCLASSES based on function metadata (mirrors
+		// UBlueprintFunctionNodeSpawner::Create). A plain UK2Node_CallFunction carries no wildcard
+		// propagation logic, so Array_Get/Array_Length TargetArray pins created here stayed
+		// PC_Wildcard forever; the schema's post-connect notify chain was never the problem.
+		// UK2Node_PromotableOperator is deliberately not mirrored — it is feature-flag-gated
+		// (TypePromoDebug::IsTypePromoEnabled), off by default in 5.6.
+		UClass* CallNodeClass = UK2Node_CallFunction::StaticClass();
+		if (TargetFunc->HasMetaData(FBlueprintMetadata::MD_CommutativeAssociativeBinaryOperator)
+			&& TargetFunc->HasAllFunctionFlags(FUNC_BlueprintPure))
+		{
+			CallNodeClass = UK2Node_CommutativeAssociativeBinaryOperator::StaticClass();
+		}
+		else if (TargetFunc->HasMetaData(FBlueprintMetadata::MD_MaterialParameterCollectionFunction))
+		{
+			CallNodeClass = UK2Node_CallMaterialParameterCollectionFunction::StaticClass();
+		}
+		else if (TargetFunc->HasMetaData(FBlueprintMetadata::MD_DataTablePin))
+		{
+			CallNodeClass = UK2Node_CallDataTableFunction::StaticClass();
+		}
+		else if (TargetFunc->HasMetaData(FBlueprintMetadata::MD_ArrayParam))
+		{
+			CallNodeClass = UK2Node_CallArrayFunction::StaticClass();
+		}
+		UK2Node_CallFunction* CallNode = NewObject<UK2Node_CallFunction>(TargetGraph, CallNodeClass);
 		CallNode->SetFromFunction(TargetFunc);
 		CallNode->NodePosX = PosX;
 		CallNode->NodePosY = PosY;
@@ -1851,6 +1880,13 @@ FString FBlueprintMCPServer::HandleAddNode(const FString& Body)
 
 		UK2Node_CustomEvent* EventNode = NewObject<UK2Node_CustomEvent>(TargetGraph);
 		EventNode->CustomFunctionName = FName(*EventName);
+		// CLAUDE-NOTE: optional 'callInEditor' turns the event into a Details-panel button
+		// (docs/KNOWN-ISSUE-call-in-editor.md). This is the ONLY scriptable path to the flag:
+		// bCallInEditor is a bare UPROPERTY(), so editor-python set_editor_property rejects it
+		// as protected, and the checkbox otherwise requires manual clicks in the BP editor.
+		bool bCallInEditor = false;
+		Json->TryGetBoolField(TEXT("callInEditor"), bCallInEditor);
+		EventNode->bCallInEditor = bCallInEditor;
 		EventNode->NodePosX = PosX;
 		EventNode->NodePosY = PosY;
 		TargetGraph->AddNode(EventNode, false, false);

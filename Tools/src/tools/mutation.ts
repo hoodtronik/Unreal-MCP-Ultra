@@ -377,6 +377,7 @@ export function registerMutationTools(server: McpServer): void {
       dispatcherName: z.string().optional().describe("Event dispatcher name for CallDispatcher — broadcasts an existing dispatcher on this Blueprint (add it first with add_event_dispatcher)"),
       castTarget: z.string().optional().describe("Target class name for DynamicCast (e.g. 'BP_PatientJson')"),
       eventName: z.string().optional().describe("Event name for CustomEvent (e.g. 'OnDataReady')"),
+      callInEditor: z.boolean().optional().describe("CustomEvent only: set the event's 'Call In Editor' flag so it appears as a clickable button in the Details panel of actor instances (default: false)"),
       actorClass: z.string().optional().describe("Actor class for SpawnActorFromClass (e.g. 'BP_Patient_Base'). Optional — can also be set via the class pin."),
       comment: z.string().optional().describe("Comment text for Comment node type"),
       width: z.number().optional().describe("Width for Comment node (default: 400)"),
@@ -384,7 +385,7 @@ export function registerMutationTools(server: McpServer): void {
       posX: z.number().optional().describe("X position in the graph (optional)"),
       posY: z.number().optional().describe("Y position in the graph (optional)"),
     },
-    async ({ blueprint, graph, nodeType, typeName, functionName, className, variableName, dispatcherName, castTarget, eventName, actorClass, comment, width, height, posX, posY }) => {
+    async ({ blueprint, graph, nodeType, typeName, functionName, className, variableName, dispatcherName, castTarget, eventName, callInEditor, actorClass, comment, width, height, posX, posY }) => {
       const err = await ensureUE();
       if (err) return { content: [{ type: "text" as const, text: err }] };
 
@@ -396,6 +397,7 @@ export function registerMutationTools(server: McpServer): void {
       if (dispatcherName) body.dispatcherName = dispatcherName;
       if (castTarget) body.castTarget = castTarget;
       if (eventName) body.eventName = eventName;
+      if (callInEditor !== undefined) body.callInEditor = callInEditor;
       if (actorClass) body.actorClass = actorClass;
       if (comment) body.comment = comment;
       if (width !== undefined) body.width = width;
