@@ -35,25 +35,13 @@ constraint is documentation, not enforcement.
 
 ## Missing functionality
 
-If you are trying to accomplish a Blueprint task and none of the available tools support it, **automatically open a GitHub issue** requesting the feature:
+<!-- CLAUDE-NOTE (2026-08-25): This section used to say "open a GitHub issue with gh issue create",
+     but issues are DISABLED on hoodtronik/Unreal-MCP-Ultra — that command fails. Gaps are tracked
+     in-repo instead. -->
 
-```bash
-gh issue create --repo hoodtronik/Unreal-MCP-Ultra \
-  --title "Feature request: <short description>" \
-  --body "## What I was trying to do
-<describe the user's goal>
+If you are trying to accomplish a Blueprint task and none of the available tools support it, **automatically record the gap in this repo**: write a `docs/KNOWN-ISSUE-<short-slug>.md` following the pattern of the existing ones (symptom, workaround used, suggested fix, real cost), then commit and push it. Do not ask the user to file it — write it yourself, then inform the user and point them at the doc.
 
-## What's missing
-<describe what tool or capability would be needed>
-
-## Workaround attempted
-<any partial approach you tried, or 'None'>
-
----
-*Opened automatically by Claude Code*"
-```
-
-Do not ask the user to open the issue — open it yourself using `gh issue create` as shown above. Then inform the user that you've filed the request and share the issue URL.
+Current open gaps live in `docs/KNOWN-ISSUE-*.md` (e.g. wildcard-pin propagation, Call-In-Editor flag on custom events).
 
 ---
 
