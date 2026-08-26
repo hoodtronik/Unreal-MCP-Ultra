@@ -583,6 +583,18 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 				return true;
 			}));
 
+	// /api/task-status — answered directly on the HTTP thread (thread-safe map read) so background
+	// task progress stays queryable even while the game thread is blocked inside a long operation.
+	Router->BindRoute(FHttpPath(TEXT("/api/task-status")), EHttpServerRequestVerbs::VERB_GET,
+		FHttpRequestHandler::CreateLambda(
+			[this](const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
+			{
+				TUniquePtr<FHttpServerResponse> R = FHttpServerResponse::Create(
+					HandleTaskStatus(Request.QueryParams), TEXT("application/json"));
+				OnComplete(MoveTemp(R));
+				return true;
+			}));
+
 	// /api/shutdown — request graceful engine exit (commandlet only)
 	Router->BindRoute(FHttpPath(TEXT("/api/shutdown")), EHttpServerRequestVerbs::VERB_POST,
 		FHttpRequestHandler::CreateLambda(
@@ -1203,28 +1215,116 @@ void FBlueprintMCPServer::Stop()
 
 bool FBlueprintMCPServer::ProcessOneRequest()
 {
+	bool bDidWork = false;
+
 	TSharedPtr<FPendingRequest> Req;
-	if (!RequestQueue.Dequeue(Req))
+	if (RequestQueue.Dequeue(Req))
 	{
-		return false;
+		bDidWork = true;
+
+		FString Response;
+		const FString* AsyncParam = Req->QueryParams.Find(TEXT("async"));
+		const bool bAsync = AsyncParam && (*AsyncParam == TEXT("1") || *AsyncParam == TEXT("true"));
+
+		if (bAsync && HandlerMap.Contains(Req->Endpoint))
+		{
+			// Detach: answer immediately with a task id; the work runs on a later tick with no
+			// client socket held open. See the CLAUDE-NOTE on the task members in the header.
+			const FString TaskId = FString::Printf(TEXT("task_%d"), ++TaskCounter);
+			TSharedPtr<FBackgroundTask> Task = MakeShared<FBackgroundTask>();
+			Task->Id = TaskId;
+			Task->Endpoint = Req->Endpoint;
+			Task->QueryParams = Req->QueryParams;
+			Task->Body = Req->Body;
+			Task->CreatedAt = FDateTime::UtcNow();
+			{
+				FScopeLock Lock(&TasksLock);
+				Tasks.Add(TaskId, Task);
+				TaskIdOrder.Add(TaskId);
+				// Evict oldest COMPLETED tasks past the cap; never evict pending/running ones.
+				for (int32 i = 0; i < TaskIdOrder.Num() && Tasks.Num() > MaxRetainedTasks; )
+				{
+					TSharedPtr<FBackgroundTask>* Old = Tasks.Find(TaskIdOrder[i]);
+					if (Old && (*Old)->State == EBackgroundTaskState::Done)
+					{
+						Tasks.Remove(TaskIdOrder[i]);
+						TaskIdOrder.RemoveAt(i);
+					}
+					else
+					{
+						++i;
+					}
+				}
+			}
+			PendingTaskIds.Enqueue(TaskId);
+
+			TSharedRef<FJsonObject> J = MakeShared<FJsonObject>();
+			J->SetBoolField(TEXT("success"), true);
+			J->SetStringField(TEXT("taskId"), TaskId);
+			J->SetStringField(TEXT("state"), TEXT("pending"));
+			J->SetStringField(TEXT("endpoint"), Req->Endpoint);
+			J->SetStringField(TEXT("note"), TEXT("Running in background. Poll /api/task-status?id=<taskId> for the result."));
+			Response = JsonToString(J);
+		}
+		else
+		{
+			Response = ExecuteEndpoint(Req->Endpoint, Req->QueryParams, Req->Body);
+		}
+
+		// Send the response back via the HTTP callback (non-blocking)
+		TUniquePtr<FHttpServerResponse> HttpResp = FHttpServerResponse::Create(
+			Response, TEXT("application/json"));
+		Req->OnComplete(MoveTemp(HttpResp));
 	}
 
+	// Run at most ONE pending background task per tick, after the HTTP response above so no
+	// client ever waits on task work.
+	FString TaskId;
+	if (PendingTaskIds.Dequeue(TaskId))
+	{
+		TSharedPtr<FBackgroundTask> Task;
+		{
+			FScopeLock Lock(&TasksLock);
+			if (TSharedPtr<FBackgroundTask>* Found = Tasks.Find(TaskId))
+			{
+				Task = *Found;
+				Task->State = EBackgroundTaskState::Running;
+				Task->StartedAt = FDateTime::UtcNow();
+			}
+		}
+		if (Task.IsValid())
+		{
+			bDidWork = true;
+			// Executed OUTSIDE the lock — this can block for a long time (that's why it's a task).
+			const FString Result = ExecuteEndpoint(Task->Endpoint, Task->QueryParams, Task->Body);
+			FScopeLock Lock(&TasksLock);
+			Task->ResultJson = Result;
+			Task->State = EBackgroundTaskState::Done;
+			Task->EndedAt = FDateTime::UtcNow();
+		}
+	}
+
+	return bDidWork;
+}
+
+FString FBlueprintMCPServer::ExecuteEndpoint(const FString& Endpoint, const TMap<FString, FString>& QueryParams, const FString& Body)
+{
 	FString Response;
-	if (FRequestHandler* Handler = HandlerMap.Find(Req->Endpoint))
+	if (FRequestHandler* Handler = HandlerMap.Find(Endpoint))
 	{
 		// Wrap mutation endpoints in an undo transaction so users can Ctrl+Z.
 		// CLAUDE-NOTE: widget mutations are excluded — recompiling a Widget Blueprint creates
 		// REINST_ objects whose WidgetTree refs in the transaction buffer keep the old World
 		// alive, giving a fatal "World Leak" crash. Widget tools use snapshot/restore instead.
-		const bool bIsMutation = MutationEndpoints.Contains(Req->Endpoint);
-		const bool bIsWidgetMutation = WidgetMutationEndpoints.Contains(Req->Endpoint);
+		const bool bIsMutation = MutationEndpoints.Contains(Endpoint);
+		const bool bIsWidgetMutation = WidgetMutationEndpoints.Contains(Endpoint);
 		const bool bUseTransaction = bIsMutation && !bIsWidgetMutation && GEditor != nullptr;
 		if (bUseTransaction)
 		{
-			GEditor->BeginTransaction(FText::FromString(FString::Printf(TEXT("BlueprintMCP: %s"), *Req->Endpoint)));
+			GEditor->BeginTransaction(FText::FromString(FString::Printf(TEXT("BlueprintMCP: %s"), *Endpoint)));
 		}
 
-		Response = (*Handler)(Req->QueryParams, Req->Body);
+		Response = (*Handler)(QueryParams, Body);
 
 		// CLAUDE-NOTE: must mirror bUseTransaction exactly — gating End on bIsMutation alone would
 		// call EndTransaction without a matching BeginTransaction for widget mutations.
@@ -1235,15 +1335,64 @@ bool FBlueprintMCPServer::ProcessOneRequest()
 	}
 	else
 	{
-		Response = MakeErrorJson(FString::Printf(TEXT("Unknown endpoint: %s"), *Req->Endpoint));
+		Response = MakeErrorJson(FString::Printf(TEXT("Unknown endpoint: %s"), *Endpoint));
+	}
+	return Response;
+}
+
+FString FBlueprintMCPServer::HandleTaskStatus(const TMap<FString, FString>& Params)
+{
+	const FString* Id = Params.Find(TEXT("id"));
+	if (!Id || Id->IsEmpty())
+	{
+		return MakeErrorJson(TEXT("'id' query parameter is required (from the taskId returned by an async request)."));
 	}
 
-	// Send the response back via the HTTP callback (non-blocking)
-	TUniquePtr<FHttpServerResponse> HttpResp = FHttpServerResponse::Create(
-		Response, TEXT("application/json"));
-	Req->OnComplete(MoveTemp(HttpResp));
+	// Copy everything we need under the lock, build JSON outside it.
+	FBackgroundTask Snapshot;
+	bool bFound = false;
+	int32 RetainedCount = 0;
+	{
+		FScopeLock Lock(&TasksLock);
+		RetainedCount = Tasks.Num();
+		if (const TSharedPtr<FBackgroundTask>* Found = Tasks.Find(*Id))
+		{
+			Snapshot = **Found;
+			bFound = true;
+		}
+	}
+	if (!bFound)
+	{
+		return MakeErrorJson(FString::Printf(
+			TEXT("Unknown task id '%s' (%d tasks retained; completed tasks are evicted after %d)."),
+			**Id, RetainedCount, MaxRetainedTasks));
+	}
 
-	return true;
+	TSharedRef<FJsonObject> J = MakeShared<FJsonObject>();
+	J->SetBoolField(TEXT("success"), true);
+	J->SetStringField(TEXT("taskId"), Snapshot.Id);
+	J->SetStringField(TEXT("endpoint"), Snapshot.Endpoint);
+	const TCHAR* StateStr =
+		Snapshot.State == EBackgroundTaskState::Pending ? TEXT("pending") :
+		Snapshot.State == EBackgroundTaskState::Running ? TEXT("running") : TEXT("done");
+	J->SetStringField(TEXT("state"), StateStr);
+	const FDateTime End = (Snapshot.State == EBackgroundTaskState::Done) ? Snapshot.EndedAt : FDateTime::UtcNow();
+	J->SetNumberField(TEXT("elapsedSeconds"), (End - Snapshot.CreatedAt).GetTotalSeconds());
+	if (Snapshot.State == EBackgroundTaskState::Done)
+	{
+		// The stored result is itself JSON — embed it as an object when it parses, raw otherwise.
+		TSharedPtr<FJsonObject> ResultObj;
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Snapshot.ResultJson);
+		if (FJsonSerializer::Deserialize(Reader, ResultObj) && ResultObj.IsValid())
+		{
+			J->SetObjectField(TEXT("result"), ResultObj);
+		}
+		else
+		{
+			J->SetStringField(TEXT("resultText"), Snapshot.ResultJson);
+		}
+	}
+	return JsonToString(J);
 }
 
 void FBlueprintMCPServer::RegisterHandlers()

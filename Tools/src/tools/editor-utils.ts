@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ensureUE, uePost } from "../ue-bridge.js";
+import { ensureUE, ueGet, uePost } from "../ue-bridge.js";
 
 export function registerEditorUtilityTools(server: McpServer): void {
   server.tool(
@@ -55,21 +55,87 @@ export function registerEditorUtilityTools(server: McpServer): void {
 
   server.tool(
     "save_all",
-    "Save all dirty (unsaved) packages in the editor, including maps and content. Requires editor mode.",
-    {},
-    async () => {
+    "Save all dirty (unsaved) packages in the editor, including maps and content. Runs as a background task by default: if the save takes long (shader compiles, many packages, or a modal dialog needs a human click), this returns a taskId instead of blocking — poll it with get_task_status. Requires editor mode.",
+    {
+      background: z.boolean().optional()
+        .describe("Default true: run detached and poll briefly, returning a taskId if still busy. Set false to block until the save finishes (can exceed client timeouts)."),
+    },
+    async ({ background }) => {
       const err = await ensureUE();
       if (err) return { content: [{ type: "text" as const, text: err }] };
 
-      const data = await uePost("/api/save-all", {});
-      if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
+      // CLAUDE-NOTE: background default. A synchronous save-all once outlived the client's timeout
+      // while a modal dialog held the editor — the client hung on a dead socket with no way to ask
+      // what happened. Detached + poll keeps the socket free and the status queryable throughout.
+      if (background === false) {
+        const data = await uePost("/api/save-all", {});
+        if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
+        const lines = [
+          data.success ? "All dirty packages saved successfully." : "Save completed with some failures.",
+          `\nNext steps:`,
+          `  1. Use get_dirty_packages to verify no unsaved changes remain`,
+        ];
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      }
+
+      const started = await uePost("/api/save-all?async=1", {});
+      if (started.error) return { content: [{ type: "text" as const, text: `Error: ${started.error}` }] };
+      const taskId: string = started.taskId;
+
+      // Poll up to ~90s; most saves finish in a few seconds.
+      const deadline = Date.now() + 90_000;
+      let last: any = started;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, last.state === "pending" ? 500 : 2000));
+        last = await ueGet("/api/task-status", { id: taskId });
+        if (last.error) return { content: [{ type: "text" as const, text: `Error: ${last.error}` }] };
+        if (last.state === "done") {
+          const ok = last.result?.success;
+          const lines = [
+            ok ? "All dirty packages saved successfully." : `Save completed with some failures: ${JSON.stringify(last.result ?? last.resultText)}`,
+            `(background task ${taskId}, ${Math.round(last.elapsedSeconds)}s)`,
+            `\nNext steps:`,
+            `  1. Use get_dirty_packages to verify no unsaved changes remain`,
+          ];
+          return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        }
+      }
 
       const lines = [
-        data.success ? "All dirty packages saved successfully." : "Save completed with some failures.",
+        `Save is still running in the background (task ${taskId}, ${Math.round(last.elapsedSeconds ?? 0)}s so far).`,
+        `A save this long usually means shader compilation or a MODAL DIALOG waiting for a human click — check the editor window.`,
         `\nNext steps:`,
-        `  1. Use get_dirty_packages to verify no unsaved changes remain`,
+        `  1. get_task_status(taskId="${taskId}") — poll until state is 'done'`,
+        `  2. If it never finishes, look for a dialog in the editor blocking the save`,
       ];
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    }
+  );
 
+  server.tool(
+    "get_task_status",
+    "Check a background task started by an async-capable tool (e.g. save_all). Returns state (pending/running/done), elapsed time, and the operation's full result once done. Works even while the editor's main thread is busy with the task itself.",
+    {
+      taskId: z.string().describe("Task id returned when the operation was started (e.g. 'task_3')"),
+    },
+    async ({ taskId }) => {
+      const err = await ensureUE();
+      if (err) return { content: [{ type: "text" as const, text: err }] };
+
+      const data = await ueGet("/api/task-status", { id: taskId });
+      if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }] };
+
+      const lines: string[] = [
+        `Task ${data.taskId} (${data.endpoint}): ${data.state}`,
+        `Elapsed: ${Math.round(data.elapsedSeconds)}s`,
+      ];
+      if (data.state === "done") {
+        lines.push(`Result: ${JSON.stringify(data.result ?? data.resultText, null, 1)}`);
+      } else {
+        lines.push(`\nNext steps:`);
+        lines.push(`  1. Poll get_task_status again in a few seconds`);
+        lines.push(`  2. If stuck for minutes, check the editor for a modal dialog holding the operation`);
+      }
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     }
   );

@@ -1,4 +1,8 @@
-# Known issue: editor subsystem binds port 9847 once at startup, never retries
+# Known issue: editor subsystem binds port 9847 once at startup, never retries — FIXED 2026-08-26
+
+**Status: FIXED.** The subsystem now retries a failed bind every 15s from Tick, and a
+`BlueprintMCP.Restart` console command forces a stop+rebind in-session (both suggested fixes
+below were implemented). Kept for the diagnosis record.
 
 <!-- CLAUDE-NOTE: Filed 2026-08-26 by Claude Code after losing a session start to it live.
      A windowless zombie UnrealEditor (yesterday's ElevenWeekFallSeries session, hung but

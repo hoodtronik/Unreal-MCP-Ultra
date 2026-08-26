@@ -193,6 +193,40 @@ private:
 	};
 
 	TQueue<TSharedPtr<FPendingRequest>> RequestQueue;
+
+	// ----- Background tasks -----
+	// CLAUDE-NOTE (2026-08-26): any queued endpoint accepts ?async=1 — the HTTP response returns a
+	// taskId immediately and the actual work runs on a LATER ProcessOneRequest() tick with no client
+	// socket held open. Motivation: save_all outlived the MCP client's 120s timeout, and a modal
+	// dialog raised mid-operation froze the request loop while the client held a dead connection
+	// (docs/ROADMAP-server-hardening.md item 2). /api/task-status is answered ON THE HTTP THREAD so
+	// progress stays queryable even while the game thread is blocked inside a task — that is the
+	// entire point; do not convert it to a queued handler.
+	enum class EBackgroundTaskState : uint8 { Pending, Running, Done };
+	struct FBackgroundTask
+	{
+		FString Id;
+		FString Endpoint;
+		TMap<FString, FString> QueryParams;
+		FString Body;
+		FString ResultJson;
+		EBackgroundTaskState State = EBackgroundTaskState::Pending;
+		FDateTime CreatedAt;
+		FDateTime StartedAt;
+		FDateTime EndedAt;
+	};
+	TMap<FString, TSharedPtr<FBackgroundTask>> Tasks; // guarded by TasksLock
+	TArray<FString> TaskIdOrder;                      // creation order for eviction; guarded by TasksLock
+	TQueue<FString> PendingTaskIds;                   // game thread only
+	int32 TaskCounter = 0;                            // game thread only
+	mutable FCriticalSection TasksLock;
+	static constexpr int32 MaxRetainedTasks = 100;
+
+	/** Invoke a HandlerMap endpoint with the usual mutation-transaction wrapping. Game thread only. */
+	FString ExecuteEndpoint(const FString& Endpoint, const TMap<FString, FString>& QueryParams, const FString& Body);
+	/** Thread-safe status read for /api/task-status (called from the HTTP thread). */
+	FString HandleTaskStatus(const TMap<FString, FString>& Params);
+
 	TArray<FAssetData> AllBlueprintAssets;
 	TArray<FAssetData> AllMapAssets;
 	TArray<FAssetData> AllMaterialAssets;
