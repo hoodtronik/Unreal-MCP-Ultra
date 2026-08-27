@@ -6,6 +6,12 @@ Vibe code your Blueprints, materials, and Anim Blueprints. This plugin lets Clau
 
 https://github.com/user-attachments/assets/11b86d62-982b-42b3-bddb-aeeddc3e675c
 
+## Requirements
+
+Unreal Engine **5.6.1** (Win64) and Node 18+. That is the only engine version this plugin is built
+and tested against — the `.uplugin` deliberately declares no `EngineVersion`, so other 5.x versions
+will load, but expect to fix API drift yourself.
+
 ## Getting Started
 
 Tell Claude Code:
@@ -31,7 +37,13 @@ A UE5 editor plugin exposes your project's Blueprints over a local HTTP server. 
 
 ## Editor console commands
 
-Driven via the `exec_command` tool. The Voxel Sandbox → StaticMesh baker adds:
+Driven via the `exec_command` tool, or typed into the editor console.
+
+- `BlueprintMCP.Restart` — stop the HTTP server (if running) and attempt a fresh bind on port 9847.
+  Recovers an editor session where the port was taken at startup (typically by a second UE project)
+  without restarting the editor.
+
+The Voxel Sandbox → StaticMesh baker adds:
 
 - `Voxel.BakeChunks [all|single] [cellSize] [outFolderNameOrPath]` — during PIE, bakes runtime voxel
   chunks (ProceduralMeshComponents) into saved `UStaticMesh` assets (preserving vertex colors +
@@ -41,8 +53,8 @@ Driven via the `exec_command` tool. The Voxel Sandbox → StaticMesh baker adds:
 
 ## Tools
 
-The MCP server exposes **220+ tools**, grouped by area below. Every mutation tool supports a
-`dryRun` parameter where applicable and returns human-readable summaries with `nextSteps` hints.
+The MCP server exposes **269 tools** (242 core + 27 Riot Crowd), grouped by area below. Every
+mutation tool supports a `dryRun` parameter where applicable and returns human-readable summaries with `nextSteps` hints.
 
 **Scripting / Python**
 - `run_python` — execute Unreal Editor Python and return captured output. Full reflected editor API
@@ -163,6 +175,9 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
   · `refresh_agent_config`
 - `save_all` · `get_dirty_packages` · `undo` · `redo` · `begin_transaction` · `end_transaction`
   · `reset_transaction_buffer`
+- `get_task_status` — long operations (e.g. `save_all`) can be started in the background with
+  `async`; this polls one by task id and returns its result once done, and keeps answering while
+  the editor's main thread is still busy with the task itself.
 - Levels: `open_level` · `new_level` — switch to or create a level. Both refuse to run while
   packages are unsaved, because the underlying load runs under `GIsRunningUnattendedScript` and
   would discard them silently; pass `saveFirst` or `discardUnsaved` to say which you want.
@@ -170,6 +185,9 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 - Camera: `get_viewport_camera` · `set_viewport_camera`
 - View: `set_view_mode` · `set_show_flags` · `set_viewport_type` · `set_realtime_rendering` · `set_game_view`
 - Screenshots: `take_screenshot` · `take_high_res_screenshot` (both write a PNG to `Saved/Screenshots`)
+  · `capture_view` — render from a camera *you* choose (ad-hoc location + lookAt, or an existing
+  `CameraActor` by label) with no dependence on any viewport or window, so it can see PIE gameplay
+  from any vantage point
 - Vision: `viewport_capture` · `vision_mode` · `scene_digest`
 - Lighting: `list_lights` · `spawn_light` · `set_light_property` · `spawn_sky` · `validate_lighting`
 - Rendering: `get_renderer_state` · `set_renderer_mode` · `configure_post_process`
@@ -248,6 +266,26 @@ The MCP server exposes **220+ tools**, grouped by area below. Every mutation too
 **Play In Editor (PIE)**
 - `start_pie` · `stop_pie` · `pie_pause` · `is_pie_running`
 - `pie_get_player_transform` · `pie_teleport_player` · `pie_query_actors`
+
+**Riot Crowd — scenario-driven crowd simulation**
+
+An optional subsystem for authoring and running crowd/riot scenarios in the level, with a three-tier
+representation LOD (rigged skeletal characters → cheaper proxies → instanced far tier).
+
+- Scenarios: `riot_create_scenario` · `riot_get_scenario` · `riot_list_scenarios` · `riot_delete_scenario`
+- Authoring: `riot_add_faction` · `riot_add_hotspot` · `riot_add_blockade` · `riot_add_flow_origin`
+  · `riot_set_trigger`
+- Character profiles: `riot_register_character_profile` · `riot_get_character_profile`
+  · `riot_list_character_profiles` · `riot_update_character_profile` · `riot_delete_character_profile`
+  · `riot_validate_character_profile` · `riot_assign_character_profiles`
+- Runtime: `riot_spawn` · `riot_start` · `riot_pause` · `riot_resume` · `riot_reset`
+  · `riot_get_runtime_report` · `riot_get_capabilities`
+- Representation LOD: `riot_set_representation_profile` · `riot_promote_agents` · `riot_demote_agents`
+  · `riot_get_representation_report`
+
+> Status and measured performance numbers live in [RIOT-CROWD-STATUS.md](RIOT-CROWD-STATUS.md).
+> Known gaps as of that document: the far tier renders instanced cones and does not animate, and
+> Animation Blueprint mode is implemented but has not been run live.
 
 ## Credits
 
