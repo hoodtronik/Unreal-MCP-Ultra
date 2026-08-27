@@ -53,8 +53,8 @@ The Voxel Sandbox → StaticMesh baker adds:
 
 ## Tools
 
-The MCP server exposes **269 tools** (242 core + 27 Riot Crowd), grouped by area below. Every
-mutation tool supports a `dryRun` parameter where applicable and returns human-readable summaries with `nextSteps` hints.
+The MCP server exposes **242 tools**, grouped by area below. Every mutation tool supports a
+`dryRun` parameter where applicable and returns human-readable summaries with `nextSteps` hints.
 
 **Scripting / Python**
 - `run_python` — execute Unreal Editor Python and return captured output. Full reflected editor API
@@ -267,10 +267,11 @@ mutation tool supports a `dryRun` parameter where applicable and returns human-r
 - `start_pie` · `stop_pie` · `pie_pause` · `is_pie_running`
 - `pie_get_player_transform` · `pie_teleport_player` · `pie_query_actors`
 
-**Riot Crowd — scenario-driven crowd simulation**
+**Riot Crowd — scenario-driven crowd simulation** · *beta, not counted above*
 
 An optional subsystem for authoring and running crowd/riot scenarios in the level, with a three-tier
-representation LOD (rigged skeletal characters → cheaper proxies → instanced far tier).
+representation LOD (rigged skeletal characters → cheaper proxies → instanced far tier). It registers
+a further 27 tools. Treat the API as unstable — names and shapes may change.
 
 - Scenarios: `riot_create_scenario` · `riot_get_scenario` · `riot_list_scenarios` · `riot_delete_scenario`
 - Authoring: `riot_add_faction` · `riot_add_hotspot` · `riot_add_blockade` · `riot_add_flow_origin`
