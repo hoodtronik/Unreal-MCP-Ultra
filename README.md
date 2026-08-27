@@ -267,27 +267,6 @@ The MCP server exposes **242 tools**, grouped by area below. Every mutation tool
 - `start_pie` · `stop_pie` · `pie_pause` · `is_pie_running`
 - `pie_get_player_transform` · `pie_teleport_player` · `pie_query_actors`
 
-**Riot Crowd — scenario-driven crowd simulation** · *beta, not counted above*
-
-An optional subsystem for authoring and running crowd/riot scenarios in the level, with a three-tier
-representation LOD (rigged skeletal characters → cheaper proxies → instanced far tier). It registers
-a further 27 tools. Treat the API as unstable — names and shapes may change.
-
-- Scenarios: `riot_create_scenario` · `riot_get_scenario` · `riot_list_scenarios` · `riot_delete_scenario`
-- Authoring: `riot_add_faction` · `riot_add_hotspot` · `riot_add_blockade` · `riot_add_flow_origin`
-  · `riot_set_trigger`
-- Character profiles: `riot_register_character_profile` · `riot_get_character_profile`
-  · `riot_list_character_profiles` · `riot_update_character_profile` · `riot_delete_character_profile`
-  · `riot_validate_character_profile` · `riot_assign_character_profiles`
-- Runtime: `riot_spawn` · `riot_start` · `riot_pause` · `riot_resume` · `riot_reset`
-  · `riot_get_runtime_report` · `riot_get_capabilities`
-- Representation LOD: `riot_set_representation_profile` · `riot_promote_agents` · `riot_demote_agents`
-  · `riot_get_representation_report`
-
-> Status and measured performance numbers live in [RIOT-CROWD-STATUS.md](RIOT-CROWD-STATUS.md).
-> Known gaps as of that document: the far tier renders instanced cones and does not animate, and
-> Animation Blueprint mode is implemented but has not been run live.
-
 ## Credits
 
 Forked from [mirno-ehf/ue5-mcp](https://github.com/mirno-ehf/ue5-mcp). This is an
