@@ -8,11 +8,12 @@ Epic's native Unreal MCP in UE 5.8 is much larger than expected, but its archite
 
 The earlier live source enumeration in `hoodtronik/Unreal-MCP-Ultra-5.8` measured approximately 890 underlying Epic tool calls in the installed UE 5.8.1 tree on 2026-07-30: about 596 Python `@toolset_registry.tool_call` functions and 294 C++ `UFUNCTION(meta=(AICallable))` functions.
 
-Current Epic UE 5.8 documentation confirms the native MCP is experimental, runs an MCP server inside Unreal, uses `ToolsetRegistry`, supports reflected Python and C++ toolsets, and defaults to tool-search mode rather than advertising every underlying tool schema at once.
+Current Epic UE 5.8 documentation confirms the native MCP is experimental, uses `ToolsetRegistry`, supports reflected Python and C++ toolsets, and defaults to tool-search mode rather than advertising every underlying tool schema at once.
 
 Public docs:
 - https://dev.epicgames.com/documentation/unreal-engine/unreal-mcp-in-unreal-editor
 - https://dev.epicgames.com/documentation/unreal-engine/unreal-engine-5-8-release-notes
+- https://dev.epicgames.com/documentation/unreal-engine/API/Plugins/MCPClientToolset
 
 ## Important clarification about the ~890 number
 
@@ -26,13 +27,35 @@ Epic's current UE 5.8 documentation says `Enable Tool Search` defaults to true. 
 
 The client discovers a relevant toolset and only then requests/executes the underlying tool. This solves the context-explosion problem that a flat 890-tool registration would create.
 
-This architecture should be studied for UltraMCP discovery even if UltraMCP remains a separate server.
+## UltraMCP already has a related discovery system
+
+Current UltraMCP `main` already contains an independently implemented, UE-5.6-safe discovery mode in `Tools/src/discovery/index.ts`.
+
+When `MCP_DISCOVERY_MODE=true`, UltraMCP exposes only:
+
+- `search_tools`
+- `list_tool_categories`
+- `describe_category`
+
+while keeping the underlying registered tools callable by name.
+
+The major difference is policy: Epic's tool-search mode is the UE 5.8 default, while UltraMCP's discovery mode is currently opt-in. This means UltraMCP is already architecturally closer to Epic's scalable discovery model than the raw tool counts suggest.
+
+Do not change UltraMCP's default during the dual-engine port. First measure whether the existing discovery mode should become the recommended/default mode for larger tool surfaces.
 
 ## Current UltraMCP position
 
-Current `hoodtronik/Unreal-MCP-Ultra/main` targets UE 5.6.1 and advertises 242 stable tools in its README. It also has a built-in MCP Resource skill system (`skill://unreal/{name}`), structured Blueprint graph mutation, material-expression graph authoring, animation Blueprint state-machine authoring, graph snapshot/diff/restore, validation, transactions, headless/commandlet operation, runtime/PIE support, vision/capture workflows, and project-specific extensions.
+Current `hoodtronik/Unreal-MCP-Ultra/main` targets UE 5.6.1 and advertises 242 stable tools in its README. It also has a built-in MCP Resource skill system (`skill://unreal/{name}`), structured Blueprint graph mutation, material-expression graph authoring, animation Blueprint state-machine authoring, graph snapshot/diff/restore, validation, transactions, commandlet-oriented automation, runtime/PIE support, vision/capture workflows, and project-specific extensions.
 
 The old 5.8 comparison used 252 UltraMCP tools at that historical snapshot. Current main and the old 5.8 fork have diverged, so future comparisons must use current-main capability semantics rather than the old raw count.
+
+## Correction to the older comparison: Epic is not strictly editor-only
+
+The July comparison described Epic's MCP as living in an open editor. Current UE 5.8 documentation is more nuanced and should supersede that statement.
+
+Epic says the `ModelContextProtocol` and `ModelContextProtocolEngine` modules are runtime modules and cooked/shipping builds can host the server if tools are registered directly. However, the Toolset Registry adapter and its tool-search meta-tools are editor-only, and shipping toolsets are not auto-discovered in cooked builds.
+
+Therefore UltraMCP's practical differentiator should be described as its existing **commandlet/headless/CI workflow and safety tooling**, not as 'Epic cannot run outside the editor.'
 
 ## Areas where Epic is materially ahead
 
@@ -41,14 +64,16 @@ Based on the live UE 5.8.1 enumeration recorded in the old 5.8 repo and current 
 1. Sequencer/cinematics
 2. Control Rig
 3. Gameplay Ability System
-4. Behavior Tree / StateTree authoring and inspection
+4. Behavior Tree / StateTree inspection and authoring coverage
 5. broader skeletal/static mesh and texture tooling
 6. physics / Chaos Cloth
 7. Gameplay Tags / GameFeatures / DataRegistry / config / plugin-level tooling
 8. Slate/MVVM inspection
 9. additional Blueprint details and graph operations
 
-This is especially relevant to Ascent Ultimate because GAS, AI, Contextual Animation, animation tooling, and project-level systems are central to the framework.
+Epic's public UE 5.8 docs specifically expose experimental `GASToolsets`, `AnimationAssistantToolset`, `StateTreeToolset`, and `AIModuleToolset`. `AnimationAssistantToolset` depends on Control Rig, Level Sequence Editor, and Sequencer Scripting.
+
+This is especially relevant to Ascent Ultimate because GAS, AI, animation systems, paired/Contextual Animation workflows, and project-level systems are central to the framework.
 
 ## Areas where UltraMCP is materially ahead or differentiated
 
@@ -56,10 +81,10 @@ This is especially relevant to Ascent Ultimate because GAS, AI, Contextual Anima
 2. Expression-level material graph mutation with its own safety/validation workflows
 3. Animation Blueprint state-machine authoring
 4. explicit transaction / undo / recovery workflows
-5. headless/commandlet automation and CI-oriented operation
-6. project-specific guided skills and workflow resources
+5. existing commandlet/headless automation and CI-oriented workflows
+6. MCP Resource-based guided skills (`skill://unreal/...`); Epic's current docs say shipping toolsets do not advertise MCP Resources or Prompts
 7. current custom runtime/vision/capture workflows
-8. a public, modifiable codebase under the repository's own license, rather than depending solely on experimental UE toolsets
+8. a public, modifiable codebase under the repository's own license, rather than depending solely on experimental engine toolsets
 
 Epic also has screenshots/capture tools, so visual access is overlapping rather than unique.
 
@@ -67,7 +92,21 @@ Epic also has screenshots/capture tools, so visual access is overlapping rather 
 
 Epic derives schemas from reflected Python/C++ functions. UltraMCP generally hand-registers typed MCP tools and pairs them with custom C++ HTTP handlers, TypeScript wrappers, validation, tests, and safety behavior.
 
-That makes UltraMCP slower to expand by raw tool count, but it also explains why a direct 'copy all Epic coverage' strategy is unattractive. Epic's toolsets are engine code under the Unreal license and some are NoRedist. UltraMCP should not copy their implementation into the public repo.
+That makes UltraMCP slower to expand by raw tool count, but it also explains why a direct 'copy all Epic coverage' strategy is unattractive. Epic's toolsets are engine code under the Unreal license and some engine plugins may be NoRedist. UltraMCP should not copy their implementation into the public repo.
+
+## New integration opportunity: Epic can consume an external MCP server
+
+UE 5.8 ships `MCPClientToolset`. Epic describes it as an adapter that connects to an external MCP server. `UMCPClientToolsetSubsystem` creates those external-client toolsets and registers them with `UToolsetRegistrySubsystem`.
+
+This creates a serious integration hypothesis:
+
+- UE 5.6: keep UltraMCP's standalone server as the production path.
+- UE 5.8: keep standalone UltraMCP compatibility, but test whether Epic's `MCPClientToolset` can register UltraMCP's external tool surface into the native Toolset Registry.
+- If successful, the native Unreal MCP could potentially provide one discovery layer over Epic-native and Ultra-provided capabilities without copying Epic implementation.
+
+This must be runtime-proven before becoming architecture. Watch carefully for recursion/duplicate registration and tool-name collisions.
+
+A second option is direct native registration through Epic's public `IModelContextProtocolTool` interface, but that would likely require more duplicated adapter work than using the existing external MCP client bridge.
 
 ## Recommended product strategy
 
@@ -77,11 +116,11 @@ Use a layered strategy:
 
 ### A. Run both during UE 5.8 evaluation
 
-Epic native MCP and UltraMCP use separate endpoints and can coexist. Measure which native toolsets the agents actually use in real Streets of Sheol / Ascent work.
+Epic native MCP and UltraMCP can coexist. Measure which native toolsets the agents actually use in real Streets of Sheol / Ascent work.
 
-### B. Investigate aggregation/proxying
+### B. Test MCPClientToolset aggregation before building a custom proxy
 
-UltraMCP can potentially connect to Epic's local MCP endpoint and selectively surface native toolsets under a namespace or discovery layer without redistributing Epic code. This requires an engineering/licensing review of the interaction surface, but is far preferable to copying engine implementation.
+Because Epic already ships an external-MCP-to-ToolsetRegistry adapter, test that path before writing an Ultra-owned Epic proxy. If it works reliably, it may give UltraMCP access to Epic's discovery model with much less custom architecture.
 
 ### C. Reimplement only proven high-value gaps
 
@@ -104,7 +143,7 @@ rather than raw tool-count supremacy.
 
 ## Ascent Ultimate test implication
 
-For UE 5.8 Ascent archaeology, test the agent with both servers available before adding ACF-specific UltraMCP tools.
+For UE 5.8 Ascent archaeology, test the agent with both capability layers available before adding ACF-specific UltraMCP tools.
 
 Decision loop:
 
@@ -135,8 +174,9 @@ On a real UE 5.8.1 machine with Epic's relevant experimental toolset plugins ena
 
 1. capture `list_toolsets`
 2. capture `describe_toolset` for GAS, AI, animation, Sequencer, Control Rig, Blueprint, PCG and UMG
-3. capture UltraMCP `list_skills` and stable tool registry
-4. run matched tasks through each server
-5. score success, number of calls, recovery from mistakes, runtime proof, and agent comprehension
+3. capture UltraMCP `list_skills` and run Ultra's discovery mode
+4. test `MCPClientToolset` against UltraMCP in a disposable UE 5.8 project
+5. run matched tasks through the available paths
+6. score success, number of calls, recovery from mistakes, runtime proof, and agent comprehension
 
 The winner should be selected per workflow, not by total tool count.
