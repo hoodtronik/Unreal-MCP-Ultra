@@ -133,3 +133,18 @@ at the floor's downstage edge). `Anchor_Door1..4` TargetPoints are attached to t
 
 The v1 flat-contiguous graybox actors remain in v2, hidden, under
 `Wonderwall_Graybox/FlatReference_Hidden`.
+
+### Content slots (added same day)
+
+BP_Walls_Graybox now has per-surface drag-and-drop content under Details → Content:
+`Image_<Surface>` (Texture2D) and `Video_<Surface>` (MediaSource) for Vanish, Door1-4,
+Leg1/2, Floor, Skirts. The construction script resolves them (video wins over image):
+video → `MP_<Surface>`/`MT_<Surface>` assets under `/Game/_Wonderwall_Graybox/Media`
+(play-on-open, looping) into a `M_GB_Content` MID; image → same MID directly. Unlit
+emissive with a `Brightness` scalar — an LED look. Mesh UVs on all production meshes are
+clean 0-1 per surface (verified with a panorama: upright, unmirrored). The Tick→material
+chain was disconnected in the derivative so runtime no longer stomps content or CS
+materials; WireFrame at runtime remains an original-Walls feature. Raw video files must be
+imported first (drop the .mp4 in the Content Browser → FileMediaSource), then dragged into
+the Video slot. Video verified live in-editor (Sunrise01-1080p.mp4 on Door 3); audio is
+not wired (no MediaSoundComponent) and PIE media playback is untested.
