@@ -112,3 +112,24 @@ Two traps hit while building it, both only visible in a capture:
   so LEG 1 / DOOR 1 go at positive Y to read left-to-right like the raster.
 - **TextRenderActor faces +X at yaw 0**, not yaw 180. Guessing 180 renders every label
   mirrored.
+
+## v2: the production Walls BP and its graybox derivative (2026-09-01)
+
+The user's official line-up tool is `/Game/BP/Walls` (in MyLab_5_6): one component per LED
+surface (meshes at scale 99, rot r90/y90), a `StageSetup` enum (P1 Vanish Open, P2
+Presentation, P3 Staggered, P4 Upstage VP, P5 Walkin, P6 Center Closed, Stage Off) whose
+switch repositions the four door components, WireFrame/StageVisibility/LegsBlackout toggles,
+and a LiveLink tick hook. Its whole update path hangs off **Event Tick**, so in the editor
+the enum does nothing until PIE. Its depth layout is staggered like the survey (its own
+values, ~2.51/3.05/5.31 m; legs at ±15.5 m).
+
+`Wonderwall_Graybox_v2` + `/Game/_Wonderwall_Graybox/BP_Walls_Graybox` (duplicate; original
+untouched): solid MI_GB_* materials in the runtime solid chain AND a new construction script
+that re-applies visibility, materials, and the full preset switch — so presets and the nine
+per-piece Show* checkboxes work live in the editor. Alignment to the tool is by construction
+(same components), not by measurement. Level adopts the tool's frame (floor top = Z0, origin
+at the floor's downstage edge). `Anchor_Door1..4` TargetPoints are attached to the door
+*components* and verified to ride preset changes — parent scene pieces to those.
+
+The v1 flat-contiguous graybox actors remain in v2, hidden, under
+`Wonderwall_Graybox/FlatReference_Hidden`.
