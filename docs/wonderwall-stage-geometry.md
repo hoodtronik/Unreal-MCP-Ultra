@@ -248,3 +248,12 @@ Tool gaps hit: `add_function_parameter`/`change_function_parameter_type` ignore 
 (`docs/KNOWN-ISSUE-function-param-arrays.md`); a `set_blueprint_default` batched with other
 edits crashed the editor again (AV inside the plugin DLL 15 s after the write) — one CDO write per
 message, or use python on the CDO.
+
+### Default content: pixel-map grid plates (2026-09-02)
+
+`Grids/T_Grid_<Surface>` (11 textures) are cut from `F:\__PROJECTS\!R&D\PixelDensityCompensationRaster.jpg`
+(12288x11904). The raster is drawn at PHYSICAL scale (vanish 12284 px wide for 3584 native px, doors
+3069 px tall for 2816), so each crop is resampled to its labelled native LED size; the two side
+skirts are drawn rotated and are turned back to landscape (+90 / -90). Both BPs' `Image_*` CDO
+defaults point at them, so a freshly placed stage shows name + pixel size + grid per surface.
+Crop boxes are recorded in the `wonderwall-wallsgraybox` skill.

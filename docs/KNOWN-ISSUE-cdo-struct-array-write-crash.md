@@ -34,3 +34,15 @@ instance (ImportText on an instance, no CDO involved) would remove the need enti
 
 One editor crash and restart (about 5 minutes) plus the level-instance references that a
 recompile resets (`Walls` on the LevelScriptActor had to be re-set twice this session).
+
+## Update 2026-09-02
+
+Reproduced with a plain **int** (`set_blueprint_default(BP, "PresetIndex", "-1")`) when the call
+was issued in the same batch as `build_graph` / `create_graph` calls on other Blueprints. The write
+itself succeeded and saved; the access violation (`0xffffffffffffffff` read inside
+`UnrealEditor-BlueprintMCP.dll`, called from UnrealEd) followed about 15 s later while the next
+request was processed. So the trigger is the reinstancing that a CDO write + recompile causes,
+combined with any other request touching Blueprint state before it settles - not the struct-array
+value. Rule until fixed: one `set_blueprint_default` per message with nothing else in flight, or
+write the CDO through `run_python` (`get_default_object(bp.generated_class()).set_editor_property`),
+which does not reinstance.
