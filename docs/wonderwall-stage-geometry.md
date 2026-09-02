@@ -225,3 +225,26 @@ Lessons for the plugin/user of it:
   member names, then python-copy the array into a DA instance.
 - `build_graph` silently ignores an unknown key: pin defaults must be `pinDefaults`
   ("Pin defaults: 0/0" in the result is the tell).
+
+### Phases v2 (2026-09-02, later the same day): cue data lives on the ACTOR
+
+The first build kept `LocalPhases` / `CurrentPhase` on the component and applied the phase from the
+Construction Script. That cannot work: on every Details edit UE reconstructs SCS components, runs the
+UCS, and only THEN restores the component's editable properties (`FComponentInstanceDataCache`
+applies post-UCS). So the CS hook always saw an empty cue list and phase 0 — "phase option doesn't
+work" from the user's chair. Fix: user-facing data (`Phase`, `Phases`, `Preset`, `PresetList`,
+`PresetIndex`, `SaveToPreset`) are ACTOR variables (actor properties survive reconstruction); each
+BP's `GB_SyncShow(TS)` copies them into the component (`className`-qualified VariableSet nodes) plus
+the Details visibility checkboxes and WindowMode as "base" values; CS tails → Sync → ApplyPhase(Phase).
+Component "Show" vars are now non-editable (`editability: none`) and purely derived.
+Visibility semantics: a group is applied only if some cue up to i set it (EffXSet flags);
+otherwise the per-surface Details checkbox value is re-applied, so stepping backwards restores the
+Details state. `ApplySurface` skips `OpenSource` when the player already has that URL open and is
+playing (cue changes no longer restart running videos). Phase label = TextRenderComponent
+`PhaseLabel` (tag `GB_PhaseLabel`, HiddenInGame) updated from `UpdatePhaseLabel` via `K2_SetText`
+(`SetText` is not BP-callable). Save Preset = `TransactObject` + set `Phases` on the DA (marks the
+asset dirty; user saves it); Load Preset copies `WorkPhases` back into the actor's `Phases`.
+Tool gaps hit: `add_function_parameter`/`change_function_parameter_type` ignore `isArray`
+(`docs/KNOWN-ISSUE-function-param-arrays.md`); a `set_blueprint_default` batched with other
+edits crashed the editor again (AV inside the plugin DLL 15 s after the write) — one CDO write per
+message, or use python on the CDO.
