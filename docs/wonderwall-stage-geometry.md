@@ -148,3 +148,44 @@ materials; WireFrame at runtime remains an original-Walls feature. Raw video fil
 imported first (drop the .mp4 in the Content Browser → FileMediaSource), then dragged into
 the Video slot. Video verified live in-editor (Sunrise01-1080p.mp4 on Door 3); audio is
 not wired (no MediaSoundComponent) and PIE media playback is untested.
+
+## Window mode (2026-09-02)
+
+Both `BP_Walls_Graybox` and `BP_WallsGraybox_TrueSize` can render every LED surface as a
+window into the virtual world from a fixed eye (`Camera_Window` actor, or the `WindowEye`
+CameraComponent): `ExportWindowPlates` (stills) and `ExportWindowVideo` (30 fps PNG sequence,
+`LoopSeconds`, encode with `Tools/encode_window_video.py` → ProRes 422 HQ). `WindowMode`
+swaps all surfaces to tinted glass `M_GB_Window` and skips content. User-facing docs live in
+the WallsGraybox repo README; this section records how it is built and what bit.
+
+**Geometry.** One `SceneCaptureComponent2D` per surface (`Cap_<Surface>`, 12 incl. the
+centre span) with `bUseCustomProjectionMatrix`. Each surface's LED rectangle comes from the
+mesh's UV-tagged vertices (every StageMesh is a single quad): BL = vertex with UV (0,1),
+BR = (1,1), TL = (0,0), stored mesh-local (metres) as pin defaults in `CaptureAllWindows`,
+so the same constants serve both scale variants; the component's world transform does the
+rest. Kooima generalized perspective: VR = norm(BR-BL), VU = norm(TL-BL), VF = norm(VR×VU)
+(points *into* the panel for a viewer on the front side — UE is left-handed, so
+Right = Up × Forward = VR ✓), D = dot(BL-E, VF); l,r,b,t = dot(corner-E, VR|VU)/D.
+Projection (reversed-Z, infinite far, UE row-vector convention):
+row0 = (2/(r-l), 0, 0, 0); row1 = (0, 2/(t-b), 0, 0); row2 = (-(r+l)/(r-l), -(t+b)/(t-b), 0, 1);
+row3 = (0, 0, Near, 0) with **Near = D** so the near plane lies on the panel and anything
+between eye and wall is clipped. D ≤ 0 ⇒ eye behind the surface ⇒ skipped with a log line
+(side skirts from a centre house cam). Verified end-to-end: plates imported back as the
+Image_ slots and captured from the eye match a wall-less capture across every seam.
+
+**Gotchas that cost time (all live-verified):**
+- `Matrix_SetAxis` (KismetMathLibrary) is off by one in 5.6 — it calls `M.SetAxis((int)Axis)`
+  with EAxis::X = 1, so "X" writes row 1 and "Z" writes row 3. Build matrices with
+  `Matrix_SetColumn` (`EMatrixColumns` is `First..Fourth`, correct) + `Matrix_SetOrigin`;
+  zero M[3][3] by adding `Identity * -1` and pre-adding 1 to the diagonal.
+- `CaptureScene()` silently renders nothing if the capture component is not visible.
+- Editor world: BP timers (`SetTimer`, `SetTimerForNextTick`) never fire, but latent
+  `Delay` does — `Delay(0)` completes on the next editor frame and is the frame stepper.
+  `t.OverrideFPS 30` makes the editor world's delta exactly 1/30 s.
+- `unreal.Rotator(a,b,c)` in python is (roll, pitch, yaw) — `Rotator(0,180,0)` pitches the
+  actor upside down. Use keyword args.
+- Per-capture auto-exposure makes each panel expose differently; the captures copy
+  `PostProcessSettings` from the eye camera's CameraComponent so a Manual EV there locks all.
+- Blueprint function names resolve globally through the plugin: the TrueSize variant uses
+  `ResolveWindowEyeTS` / `CaptureWindowSurfaceTS` / `CaptureAllWindowsTS` / `WindowVideoTickTS`.
+- Actors hidden only in the editor (eye icon) still render in scene captures.
