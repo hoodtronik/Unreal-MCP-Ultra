@@ -189,3 +189,11 @@ Image_ slots and captured from the eye match a wall-less capture across every se
 - Blueprint function names resolve globally through the plugin: the TrueSize variant uses
   `ResolveWindowEyeTS` / `CaptureWindowSurfaceTS` / `CaptureAllWindowsTS` / `WindowVideoTickTS`.
 - Actors hidden only in the editor (eye icon) still render in scene captures.
+
+**Videos vs Play sessions (2026-09-02):** the MediaPlayerEditor module closes EVERY
+`UMediaPlayer` with `AffectedByPIEHandling` on both BeginPIE and EndPIE
+(`MediaPlayerEditorModule.cpp`, `HandleEditorBeginPIE/EndPIE`). A placed actor does not
+rerun its Construction Script in PIE, so CS-opened players stay closed: video frozen in Play
+and frozen in the editor afterwards until the CS reruns. Fix shipped: the twelve `MP_*`
+assets have `affected_by_pie_handling=False` and both graybox BPs reopen every connected
+`Video_` slot on BeginPlay. Also: a non-Realtime viewport looks like frozen video.
