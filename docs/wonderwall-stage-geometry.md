@@ -197,3 +197,31 @@ rerun its Construction Script in PIE, so CS-opened players stay closed: video fr
 and frozen in the editor afterwards until the CS reruns. Fix shipped: the twelve `MP_*`
 assets have `affected_by_pie_handling=False` and both graybox BPs reopen every connected
 `Video_` slot on BeginPlay. Also: a non-Realtime viewport looks like frozen video.
+
+## Phases + show presets (2026-09-02)
+
+Cue system on both graybox BPs, written once in the shared ActorComponent `BPC_GB_Show`
+(component name `Show`). Data: `S_GB_SurfaceContent` {Image, Video, Fit, Clear},
+`S_GB_Phase` (stage preset, tri-state visibility per group, window-mode tri-state, 12 surface
+slots, actor-tag visible/hidden groups, Cut|Crossfade + seconds), `DA_GB_ShowPreset`
+(PrimaryDataAsset BP, `Phases[]`). Effective state = fold of phases 0..i, applied at runtime
+(BeginPlay + change) so disguise cueing works; crossfade = `M_GB_Content` `ContentTexB` +
+`Blend` scalar driven by a Delay(0) frame loop (editor timers never fire; Delay does).
+Surfaces are found by component tags `GB_Vanish, GB_Door1..4, GB_Leg1/2, GB_Floor,
+GB_Skirt{Left,Right,Center}`. Level-BP bridge: Tick → `Show.SetManual(stage, 5 bools)` (edge
+triggered) → `Show.SetPhase(presetIndex, phase)` (applies on change only).
+
+Lessons for the plugin/user of it:
+- **Two per-tick writers cannot share a property.** The production BPs' Tick re-applied
+  `StageVisibility` to all 11 surfaces every frame and stomped per-phase visibility in PIE only
+  (editor has no tick). Disconnected (Sequence `then_3`) in both BPs with a CLAUDE-NOTE node
+  comment; the door-motion branch (`then_2`) is kept on purpose.
+- A leftover `IsValid(ActivePreset)` guard produced a silently EMPTY effective state when cues
+  came from the inline `LocalPhases` array. `validate_blueprint` cannot see this — verify by
+  reading the component's `Eff*` variables after `ApplyPhase`.
+- `set_blueprint_default` with a struct array on a DataAsset CDO crashes the editor
+  (`docs/KNOWN-ISSUE-cdo-struct-array-write-crash.md`); the working path is
+  `set_actor_property(label, "Show.LocalPhases", "((Name_2_<guid>=…))")` with the mangled
+  member names, then python-copy the array into a DA instance.
+- `build_graph` silently ignores an unknown key: pin defaults must be `pinDefaults`
+  ("Pin defaults: 0/0" in the result is the tell).
