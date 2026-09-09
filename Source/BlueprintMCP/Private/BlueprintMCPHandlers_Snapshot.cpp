@@ -242,7 +242,12 @@ bool FBlueprintMCPServer::LoadSnapshotFromDisk(const FString& SnapshotId, FGraph
 				}
 			}
 
-			OutSnapshot.Graphs.Add(GraphPair.Key, GraphData);
+			// CLAUDE-NOTE: FJsonObject::Values keys are FString on 5.6 but UE::FSharedString from
+			// 5.8. FSharedString converts implicitly in single-argument contexts (SetField), which
+			// is why the sibling loop in BuildGraph still compiles, but TMap::Add(K&&, V&&) fails
+			// overload resolution outright (error C2665). FString(*Key) rebuilds through TCHAR*,
+			// which is valid on BOTH engines, so no version gate is needed here.
+			OutSnapshot.Graphs.Add(FString(*GraphPair.Key), GraphData);
 		}
 	}
 

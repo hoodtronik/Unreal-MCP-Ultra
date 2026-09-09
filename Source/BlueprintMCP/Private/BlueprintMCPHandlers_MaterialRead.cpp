@@ -1,4 +1,5 @@
 #include "BlueprintMCPServer.h"
+#include "Misc/EngineVersionComparison.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialFunction.h"
@@ -982,10 +983,17 @@ FString FBlueprintMCPServer::HandleValidateMaterial(const FString& Body)
 	bool bValid = true;
 
 	// Check for compilation errors via FMaterialResource on current platform
-	// CLAUDE-NOTE: UE 5.6 changed UMaterial::GetMaterialResource() to take an
-	// ERHIFeatureLevel::Type, not an EShaderPlatform. GMaxRHIShaderPlatform no longer
-	// converts implicitly, so pass GMaxRHIFeatureLevel (the global feature level) instead.
+	// CLAUDE-NOTE: UMaterial::GetMaterialResource() takes ERHIFeatureLevel::Type on 5.6 and
+	// EShaderPlatform from 5.7 onward. VERIFIED against the real engine headers on this machine
+	// (Runtime/Engine/Public/Materials/Material.h): 5.6 line 1243 = ERHIFeatureLevel::Type,
+	// 5.7 line 1251 and 5.8 line 1312 = EShaderPlatform. The dual-engine port doc originally
+	// attributed this change to 5.8; it actually landed in 5.7, which is why the gate is >= 5.7.
+	// The two types do not implicitly convert, so this must be a compile-time branch.
+#if UE_VERSION_OLDER_THAN(5, 7, 0)
 	FMaterialResource* Resource = Material->GetMaterialResource(GMaxRHIFeatureLevel);
+#else
+	FMaterialResource* Resource = Material->GetMaterialResource(GMaxRHIShaderPlatform);
+#endif
 
 	// CLAUDE-NOTE: a null Resource means the compile-error check never ran. This used to fall
 	// straight through with bValid still true, producing a response byte-identical to a genuinely
