@@ -9,7 +9,8 @@ export function registerVisionTools(server: McpServer): void {
     "Capture what the editor is showing and return the image INLINE in this tool result — no file " +
       "path, no follow-up read. target='level' captures the level editor viewport, target='pie' a " +
       "running PIE session, target='graph' a Blueprint node graph (far easier to verify wiring from " +
-      "than raw node/pin JSON). Use this to check your own work after editing.",
+      "than raw node/pin JSON). For a single look this is right; if you will be editing repeatedly, " +
+      "call vision_mode(enabled=true) once instead and every state-changing call brings its own frame.",
     {
       target: z.enum(["level", "pie", "graph"]).optional()
         .describe("What to look at. Default 'level'."),

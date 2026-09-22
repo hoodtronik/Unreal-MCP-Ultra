@@ -5,7 +5,7 @@ import { ensureUE, uePost } from "../ue-bridge.js";
 export function registerScreenshotTools(server: McpServer): void {
   server.tool(
     "capture_view",
-    "Render the world from a camera YOU choose and save a PNG: either an ad-hoc camera (location + lookAt/rotation) or an existing CameraActor placed in the level (by label). Captures the PIE world when PIE is running, otherwise the editor world (override with world:'pie'|'editor'). Unlike take_screenshot/viewport_capture this does not depend on any viewport or window, so it can see gameplay (crowds, simulations) from any vantage point.",
+    "ONE-OFF render from an arbitrary camera. If you are iterating on edits, use vision_mode(enabled=true) instead — it attaches a viewport frame to every state-changing call automatically. Render the world from a camera YOU choose and save a PNG: either an ad-hoc camera (location + lookAt/rotation) or an existing CameraActor placed in the level (by label). Captures the PIE world when PIE is running, otherwise the editor world (override with world:'pie'|'editor'). Unlike take_screenshot/viewport_capture this does not depend on any viewport or window, so it can see gameplay (crowds, simulations) from any vantage point.",
     {
       location: z
         .object({ x: z.number(), y: z.number(), z: z.number() })
@@ -56,7 +56,7 @@ export function registerScreenshotTools(server: McpServer): void {
 
   server.tool(
     "take_screenshot",
-    "Capture a screenshot of the active viewport. Saves as PNG to the project's Saved/Screenshots folder. Requires editor mode.",
+    "Capture a screenshot of the active viewport to a file. For continuous feedback while editing, prefer vision_mode(enabled=true) (a frame comes back inline with every state-changing call). Saves as PNG to the project's Saved/Screenshots folder. Requires editor mode.",
     {
       filename: z.string().optional()
         .describe("Output filename (without path). Defaults to 'Screenshot_<timestamp>.png'"),
@@ -87,7 +87,7 @@ export function registerScreenshotTools(server: McpServer): void {
 
   server.tool(
     "take_high_res_screenshot",
-    "Capture a high-resolution screenshot of the active viewport with configurable resolution multiplier. Requires editor mode.",
+    "Capture a high-resolution screenshot of the active viewport with configurable resolution multiplier — for final-quality stills, not for checking each edit (use vision_mode for that). Requires editor mode.",
     {
       resolutionMultiplier: z.number().min(1).max(8).optional()
         .describe("Resolution multiplier (1-8, default: 2). A 2x multiplier on a 1920x1080 viewport produces a 3840x2160 image."),

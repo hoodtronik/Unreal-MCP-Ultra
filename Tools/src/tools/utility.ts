@@ -1,3 +1,4 @@
+import { visionState } from "../vision-state.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ensureUE, ueGet, uePost, isUEHealthy, gracefulShutdown, state } from "../ue-bridge.js";
@@ -15,7 +16,10 @@ export function registerUtilityTools(server: McpServer): void {
       return {
         content: [{
           type: "text" as const,
-          text: `UE5 Blueprint server is running (${data.mode ?? (state.editorMode ? "editor" : "commandlet")} mode).\nBlueprints indexed: ${data.blueprintCount}\nMaps indexed: ${data.mapCount ?? "?"}`,
+          // CLAUDE-NOTE (2026-09-22): server_status is usually the first call of a session, so it is
+          // where an agent learns that continuous visual feedback exists — otherwise it discovers
+          // capture tools first and polls them after every edit.
+          text: `UE5 Blueprint server is running (${data.mode ?? (state.editorMode ? "editor" : "commandlet")} mode).\nBlueprints indexed: ${data.blueprintCount}\nMaps indexed: ${data.mapCount ?? "?"}\nVision mode: ${visionState.enabled ? "ON — a viewport frame is attached to every state-changing call" : "OFF — call vision_mode(enabled=true) to get a viewport frame with every state-changing call instead of capturing manually"}`,
         }],
       };
     }

@@ -6,6 +6,15 @@ A UE5 editor plugin that exposes 241 MCP tools for inspecting and modifying Blue
 
 > **CLAUDE-NOTE (2026-08-25): Substance Painter round-trip.** For UE ⇄ Painter texturing work (mesh export, parametric weathering materials, MEL graph builds), read `docs/ue-painter-roundtrip.md` first — it records the material-slot export trap, the MEL one-shot-rebuild rule and its crash mode, and the coverage-growth slider math. The Painter side lives in `F:\__PROJECTS\Substance-Paint-MCP` (its own CLAUDE.md + `docs/ue-painter-workflow.md`).
 
+## Seeing the editor — turn on `vision_mode` first
+
+> **CLAUDE-NOTE (2026-09-22):** call `vision_mode(enabled=true)` at the start of any session that changes
+> the level, materials, sequences or actors. Every state-changing tool call (including `run_python`) then
+> returns a fresh viewport frame inline, digest-suppressed when nothing changed. Do **not** call
+> `capture_view` / `viewport_capture` / `take_screenshot` after every edit — those are for one-off or
+> off-viewport looks. For Sequencer work, lock the viewport to the camera cut
+> (`LevelSequenceEditorBlueprintLibrary.set_lock_camera_cut_to_viewport(True)`) so the frames show the shot.
+
 Two serving modes:
 - **Editor subsystem** (preferred): Auto-starts on port 9847 when the UE5 editor is open. Zero overhead.
 - **Standalone commandlet**: Spawns a headless `UnrealEditor-Cmd.exe` process (2-4 GB RAM, ~60s startup). Call `shutdown_server` when done.

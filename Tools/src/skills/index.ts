@@ -9,6 +9,7 @@ import { skySkill } from "./sky.js";
 import { niagaraSkill } from "./niagara.js";
 import { groomSkill } from "./groom.js";
 import { mirrorTablesSkill } from "./mirror-tables.js";
+import { previzSequencerSkill } from "./previz-sequencer.js";
 
 // CLAUDE-NOTE: Skills system. Each skill is exposed as an MCP Resource at
 // skill://unreal/{name}. Registering via server.resource() automatically wires the
@@ -18,7 +19,7 @@ import { mirrorTablesSkill } from "./mirror-tables.js";
 
 export const SKILLS: Skill[] = [
   pcgSkill, blueprintsSkill, levelsSkill, materialsSkill, animEditingSkill, skySkill,
-  niagaraSkill, groomSkill, mirrorTablesSkill,
+  niagaraSkill, groomSkill, mirrorTablesSkill, previzSequencerSkill,
 ];
 
 const SKILL_URI = (name: string) => `skill://unreal/${name}`;
