@@ -107,9 +107,20 @@ def cr_section(seq, index=0):
 def control_type(rig, name):
     """'EULER_TRANSFORM' | 'TRANSFORM' | 'FLOAT' | 'BOOL' | 'INTEGER' | 'VECTOR2D' | 'POSITION' | 'ROTATOR' | 'SCALE' | None"""
     key = unreal.RigElementKey(type=unreal.RigElementType.CONTROL, name=name)
-    el = rig.get_hierarchy().find_control(key)
+    h = rig.get_hierarchy()
+    # CLAUDE-NOTE: 5.8 deprecates find_control()/.settings in favour of get_control_settings(), which
+    # 5.6 does not have. Feature-detect so the same file runs warning-free on both (verified 5.6.1 + 5.8.3).
+    if hasattr(h, "get_control_settings"):
+        if hasattr(h, "contains") and not h.contains(key):
+            return None
+        ct = h.get_control_settings(key).control_type
+    else:
+        el = h.find_control(key)
+        if not el:
+            return None
+        ct = el.settings.control_type
     # str() of a UE enum value is "<RigControlType.EULER_TRANSFORM: 9>" — keep only the member name.
-    return str(el.settings.control_type).split(".")[-1].split(":")[0].strip("<> ") if el else None
+    return str(ct).split(".")[-1].split(":")[0].strip("<> ")
 
 
 def list_controls(rig, kind=None):

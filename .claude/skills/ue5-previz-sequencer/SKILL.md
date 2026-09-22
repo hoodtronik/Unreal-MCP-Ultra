@@ -121,15 +121,15 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 
 ## Engine compatibility
 
-| Call | 5.6.1 | 5.8 |
+| Call | 5.6.1 | 5.8.3 |
 |---|---|---|
-| Everything in `previz_lib.py` | **live-verified 2026-09-22** | same functions are called by Epic's shipped 5.8 `AnimationAssistantToolset` (`controlrig_sequencer.py`, `keyframing.py`) — present, not yet run here |
+| Everything in `previz_lib.py` | **live-verified 2026-09-22** (MyLab_5_6) | **live-verified 2026-09-22** — `selfcheck()` green in MyLab_5_8 on the dual-engine plugin build |
 | `ControlRigSequencerLibrary.key_controls_at_frames` | missing | present — batch-keys named controls at frames |
-| `LevelSequence.add_spawnable_from_instance` / `SequencerTools.get_bound_objects` / `set_current_time(int)` | deprecated, still work | expect removal; the lib already uses the subsystem / binding-id / … replacements |
+| `RigHierarchy.find_control().settings` | the only way to read a control's type | deprecated → `get_control_settings(key)`; the lib feature-detects |
+| `LevelSequence.add_spawnable_from_instance` / `SequencerTools.get_bound_objects` / `set_current_time(int)` / `get_control_rig_class` | deprecated or fine, all work | still present, deprecation warnings only; the lib already uses the subsystem / binding-id replacements where one exists |
 | Pose from a **video** (markerless mocap) | n/a | 5.8-only, see `references/pose-from-video-ue58.md` |
 
-When first running on 5.8, run `scripts/previz_lib.py` self-check (`selfcheck("/Game/Previz/_check")`)
-and record any drift in this file.
+On any new engine version, run `selfcheck("/Game/Previz/_check")` first and record drift here.
 
 ## References
 
