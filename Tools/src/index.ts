@@ -25,7 +25,10 @@ const server = new McpServer(
       "Do not loop capture_view/viewport_capture/take_screenshot after each edit; those are for one-off " +
       "or off-viewport views. For Sequencer/previz work, lock the viewport to the shot camera so frames " +
       "show the shot. GUIDANCE: list_skills lists workflow skills (skill://unreal/{name}); read the " +
-      "matching one before a complex task.",
+      "matching one before a complex task. IF EPIC'S NATIVE MCP (unreal-mcp, UE 5.8+) IS ALSO CONNECTED: " +
+      "use it for breadth (GAS, StateTree, UMG, plugin scaffolding, Blueprint graph DSL) and this server " +
+      "for run_python, previz/Sequencer, graph snapshot/diff/restore, material expressions, vision_mode, " +
+      "headless runs and anything on UE 5.6. Both drive the same editor.",
   },
 );
 

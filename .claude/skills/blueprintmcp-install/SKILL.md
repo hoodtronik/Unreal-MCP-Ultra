@@ -111,3 +111,41 @@ Optional pre-compile (replace project name and path):
 3. Call the `server_status` tool. It should report the server is running in editor mode.
 
 If the editor is not open, calling any tool will attempt to spawn a commandlet process.
+
+## Step 6 (UE 5.8+, optional): run alongside Epic's native MCP server
+
+<!-- CLAUDE-NOTE (2026-09-22): verified in MyLab_5_8 on UE 5.8.3 — both servers in one editor, each reading the other's work. -->
+
+UE 5.8 ships its own experimental MCP server (~890 tools, off by default). It does not replace
+BlueprintMCP — it has no headless mode, no `run_python`, no graph snapshot/diff, no material-expression
+editing, no `vision_mode`, and no 5.6 support — but it is the broader tool surface for general editor work
+and has native Sequencer/Control Rig/GAS/StateTree/UMG tools plus a Blueprint graph text DSL. Run both.
+
+1. Enable two plugins in the `.uproject` (`ModelContextProtocol` and the bundle `AllToolsets`) and restart.
+   Both ship compiled binaries in the launcher engine — no build step.
+2. Auto-start is a **per-project user setting**, not a project setting. Add to
+   `Saved/Config/WindowsEditor/EditorPerProjectUserSettings.ini`:
+   ```ini
+   [/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]
+   bAutoStartServer=True
+   ServerPortNumber=8000
+   ServerUrlPath=/mcp
+   bEnableToolSearch=True
+   ```
+3. Client side — Epic's server is HTTP, ours is stdio; they coexist in the same `.mcp.json`:
+   ```json
+   "unreal-mcp": { "type": "http", "url": "http://127.0.0.1:8000/mcp" }
+   ```
+   (Epic's Claude Code plugin adds this entry globally; an "unreal-mcp failed to connect" at session start
+   just means no 5.8 editor with the plugin is running yet — `/mcp` reconnects once it is.)
+4. Verify: `server_status` (ours, 9847) and Epic's `list_toolsets` (8000). Cross-check by spawning an actor
+   with Epic's `SceneTools.add_to_scene_from_asset` and finding it with our `find_actors_by_class`.
+
+Working against Epic's server, three things cost time the first day:
+- With tool search on, the client sees only `list_toolsets` / `describe_toolset` / `call_tool`; real tools
+  are addressed by dotted class path (`animation_toolset.toolsets.sequencer.SequencerTools`, C++ ones like
+  `PluginToolset.PluginToolset`). `describe_toolset` on a large set is ~70 KB and overflows a tool result —
+  grep the saved file for the one schema you need.
+- Optional struct parameters are not optional in practice: `EditorAppToolset.CaptureViewport` fails with
+  "needs a default value" unless `captureTransform` is passed.
+- Image tools return base64 inside JSON. For visual feedback in a conversation use our `vision_mode` instead.

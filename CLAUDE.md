@@ -21,6 +21,20 @@ Two serving modes:
 
 ---
 
+## Two servers on UE 5.8 — which one to reach for
+
+> **CLAUDE-NOTE (2026-09-22):** on 5.8 projects Epic's native MCP (`unreal-mcp`, HTTP :8000) usually runs
+> beside this one (`blueprint-mcp`, :9847); both drive the same editor and see each other's changes
+> (verified in MyLab_5_8). Route by task, don't pick one:
+> - **This server:** previz/Sequencer via `run_python` + the `ue5-previz-sequencer` skill, anything needing
+>   `run_python`, `snapshot_graph`/`diff_graph`/`restore_graph`, material expression editing, `vision_mode`,
+>   headless/commandlet runs, and **everything on 5.6** (Epic's is 5.8-only).
+> - **Epic's server:** breadth — GAS, StateTree, UMG, physics, textures/meshes, project tooling, plugin
+>   scaffolding + Live Coding, and Blueprint graph authoring through `write_graph_dsl`/`read_graph_dsl`.
+>   Address tools by dotted class path via `call_tool`; `describe_toolset` on a big set overflows — grep the
+>   saved result. Its image tools return base64 JSON; use `vision_mode` here for eyes.
+> Setup for a new 5.8 project: `blueprintmcp-install` skill, Step 6.
+
 ## Setup
 
 <!-- CLAUDE-NOTE (2026-08-06): The step-by-step install guide (prerequisites, clone, npm build, .mcp.json, verify) was moved to .claude/skills/blueprintmcp-install/SKILL.md during a /doctor context cleanup — it now loads only when actually installing. -->
