@@ -1,4 +1,5 @@
 #include "BlueprintMCPServer.h"
+#include "Misc/EngineVersionComparison.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialFunction.h"
@@ -402,17 +403,13 @@ FString FBlueprintMCPServer::HandleSetMaterialProperty(const FString& Body)
 			Material->PostEditChange();
 		}
 	}
-	// CLAUDE-NOTE: reads go through GetUsageByFlag() (public on 5.6 and 5.8), but the WRITES below
-	// deliberately still assign the bUsedWith* members directly on this 5.6 branch.
-	//
-	// UMaterial::SetUsageByFlag() is PRIVATE on 5.6 and only became public (ENGINE_API) in 5.8 —
-	// using it here fails with C2248, which is how this was found. Direct assignment is not
-	// deprecated on 5.6, so it compiles clean; the 5.8 branch uses SetUsageByFlag() because there
-	// the members ARE deprecated. Same behaviour either way: engine-side SetUsageByFlag() is a
-	// switch assigning the very same member.
-	//
-	// Deliberately NOT SetMaterialUsage(), which is public on both but additionally validates and
-	// can trigger a recompile — that would be a real behaviour change, not a deprecation fix.
+	// CLAUDE-NOTE (dual-engine, 2026-09-22): reads go through GetUsageByFlag(), public on every engine.
+	// WRITES are version-gated because UMaterial::SetUsageByFlag() is PRIVATE on 5.6 AND 5.7 (checked in
+	// Runtime/Engine/Public/Materials/Material.h: 5.6 line 1464, 5.7 line 1479) and only public from 5.8
+	// (line 1567). On 5.8 the bUsedWith* members are deprecated, so each engine gets the form that compiles
+	// warning-free there; behaviour is identical because engine-side SetUsageByFlag() is a switch that
+	// assigns the very same member. Deliberately NOT SetMaterialUsage(): that validates and can trigger
+	// a recompile, which would be a behaviour change rather than a compatibility fix.
 	else if (Property == TEXT("bUsedWithSkeletalMesh"))
 	{
 		bool bValue = Json->GetBoolField(TEXT("value"));
@@ -422,7 +419,11 @@ FString FBlueprintMCPServer::HandleSetMaterialProperty(const FString& Body)
 		if (!bDryRun)
 		{
 			Material->PreEditChange(nullptr);
+#if UE_VERSION_OLDER_THAN(5, 8, 0)
 			Material->bUsedWithSkeletalMesh = bValue ? 1 : 0;
+#else
+			Material->SetUsageByFlag(MATUSAGE_SkeletalMesh, bValue);
+#endif
 			Material->PostEditChange();
 		}
 	}
@@ -435,7 +436,11 @@ FString FBlueprintMCPServer::HandleSetMaterialProperty(const FString& Body)
 		if (!bDryRun)
 		{
 			Material->PreEditChange(nullptr);
+#if UE_VERSION_OLDER_THAN(5, 8, 0)
 			Material->bUsedWithMorphTargets = bValue ? 1 : 0;
+#else
+			Material->SetUsageByFlag(MATUSAGE_MorphTargets, bValue);
+#endif
 			Material->PostEditChange();
 		}
 	}
@@ -448,7 +453,11 @@ FString FBlueprintMCPServer::HandleSetMaterialProperty(const FString& Body)
 		if (!bDryRun)
 		{
 			Material->PreEditChange(nullptr);
+#if UE_VERSION_OLDER_THAN(5, 8, 0)
 			Material->bUsedWithNiagaraSprites = bValue ? 1 : 0;
+#else
+			Material->SetUsageByFlag(MATUSAGE_NiagaraSprites, bValue);
+#endif
 			Material->PostEditChange();
 		}
 	}

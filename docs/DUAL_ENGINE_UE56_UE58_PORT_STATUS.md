@@ -1,80 +1,89 @@
 # Dual-engine UE 5.6.1 / UE 5.8.1 port status
 
-This document tracks the effort to make the current `hoodtronik/Unreal-MCP-Ultra` source tree support both Unreal Engine 5.6.1 and 5.8.1 without maintaining two drifting products.
+One source tree that builds and passes its suite on both UE 5.6.1 and UE 5.8.1, so the 5.6 install used
+at work and the 5.8 install used for previz never drift into two products.
 
 ## Branch policy
 
-- `main` remains the current development authority until this port is proven.
-- `release/ue5.6-stable` is a frozen safety branch cut from `main` at commit `96dd3004c42191d7d5956a3dea2abf310663b62c` before dual-engine work began.
-- `feature/dual-ue56-ue58` is the active compatibility branch.
-- `hoodtronik/Unreal-MCP-Ultra-5.8` is reference evidence from the earlier successful UE 5.8.1 port. It is not the current product authority because it stopped evolving on 2026-07-31 while the 5.6 main continued through 2026-08-27.
+- `main` — 5.6.1 authority until this branch is proven on both engines.
+- `release/ue5.6-stable` — frozen safety branch, **cut 2026-09-22 at `dfe361f`** (the last main commit before
+  dual-engine verification). An earlier version of this document claimed the branch had been cut at
+  `96dd300`; it never existed on local or origin. The work PC should install from this branch.
+- `feature/dual-ue56-ue58` — this branch. Checked out as a worktree at `F:\__PROJECTS\ue5-mcp-dual`.
+- `hoodtronik/Unreal-MCP-Ultra-5.8` — the July 2026 fork. Reference evidence only; it stopped at
+  2026-07-31 and is 13+ commits behind main. Every 5.8 change it proved has now been forward-ported here.
 
 ## Source-of-truth rule
 
-1. Current `Unreal-MCP-Ultra/main` owns feature behavior and current tool surface.
-2. The old `Unreal-MCP-Ultra-5.8` repo owns known UE 5.8.1 compatibility evidence.
-3. A real compile, link, editor load, test run, and runtime proof on each engine outrank both documents and assumptions.
+1. Current `main` owns feature behaviour and tool surface.
+2. The old 5.8 fork owns the *map* of what breaks between engines.
+3. A real compile, link, editor load, test run and runtime proof on each engine outrank both.
 
-Do not merge old 5.8 files wholesale into current main. Forward-port current main using the earlier 5.8 repo as a compatibility map.
+Do not merge the fork wholesale. Forward-port with version gates, one difference at a time.
 
-## Previously proven 5.6 -> 5.8 differences
+## The engine differences, with the version each one actually lands in
 
-The earlier UE 5.8.1 port identified four important differences in commit `cfe8cc943554a021e36c6f1f96301fa1ada14944`:
+Every gate below was set by reading the installed engine headers (5.6, 5.7 and 5.8 are all on this machine),
+not from release notes. Two of the five were previously attributed to the wrong version.
 
-1. `Engine/UserDefinedStruct.h` forwarding header was removed in 5.8. `StructUtils/UserDefinedStruct.h` exists on both 5.6 and 5.8.
-2. `UMaterial::GetMaterialResource()` differs: UE 5.6.1 used the `ERHIFeatureLevel::Type` form while UE 5.8.1 uses the `EShaderPlatform` form.
-3. `FJsonObject::Values` keys changed from `FString` to `UE::FSharedString` in 5.8. Rebuilding via `FString(*Key)` was deliberately chosen because that expression works in both versions.
-4. Mass was restructured in 5.8. Base Mass element/fragment types moved into `MassCore`, producing link failures if the dependency is missing. `MassCore` does not exist in 5.6.
+| Difference | Lands in | Gate | File |
+|---|---|---|---|
+| `Engine/UserDefinedStruct.h` forwarding header removed | 5.8 | none — `StructUtils/UserDefinedStruct.h` exists on every engine | `Handlers_DataAssets.cpp`, `Handlers_UserTypes.cpp` |
+| `UMaterial::GetMaterialResource()` takes `EShaderPlatform` again | **5.7** (not 5.8) | `#if UE_VERSION_OLDER_THAN(5, 7, 0)` → `GMaxRHIFeatureLevel` else `GMaxRHIShaderPlatform` | `Handlers_MaterialRead.cpp` |
+| `FJsonObject::Values` keyed by `UE::FSharedString` (link-time) | 5.8 | none — `FString(*Key)` compiles on both | `Handlers_Snapshot.cpp` |
+| `UMaterial::SetUsageByFlag()` becomes public | **5.8** (private on 5.6 *and* 5.7) | `#if UE_VERSION_OLDER_THAN(5, 8, 0)` → assign `bUsedWith*` else `SetUsageByFlag()` | `Handlers_MaterialMutation.cpp` |
+| `UStaticMesh::SetImportVersion()` exists | **5.7** (absent on 5.6) | `#if UE_VERSION_OLDER_THAN(5, 7, 0)` → assign `ImportVersion` else `SetImportVersion()` | `BlueprintMCPVoxelBaker.cpp` |
+| `GetCameraSpeedSetting()` deprecated | 5.7 | none — `GetCameraSpeed()` on both; emitted `cameraSpeed` is now the float speed | `Handlers_Camera.cpp` |
+| Mass restructured into `Runtime/Mass/MassCore` (link-time) | 5.8 | **not gated — Riot Crowd is out of scope for the dual tree (owner's call, 2026-09-22)** | `RiotCrowd/…Build.cs` |
 
-## Work completed on this branch
+Also carried from the fork: `HairStrands` + `ProceduralMeshComponent` declared in `BlueprintMCP.uplugin`
+(5.8 no longer loads them implicitly), a per-call `uePost` timeout so the unfiltered validate sweep
+(measured 59.1 s on 5.8) does not trip the 30 s client abort, and `BPMCP_ENGINE_VERSION` on the test
+bootstrap so one tree can boot either engine.
 
-### Shared UserDefinedStruct include
+## Build hosts
 
-`Source/BlueprintMCP/Private/BlueprintMCPHandlers_DataAssets.cpp` now includes:
+The canonical repo is never inside a project, so each engine has a throwaway host whose
+`Plugins/BlueprintMCP` is a **junction to the worktree**:
 
-```cpp
-#include "StructUtils/UserDefinedStruct.h"
+| Engine | Host | Junction → |
+|---|---|---|
+| 5.6 | `F:\.bpmcp-build\BuildHost\BuildHost.uproject` | `F:\__PROJECTS\ue5-mcp-dual` (retargeted 2026-09-22; was `F:\__PROJECTS\ue5-mcp`) |
+| 5.8 | `F:\.bpmcp-build-58\BuildHost58\BuildHost58.uproject` | `F:\__PROJECTS\ue5-mcp-dual` (retargeted 2026-09-22; was the fork) |
+
+```
+"C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" UnrealEditor Win64 Development -Project="F:\.bpmcp-build\BuildHost\BuildHost.uproject" -waitmutex
+"C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" UnrealEditor Win64 Development -Project="F:\.bpmcp-build-58\BuildHost58\BuildHost58.uproject" -waitmutex
 ```
 
-instead of the removed forwarding header. This change is expected to be source-compatible with both 5.6.1 and 5.8.1 based on the prior live-proven 5.8 port.
+**The worktree's `Binaries/Win64` holds whichever engine was built last.** Run the suite for an engine
+right after building for it, and set `BPMCP_ENGINE_VERSION` to match. Both Riot Crowd junctions were
+removed from both hosts.
 
-Commit: `66e72dcfcd0915bc7ec64aab954df970c3b673c8`
+**Any running UE editor blocks UBT** ("Unable to build while Live Coding is active"). Killing
+`LiveCodingConsole.exe` unblocks it without closing the editor.
 
-## Next safe source changes
-
-These should be applied incrementally, not as a bulk old-repo merge:
-
-1. Apply the same shared `StructUtils/UserDefinedStruct.h` include to every remaining current-main use of `Engine/UserDefinedStruct.h`.
-2. Change JSON snapshot key rebuilding to `FString(*GraphPair.Key)` where the old 5.8 port proved it dual-compatible.
-3. Audit current main for any new post-July uses of APIs touched by the 5.8 port.
-4. Add explicit engine-version handling around `GetMaterialResource()` only after verifying the exact version macros/types against both installed engine headers.
-5. Add engine-version handling in `BlueprintMCPRiotCrowd.Build.cs` for `MassCore`, with no `MassCore` dependency on 5.6.
-6. Re-run the deprecation audit previously performed on the old 5.8 port.
-
-## Required verification matrix before merge
-
-The dual-engine branch is not merge-ready until all relevant rows are proven on both engines.
+## Verification matrix
 
 | Gate | UE 5.6.1 | UE 5.8.1 |
 |---|---|---|
-| UBT compile | TODO | TODO |
-| Link | TODO | TODO |
-| Plugin loads in real editor | TODO | TODO |
-| MCP server starts and binds | TODO | TODO |
-| TypeScript test suite | TODO | TODO |
-| Tool registration/baseline | TODO | TODO |
+| UBT compile | **PASS** 2026-09-22 — 0 warnings from our sources, 0 C4996 | **PASS** 2026-09-22 — 0 warnings, 0 C4996 |
+| Link | **PASS** | **PASS** |
+| TypeScript test suite | **PASS** 703 passed / 68 skipped / 0 failed (771), 136 s | **PASS** 703 passed / 68 skipped / 0 failed (771), 177 s |
+| Plugin loads in real editor | TODO — re-run after a 5.6 rebuild (DLL currently 5.8) | TODO — MyLab_5_8 has the junction; restart the editor |
+| MCP server starts and binds 9847 | TODO | TODO |
 | Blueprint read/mutation smoke | TODO | TODO |
-| DataAsset/UserDefinedStruct smoke | TODO | TODO |
-| Material validation smoke | TODO | TODO |
-| Animation mutation smoke | TODO | TODO |
-| PIE/runtime tool smoke | TODO | TODO |
+| Material validation smoke (`resourceChecked: true`) | TODO | TODO |
 | Vision/capture smoke | TODO | TODO |
+| Previz skill `selfcheck()` | PASS (main, 2026-09-22) | TODO |
+| Riot Crowd | out of scope | out of scope |
 
-A compile-only pass is insufficient. The prior Mass port demonstrated that some 5.8 failures appear at link time.
+A compile-only pass is insufficient; the Mass port showed failures that appear only at link, and the
+`validate_material` bug showed one that appears only in a real editor.
 
 ## Merge policy
 
-- Never merge this branch into `main` based only on static review.
-- Protect `release/ue5.6-stable` while the dual-engine effort is underway.
-- After both engines are green, prefer one shared `main` with minimal version gates over two independently developed 5.6 and 5.8 trees.
-- Prebuilt binaries remain engine-specific even if source is shared.
+- Never merge into `main` on static review; both editor-load columns must be green first.
+- `release/ue5.6-stable` stays frozen regardless.
+- After merge, prefer one shared `main` with these minimal gates over two trees. Prebuilt binaries remain
+  engine-specific (separate `BlueprintMCP-prebuilt` branches) even though the source is shared.

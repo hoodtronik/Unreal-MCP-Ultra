@@ -100,7 +100,10 @@ export function generateTempProject(): string {
  * 5.6 DLL and could never pass. Prefer the target version; only fall back to newest if it's absent,
  * and say so loudly when that happens.
  */
-const TARGET_ENGINE_VERSION = "5.6";
+// CLAUDE-NOTE (dual-engine, 2026-09-22): one source tree now builds for 5.6 and 5.8, so the engine the
+// suite boots must follow the engine the DLL in Binaries/Win64 was built against. Default stays 5.6; set
+// BPMCP_ENGINE_VERSION=5.8 after a 5.8 build. A mismatch reproduces the BuildId failure described above.
+const TARGET_ENGINE_VERSION = process.env.BPMCP_ENGINE_VERSION ?? "5.6";
 
 const ENGINE_BASES = [
   "C:\\Program Files\\Epic Games",

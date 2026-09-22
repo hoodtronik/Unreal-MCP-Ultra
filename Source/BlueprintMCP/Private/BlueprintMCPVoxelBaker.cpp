@@ -12,6 +12,7 @@
 // any actor owning a UProceduralMeshComponent, so we never have to link the marketplace plugin.
 
 #include "CoreMinimal.h"
+#include "Misc/EngineVersionComparison.h"
 #include "HAL/IConsoleManager.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -133,7 +134,13 @@ namespace VoxelBake
 			}
 		}
 
+		// CLAUDE-NOTE (dual-engine, 2026-09-22): SetImportVersion() does not exist on 5.6 (StaticMesh.h has no
+		// such symbol there) and is the non-deprecated form from 5.7 on. Plain inline setter onto the same member.
+#if UE_VERSION_OLDER_THAN(5, 7, 0)
 		StaticMesh->ImportVersion = EImportStaticMeshVersion::LastVersion;
+#else
+		StaticMesh->SetImportVersion(EImportStaticMeshVersion::LastVersion);
+#endif
 		StaticMesh->Build(false);
 		StaticMesh->PostEditChange();
 
