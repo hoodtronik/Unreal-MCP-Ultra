@@ -11,7 +11,23 @@ import { registerDiscoveryMode } from "./discovery/index.js";
 import { registerAgentConfigTools } from "./tools/agent-config.js";
 import { installVisionWrapper } from "./vision-wrapper.js";
 
-const server = new McpServer({ name: "blueprint-mcp", version: "1.0.0" });
+// CLAUDE-NOTE (2026-09-22): `instructions` is delivered to the client at initialize, i.e. before any
+// tool call — it is the one place an agent reads BEFORE deciding how to work. It exists because agents
+// (this author included) kept calling capture tools after every edit instead of turning on vision_mode
+// once. Keep it short; it is prepended to every session's context.
+const server = new McpServer(
+  { name: "blueprint-mcp", version: "1.0.0" },
+  {
+    instructions:
+      "BlueprintMCP — UE5 editor control. START: call server_status (which project is on port 9847?). " +
+      "SEE YOUR WORK: call vision_mode(enabled=true) ONCE — every state-changing tool call (including " +
+      "run_python) then returns a fresh viewport frame automatically, digest-suppressed when unchanged. " +
+      "Do not loop capture_view/viewport_capture/take_screenshot after each edit; those are for one-off " +
+      "or off-viewport views. For Sequencer/previz work, lock the viewport to the shot camera so frames " +
+      "show the shot. GUIDANCE: list_skills lists workflow skills (skill://unreal/{name}); read the " +
+      "matching one before a complex task.",
+  },
+);
 
 // Must run BEFORE any registration — it wraps server.tool, so tools registered earlier would
 // miss the hook entirely. No-op unless vision_mode has been turned on.

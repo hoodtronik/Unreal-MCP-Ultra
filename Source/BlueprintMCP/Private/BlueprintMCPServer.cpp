@@ -181,7 +181,22 @@ UBlueprint* FBlueprintMCPServer::LoadBlueprintByName(const FString& NameOrPath, 
 		UWorld* World = Cast<UWorld>(MapAsset->GetAsset());
 		if (World && World->PersistentLevel)
 		{
-			ULevelScriptBlueprint* LevelBP = World->PersistentLevel->GetLevelScriptBlueprint(true);
+			ULevelScriptBlueprint* LevelBP = World->PersistentLevel->GetLevelScriptBlueprint(/*bDontCreate=*/true);
+			if (!LevelBP)
+			{
+				// CLAUDE-NOTE: a map that has never had its Level Blueprint opened has no
+				// ULevelScriptBlueprint object at all, and every level-blueprint tool then failed
+				// with "could not be retrieved". Creating it on demand is what the editor's own
+				// "Open Level Blueprint" command does, so do the same here (an empty level script
+				// is harmless and lets tools expose RenderStream parameters on fresh maps).
+				LevelBP = World->PersistentLevel->GetLevelScriptBlueprint(/*bDontCreate=*/false);
+				if (LevelBP)
+				{
+					UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: Created level blueprint for map '%s' (it had none)"),
+						*NameOrPath);
+					World->PersistentLevel->MarkPackageDirty();
+				}
+			}
 			if (LevelBP)
 			{
 				UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: Loaded level blueprint from map '%s'"),

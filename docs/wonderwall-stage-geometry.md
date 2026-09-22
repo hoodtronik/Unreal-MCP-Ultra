@@ -1,0 +1,259 @@
+# Wonderwall Stage — Physical Geometry (Crossroads Oakley)
+
+<!-- CLAUDE-NOTE (2026-09-01): Written by Claude Code while building a UE5 graybox of the
+     stage from the pixel map. Companion to led-wall-background-content.md, which covers
+     CONTENT (plates, slideshow BPs). This file covers PHYSICAL SPACE. Verified against an
+     as-surveyed calibration file; do not change numbers without re-checking that source. -->
+
+## Where the real geometry lives
+
+**`F:\__PROJECTS\Wonderwall_GEM\Oakley — Site-Specific Stuff\SP - GRID\25_11_13_Crossroads_Camera-Tracking_EOD.grid`**
+
+A 106 MB Stage Precision project — JSON behind a 4-byte `SP\0\0` header. It holds the
+as-surveyed position and rotation of every LED surface in **metres**. This is the only
+source on this machine with real stage geometry.
+
+**`Crossroads_Operations Manual.pdf` §3.4 has no physical dimensions at all** — only panel
+counts and pixel counts. Pitch appears solely as Helios tile-profile labels in §2.9.2/§2.10.1
+(pp. 170–171): `BP2v2 (2.8)`, `V8S (8.9)`, `BM4 (4.7)`, `JA (2.6)`. There are no drawings,
+plans or elevations anywhere in its 231 pages, nor in the Diversified or FP SD companion sets.
+
+## Deriving physical size from the pixel map alone
+
+`F:\PixelDensityCompensationRaster.jpg` (and `F:\WonderwallPixelDensityCompensationRaster.png`)
+are 12288×11904. Being a *density-compensation* raster, each surface's drawn area is
+proportional to its **physical** size while its label gives native pixels — so the drawing is
+a scale plan and the ratio drawn:native recovers each product's pitch.
+
+Base density is **2.6042 mm per drawn pixel** (the Jasper skirt is drawn 1:1, which sets it).
+Anchor on the wall row: 62 × 500 mm panels = 31.00 m wide, 16 = 8.00 m tall.
+
+Measure the regions by thresholding luminance > 25 and matching signed jumps in the
+row/column occupancy profiles (regions overlap in both axes, so plain connected components
+will not do it). Result:
+
+| Surface | Drawn px | Native px | Scale | Pitch | Physical |
+|---|---|---|---|---|---|
+| VANISH | 12288 × 3072 | 3584 × 896 | 3.429 | 8.93 mm | 32.00 × 8.00 m |
+| Wall row | 11904 × 3072 | 10912 × 2816 | 1.091 | 2.84 mm | 31.00 × 8.00 m |
+| FLOOR | 5144 × 5376 | 2816 × 2944 | 1.827 | 4.76 mm | 13.41 × 14.02 m |
+| SKIRT centre | 5184 × 384 | 5184 × 384 | 1.000 | 2.60 mm | 13.50 × 1.00 m |
+| SKIRT L / R | 384 × 2304 | 2304 × 384 | 1.000 | 2.60 mm | 6.00 × 1.00 m each |
+| SWR | 1920 × 1152 | 3840 × 2160 | 0.500 | — | separate 4K surface, not set geometry |
+
+Every pitch that falls out is isotropic and lands on a real ROE product — Vanish V8S 8.93,
+Black Pearl 2 v2 2.841, Black Marble 4 v2 4.7625, Jasper 2.604. That mutual consistency is
+the check that the method worked.
+
+The floor is **22 wide × 23 deep of 2 ft (609.6 mm) BM4 tiles** = 13.41 × 14.02 m. §3.4.9
+prints "23×22" — it is the wrong way round. A 600 mm tile (13.20 × 13.80) is ruled out by
+the survey's measured 0.609 column spacing.
+
+The net is an unfolded box: floor is the top, the three skirts are its folded-down front and
+side faces. Side skirts are 6.00 m against a 14.02 m floor, which means **the main deck stops
+6.00 m short of the floor's downstage edge and the last 6.00 m is a thrust** with three
+exposed faces. Skirt height 1.00 m implies a **~1.0 m deck**; §3.4.14 ("mounted upright
+against the concrete pad that supports the LED floor") supports it but never states it.
+
+Unconfirmed: the 13.50 m centre skirt run. 27+12+12 = 51 matches §3.4's panel total, but the
+Helios centre mapping allocates 15×2 = 30 tile slots, not 27. Treat it as an inference.
+
+## As-surveyed 3D layout — the wall is NOT flat
+
+SP frame: `+X` stage left, `+Y` up, `+Z` upstage; `y=0` is the LED floor top, `z=0` the
+floor's downstage edge. Offsets below are restated from the Vanish plane.
+
+| Surface | Downstage of Vanish | Yaw | Size |
+|---|---|---|---|
+| Vanish | 0 | ~0° | 32.00 × 8.00 |
+| Doors 2 & 3 | 2.63 m | ±0.4° | 6.50 × 8.00 |
+| Doors 1 & 4 | 3.59 m | ±17.7° | 4.50 × 8.00 |
+| Legs (USR / USL) | 5.17 m | ±14.2° | 4.50 × 8.00 |
+
+A shallow faceted arc, legs furthest downstage and overlapping the doors in plan. The wall
+stands **on** the LED floor (bottom y ≈ 0.03 m, top ≈ 8.03 m) and the floor's upstage edge
+lands within 10 mm of the Vanish plane.
+
+Doors run on traveller tracks (TAIT Navigator/Atlas, position fed to Disguise). Doors 1/4
+travel ≈ 7.60 m on rails yawed 3.6° off X; Doors 2/3 travel ≈ 16.2 m parallel to X. Door
+centre X (metres, SP frame):
+
+| Preset | Door 1 | Door 2 | Door 3 | Door 4 |
+|---|---|---|---|---|
+| Vanish Only | −16.235 | −19.457 | +19.465 | +16.262 |
+| Walk In | −12.668 | −19.471 | +19.476 | +12.685 |
+| Presentation | −12.664 | −3.242 | +3.255 | +12.681 |
+| Staggered | −11.074 | −3.246 | +3.254 | +11.080 |
+| VP | −8.635 | −3.239 | +3.258 | +8.650 |
+| Center Closed | −16.230 | −3.238 | +3.257 | +16.242 |
+
+Legs sit at ±15.96. Only in **VP** do the four doors close into one continuous 22.0 m wall.
+The raster's contiguous 31 m strip is the pixel map, not a physical position.
+
+The SP project contains no Skirt and no IMAG — those are not tracked or calibrated.
+
+Manual errata, for the record: Tech Spec §2.1.1 gives Door 1 as 1584×2160; its own mappings
+and §3.4.1 both say 1584×2816 (2160 is wrong). §3.4.13 says 51 skirt panels but the Helios
+mappings allocate 54 tile slots — likely 3 unpopulated in the centre block.
+
+## The graybox
+
+`/Game/_Wonderwall_Graybox/Wonderwall_Graybox` in `F:\_UnrealProjects\!MyLab\MyLab_5_6`.
+
+Built **flat and contiguous** (user's choice 2026-09-01) — the pixel-map arrangement, correct
+for content mapping, not for physical space. Convention: `+X` downstage, `+Y` audience-left,
+`+Z` up; origin at house floor / centreline / Vanish plane. Deck top Z = 1.0 m, panels
+1.0–9.0 m, Vanish 0.40 m thick, doors/legs 0.60 m thick with 0.60 m face-to-face clearance.
+`SKM_Manny_Simple` at scale 1.0 (1.81 m) as the human reference. Materials are flat-albedo
+MICs off `M_GB_Base` under `/Game/_Wonderwall_Graybox/Materials`.
+
+Two traps hit while building it, both only visible in a capture:
+- **UE is left-handed**: a camera facing −X has screen-right = −Y. Audience-left is **+Y**,
+  so LEG 1 / DOOR 1 go at positive Y to read left-to-right like the raster.
+- **TextRenderActor faces +X at yaw 0**, not yaw 180. Guessing 180 renders every label
+  mirrored.
+
+## v2: the production Walls BP and its graybox derivative (2026-09-01)
+
+The user's official line-up tool is `/Game/BP/Walls` (in MyLab_5_6): one component per LED
+surface (meshes at scale 99, rot r90/y90), a `StageSetup` enum (P1 Vanish Open, P2
+Presentation, P3 Staggered, P4 Upstage VP, P5 Walkin, P6 Center Closed, Stage Off) whose
+switch repositions the four door components, WireFrame/StageVisibility/LegsBlackout toggles,
+and a LiveLink tick hook. Its whole update path hangs off **Event Tick**, so in the editor
+the enum does nothing until PIE. Its depth layout is staggered like the survey (its own
+values, ~2.51/3.05/5.31 m; legs at ±15.5 m).
+
+`Wonderwall_Graybox_v2` + `/Game/_Wonderwall_Graybox/BP_Walls_Graybox` (duplicate; original
+untouched): solid MI_GB_* materials in the runtime solid chain AND a new construction script
+that re-applies visibility, materials, and the full preset switch — so presets and the nine
+per-piece Show* checkboxes work live in the editor. Alignment to the tool is by construction
+(same components), not by measurement. Level adopts the tool's frame (floor top = Z0, origin
+at the floor's downstage edge). `Anchor_Door1..4` TargetPoints are attached to the door
+*components* and verified to ride preset changes — parent scene pieces to those.
+
+The v1 flat-contiguous graybox actors remain in v2, hidden, under
+`Wonderwall_Graybox/FlatReference_Hidden`.
+
+### Content slots (added same day)
+
+BP_Walls_Graybox now has per-surface drag-and-drop content under Details → Content:
+`Image_<Surface>` (Texture2D) and `Video_<Surface>` (MediaSource) for Vanish, Door1-4,
+Leg1/2, Floor, Skirts. The construction script resolves them (video wins over image):
+video → `MP_<Surface>`/`MT_<Surface>` assets under `/Game/_Wonderwall_Graybox/Media`
+(play-on-open, looping) into a `M_GB_Content` MID; image → same MID directly. Unlit
+emissive with a `Brightness` scalar — an LED look. Mesh UVs on all production meshes are
+clean 0-1 per surface (verified with a panorama: upright, unmirrored). The Tick→material
+chain was disconnected in the derivative so runtime no longer stomps content or CS
+materials; WireFrame at runtime remains an original-Walls feature. Raw video files must be
+imported first (drop the .mp4 in the Content Browser → FileMediaSource), then dragged into
+the Video slot. Video verified live in-editor (Sunrise01-1080p.mp4 on Door 3); audio is
+not wired (no MediaSoundComponent) and PIE media playback is untested.
+
+## Window mode (2026-09-02)
+
+Both `BP_Walls_Graybox` and `BP_WallsGraybox_TrueSize` can render every LED surface as a
+window into the virtual world from a fixed eye (`Camera_Window` actor, or the `WindowEye`
+CameraComponent): `ExportWindowPlates` (stills) and `ExportWindowVideo` (30 fps PNG sequence,
+`LoopSeconds`, encode with `Tools/encode_window_video.py` → ProRes 422 HQ). `WindowMode`
+swaps all surfaces to tinted glass `M_GB_Window` and skips content. User-facing docs live in
+the WallsGraybox repo README; this section records how it is built and what bit.
+
+**Geometry.** One `SceneCaptureComponent2D` per surface (`Cap_<Surface>`, 12 incl. the
+centre span) with `bUseCustomProjectionMatrix`. Each surface's LED rectangle comes from the
+mesh's UV-tagged vertices (every StageMesh is a single quad): BL = vertex with UV (0,1),
+BR = (1,1), TL = (0,0), stored mesh-local (metres) as pin defaults in `CaptureAllWindows`,
+so the same constants serve both scale variants; the component's world transform does the
+rest. Kooima generalized perspective: VR = norm(BR-BL), VU = norm(TL-BL), VF = norm(VR×VU)
+(points *into* the panel for a viewer on the front side — UE is left-handed, so
+Right = Up × Forward = VR ✓), D = dot(BL-E, VF); l,r,b,t = dot(corner-E, VR|VU)/D.
+Projection (reversed-Z, infinite far, UE row-vector convention):
+row0 = (2/(r-l), 0, 0, 0); row1 = (0, 2/(t-b), 0, 0); row2 = (-(r+l)/(r-l), -(t+b)/(t-b), 0, 1);
+row3 = (0, 0, Near, 0) with **Near = D** so the near plane lies on the panel and anything
+between eye and wall is clipped. D ≤ 0 ⇒ eye behind the surface ⇒ skipped with a log line
+(side skirts from a centre house cam). Verified end-to-end: plates imported back as the
+Image_ slots and captured from the eye match a wall-less capture across every seam.
+
+**Gotchas that cost time (all live-verified):**
+- `Matrix_SetAxis` (KismetMathLibrary) is off by one in 5.6 — it calls `M.SetAxis((int)Axis)`
+  with EAxis::X = 1, so "X" writes row 1 and "Z" writes row 3. Build matrices with
+  `Matrix_SetColumn` (`EMatrixColumns` is `First..Fourth`, correct) + `Matrix_SetOrigin`;
+  zero M[3][3] by adding `Identity * -1` and pre-adding 1 to the diagonal.
+- `CaptureScene()` silently renders nothing if the capture component is not visible.
+- Editor world: BP timers (`SetTimer`, `SetTimerForNextTick`) never fire, but latent
+  `Delay` does — `Delay(0)` completes on the next editor frame and is the frame stepper.
+  `t.OverrideFPS 30` makes the editor world's delta exactly 1/30 s.
+- `unreal.Rotator(a,b,c)` in python is (roll, pitch, yaw) — `Rotator(0,180,0)` pitches the
+  actor upside down. Use keyword args.
+- Per-capture auto-exposure makes each panel expose differently; the captures copy
+  `PostProcessSettings` from the eye camera's CameraComponent so a Manual EV there locks all.
+- Blueprint function names resolve globally through the plugin: the TrueSize variant uses
+  `ResolveWindowEyeTS` / `CaptureWindowSurfaceTS` / `CaptureAllWindowsTS` / `WindowVideoTickTS`.
+- Actors hidden only in the editor (eye icon) still render in scene captures.
+
+**Videos vs Play sessions (2026-09-02):** the MediaPlayerEditor module closes EVERY
+`UMediaPlayer` with `AffectedByPIEHandling` on both BeginPIE and EndPIE
+(`MediaPlayerEditorModule.cpp`, `HandleEditorBeginPIE/EndPIE`). A placed actor does not
+rerun its Construction Script in PIE, so CS-opened players stay closed: video frozen in Play
+and frozen in the editor afterwards until the CS reruns. Fix shipped: the twelve `MP_*`
+assets have `affected_by_pie_handling=False` and both graybox BPs reopen every connected
+`Video_` slot on BeginPlay. Also: a non-Realtime viewport looks like frozen video.
+
+## Phases + show presets (2026-09-02)
+
+Cue system on both graybox BPs, written once in the shared ActorComponent `BPC_GB_Show`
+(component name `Show`). Data: `S_GB_SurfaceContent` {Image, Video, Fit, Clear},
+`S_GB_Phase` (stage preset, tri-state visibility per group, window-mode tri-state, 12 surface
+slots, actor-tag visible/hidden groups, Cut|Crossfade + seconds), `DA_GB_ShowPreset`
+(PrimaryDataAsset BP, `Phases[]`). Effective state = fold of phases 0..i, applied at runtime
+(BeginPlay + change) so disguise cueing works; crossfade = `M_GB_Content` `ContentTexB` +
+`Blend` scalar driven by a Delay(0) frame loop (editor timers never fire; Delay does).
+Surfaces are found by component tags `GB_Vanish, GB_Door1..4, GB_Leg1/2, GB_Floor,
+GB_Skirt{Left,Right,Center}`. Level-BP bridge: Tick → `Show.SetManual(stage, 5 bools)` (edge
+triggered) → `Show.SetPhase(presetIndex, phase)` (applies on change only).
+
+Lessons for the plugin/user of it:
+- **Two per-tick writers cannot share a property.** The production BPs' Tick re-applied
+  `StageVisibility` to all 11 surfaces every frame and stomped per-phase visibility in PIE only
+  (editor has no tick). Disconnected (Sequence `then_3`) in both BPs with a CLAUDE-NOTE node
+  comment; the door-motion branch (`then_2`) is kept on purpose.
+- A leftover `IsValid(ActivePreset)` guard produced a silently EMPTY effective state when cues
+  came from the inline `LocalPhases` array. `validate_blueprint` cannot see this — verify by
+  reading the component's `Eff*` variables after `ApplyPhase`.
+- `set_blueprint_default` with a struct array on a DataAsset CDO crashes the editor
+  (`docs/KNOWN-ISSUE-cdo-struct-array-write-crash.md`); the working path is
+  `set_actor_property(label, "Show.LocalPhases", "((Name_2_<guid>=…))")` with the mangled
+  member names, then python-copy the array into a DA instance.
+- `build_graph` silently ignores an unknown key: pin defaults must be `pinDefaults`
+  ("Pin defaults: 0/0" in the result is the tell).
+
+### Phases v2 (2026-09-02, later the same day): cue data lives on the ACTOR
+
+The first build kept `LocalPhases` / `CurrentPhase` on the component and applied the phase from the
+Construction Script. That cannot work: on every Details edit UE reconstructs SCS components, runs the
+UCS, and only THEN restores the component's editable properties (`FComponentInstanceDataCache`
+applies post-UCS). So the CS hook always saw an empty cue list and phase 0 — "phase option doesn't
+work" from the user's chair. Fix: user-facing data (`Phase`, `Phases`, `Preset`, `PresetList`,
+`PresetIndex`, `SaveToPreset`) are ACTOR variables (actor properties survive reconstruction); each
+BP's `GB_SyncShow(TS)` copies them into the component (`className`-qualified VariableSet nodes) plus
+the Details visibility checkboxes and WindowMode as "base" values; CS tails → Sync → ApplyPhase(Phase).
+Component "Show" vars are now non-editable (`editability: none`) and purely derived.
+Visibility semantics: a group is applied only if some cue up to i set it (EffXSet flags);
+otherwise the per-surface Details checkbox value is re-applied, so stepping backwards restores the
+Details state. `ApplySurface` skips `OpenSource` when the player already has that URL open and is
+playing (cue changes no longer restart running videos). Phase label = TextRenderComponent
+`PhaseLabel` (tag `GB_PhaseLabel`, HiddenInGame) updated from `UpdatePhaseLabel` via `K2_SetText`
+(`SetText` is not BP-callable). Save Preset = `TransactObject` + set `Phases` on the DA (marks the
+asset dirty; user saves it); Load Preset copies `WorkPhases` back into the actor's `Phases`.
+Tool gaps hit: `add_function_parameter`/`change_function_parameter_type` ignore `isArray`
+(`docs/KNOWN-ISSUE-function-param-arrays.md`); a `set_blueprint_default` batched with other
+edits crashed the editor again (AV inside the plugin DLL 15 s after the write) — one CDO write per
+message, or use python on the CDO.
+
+### Default content: pixel-map grid plates (2026-09-02)
+
+`Grids/T_Grid_<Surface>` (11 textures) are cut from `F:\__PROJECTS\!R&D\PixelDensityCompensationRaster.jpg`
+(12288x11904). The raster is drawn at PHYSICAL scale (vanish 12284 px wide for 3584 native px, doors
+3069 px tall for 2816), so each crop is resampled to its labelled native LED size; the two side
+skirts are drawn rotated and are turned back to landscape (+90 / -90). Both BPs' `Image_*` CDO
+defaults point at them, so a freshly placed stage shows name + pixel size + grid per surface.
+Crop boxes are recorded in the `wonderwall-wallsgraybox` skill.
