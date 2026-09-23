@@ -5,9 +5,9 @@ description: Build a storyboard / audio-visual first draft in UE5 Sequencer thro
 
 # UE5 previz in Sequencer (via BlueprintMCP `run_python`)
 
-<!-- CLAUDE-NOTE (2026-09-22): every call in this skill was executed against a live UE 5.6.1 editor
-(MyLab_5_6, Manny + CR_Mannequin_Body). 5.8 has not been run yet; the same library functions are what
-Epic's own 5.8 AnimationAssistantToolset calls, so the surface exists there — see "Engine compatibility". -->
+<!-- CLAUDE-NOTE: every call in this skill was executed against a live editor — UE 5.6.1 (MyLab_5_6)
+on 2026-09-22 and UE 5.8.3 (MyLab_5_8) on 2026-09-23, where a full 5-shot storyboard with two characters,
+audio and a master shot track was built end to end. Gotchas 13-18 all came out of that 5.8 build. -->
 
 The workflow is the "first draft" method from Curry Barker's *Obsession* previz: lock story, framing,
 pacing and sound with mannequins and a grid before any lighting or polish.
@@ -57,9 +57,9 @@ set_control(seq, rig, "head_ctrl", 0, rotation=(10, -30, 0))
 `list_controls(rig)` returns `(name, type)` pairs — 148 on the mannequin rig. Body/limb handles are
 `EULER_TRANSFORM`; switches like `arm_l_fk_ik_switch` are `FLOAT`/`BOOL` (`set_control_float`).
 
-Judge the pose from the frame, not the numbers. Iterate: set → look → adjust. Facing is part of that:
-a raw `SkeletalMeshActor` mannequin does not face the camera by default — set the spawn `rotation`
-(yaw) or key `global_ctrl` until the frame shows the front.
+Judge the pose from the frame, not the numbers. Iterate: set → look → adjust. **Facing is the one thing
+to settle numerically first** — `set_facing(seq, name, 180)` then confirm with `facing_yaw()`. The spawn
+`rotation` is not the direction the character appears to face (gotchas 13-14).
 
 ## Step 2 — cameras
 
@@ -118,6 +118,28 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 10 | `set_control` "did nothing" **after** a clip bake, only on the second run | Baking stacks keys: the one-frame bake writes 2 keys per channel (one at a sub-frame tick) and re-baking adds more at the *same ticks*. A setter updates one duplicate while evaluation reads another. `pose_from_clip` now clears the section first and collapses to one key per channel. |
 | 11 | `get_bound_objects` empty for a spawnable created in the same `run_python` call | Spawnables are instantiated on Sequencer's next evaluation. Force one (`refresh_current_level_sequence()` + `set_current_time`) before resolving components — `bound_skeletal_mesh_component` does this. |
 | 12 | Long lens = blurry frame | CineCamera default manual focus + DoF. `add_shot_camera(sharp=True)` (default) sets `focus_settings.focus_method = DISABLE`. |
+| 13 | **A character spawned at yaw 180 renders in profile, not back-to-camera** | The UE5 mannequin *mesh* faces **−Y at actor yaw 0** — a −90° offset a Character BP normally cancels on its mesh component but a bare `SkeletalMeshActor` does not. Aim with `set_facing(seq, name, visual_yaw)` (applies `MESH_YAW_OFFSET`), never the raw spawn yaw. |
+| 14 | Two different "measurements" both confirm a facing that is visibly wrong | Actor yaw describes the actor, not the mesh inside it; **bone/socket rotation is not facing** (the head socket read −180 while the character faced +Y). Only shoulder geometry is convention-free — `facing_yaw()`. Always round-trip: set, then re-measure. |
+| 15 | Every captured frame is covered in coloured rig circles | Control Rig gizmos draw in the editor viewport. `presentation_mode(seq)` clears the selection, hides the controls and enables game view. |
+| 16 | The captured frame shows the *previous* shot's pose or placement | A spawnable's transform track applies on the NEXT evaluation, so one `set_current_time` is not enough. `show_frame(seq, f)` scrubs twice and invalidates the viewport. |
+| 17 | In a two-character shot, posing the second character moves the first | `get_rig(seq)` / `cr_section(seq)` are index 0 — the *other* character's rig. Resolve per track with `rig_for(seq, track)`. |
+| 18 | `capture_view` returns a frame from the wrong camera | **Plugin bug on UE 5.8.3:** it ignores `location`/`lookAt` and returns the current viewport. See `docs/KNOWN-ISSUE-capture-view-ignores-camera.md`. Use `show_frame()` + the locked viewport instead. |
+
+## Aiming and framing without guessing
+
+Two habits remove most of the iteration:
+
+```python
+set_facing(seq, "QUINN", 180)          # the direction she VISUALLY faces (0=+X, 180=-X)
+assert abs(facing_yaw(seq, "QUINN")) > 179    # round-trip it; do not trust the spawn yaw
+
+frame_on_bone(seq, "QUINN", dist=260, azimuth=34, pitch=-4)   # camera in front of her MEASURED head
+show_frame(seq, 0)                     # lock to the shot camera, settle, clean plate
+```
+
+`frame_on_bone` beats hand-written camera coordinates: it reads the actual bone position after the
+pose is baked, so a close-up stays on the face when the pose changes. Judge the result from the frame —
+but establish *facing* numerically first, because a grey mannequin at 6 m is genuinely ambiguous to the eye.
 
 ## Engine compatibility
 

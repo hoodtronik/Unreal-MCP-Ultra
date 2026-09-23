@@ -6,6 +6,7 @@
 # UE 5.6.1 editor (see references/api-recipes.md for the raw probes and readbacks). Deprecated-on-5.6
 # calls were deliberately avoided so the same file should run on 5.8; run selfcheck() there first.
 
+import math
 import unreal
 
 L = unreal.ControlRigSequencerLibrary
@@ -400,6 +401,123 @@ def add_audio(seq, track_name, sound_path, start, end=None):
         end = start + max(1, int(round(dur * seq.get_display_rate().numerator / seq.get_display_rate().denominator)))
     sec.set_range(int(start), int(end))
     return sec
+
+
+# ---------------------------------------------------------------- facing & framing
+#
+# CLAUDE-NOTE (2026-09-23): MEASURED, and it invalidates the obvious approach. A bare
+# SkeletalMeshActor using SKM_Manny_Simple / SKM_Quinn_Simple faces -Y when the ACTOR yaw is 0 —
+# the mannequin mesh carries a -90 deg offset (the Character BP normally cancels it on its mesh
+# component; a raw actor does not). So spawn yaw != the direction the character visually faces.
+# Two earlier "measurements" both lied before this was found:
+#   * actor yaw            -> describes the actor, not the mesh inside it
+#   * bone/socket rotation -> bone axes are not the character's forward (head yaw read -180 while
+#                             the character visually faced +Y)
+# The reliable measure is shoulder GEOMETRY, which is free of both conventions.
+
+MESH_YAW_OFFSET = -90.0   # visual facing = actor yaw + MESH_YAW_OFFSET, for the UE5 mannequins
+
+
+def bound_actor(seq, name):
+    """The live actor behind a binding (spawnables included; sequence must be open)."""
+    b = find_binding(seq, name)
+    bid = unreal.MovieSceneSequenceExtensions.get_binding_id(seq, b)
+    for o in LSE.get_bound_objects(bid):
+        if isinstance(o, unreal.Actor):
+            return b, o
+    _evaluate(seq)
+    for o in LSE.get_bound_objects(bid):
+        if isinstance(o, unreal.Actor):
+            return b, o
+    return b, None
+
+
+def facing_yaw(seq, name):
+    """TRUE world yaw a humanoid visually faces, from shoulder geometry. Convention-free:
+    left = upperarm_l - upperarm_r, forward = left x up. Use this to verify facing, never the
+    actor yaw and never a bone rotation."""
+    _, act = bound_actor(seq, name)
+    c = act.get_component_by_class(unreal.SkeletalMeshComponent)
+    l = c.get_socket_location("upperarm_l"); r = c.get_socket_location("upperarm_r")
+    lv = unreal.Vector(l.x - r.x, l.y - r.y, 0.0); lv = lv / lv.length()
+    return math.degrees(math.atan2(-lv.x, lv.y))
+
+
+def _xform_section(binding):
+    return [t for t in binding.get_tracks()
+            if isinstance(t, unreal.MovieScene3DTransformTrack)][0].get_sections()[0]
+
+
+def _write_channel(section, channel, value):
+    ch = section.get_channel(channel)
+    keys = ch.get_keys() if hasattr(ch, "get_keys") else []
+    if keys:
+        for k in keys:
+            k.set_value(float(value))
+    else:
+        ch.set_default(float(value))
+
+
+def set_facing(seq, name, desired_yaw, mesh_offset=MESH_YAW_OFFSET):
+    """Aim a character by the direction it VISUALLY faces (0 = +X, 180 = -X), compensating the
+    mesh offset. Verify with facing_yaw() — that round-trip is the whole point."""
+    b, _ = bound_actor(seq, name)
+    _write_channel(_xform_section(b), "Rotation.Z", desired_yaw - mesh_offset)
+    _evaluate(seq)
+    return desired_yaw - mesh_offset
+
+
+def set_camera_pose(seq, cam_name, location, yaw, pitch=0.0, roll=0.0):
+    sec = _xform_section(find_binding(seq, cam_name))
+    for ch, v in (("Location.X", location[0]), ("Location.Y", location[1]), ("Location.Z", location[2]),
+                  ("Rotation.X", roll), ("Rotation.Y", pitch), ("Rotation.Z", yaw)):
+        _write_channel(sec, ch, v)
+
+
+def frame_on_bone(seq, name, cam="ShotCam", bone="head", dist=280.0, azimuth=30.0,
+                  rise=6.0, pitch=-3.0):
+    """Place a camera IN FRONT of a character's face and aim it at a MEASURED bone position,
+    instead of guessing world coordinates. azimuth swings the camera around the character's
+    facing (0 = dead ahead, +30 = a three-quarter toward its left). Returns (bone, cam, yaw)."""
+    _, act = bound_actor(seq, name)
+    c = act.get_component_by_class(unreal.SkeletalMeshComponent)
+    p = c.get_socket_location(bone)
+    a = math.radians(facing_yaw(seq, name) + azimuth)
+    loc = (p.x + dist * math.cos(a), p.y + dist * math.sin(a), p.z + rise)
+    yaw = math.degrees(math.atan2(p.y - loc[1], p.x - loc[0]))
+    set_camera_pose(seq, cam, loc, yaw, pitch)
+    _evaluate(seq)
+    return p, loc, yaw
+
+
+def rig_for(seq, track):
+    """The UControlRig belonging to ONE track — required for multi-character shots, where
+    get_rig(seq) (index 0) silently returns the wrong character's rig."""
+    for pr in L.get_control_rigs(seq):
+        if pr.track == track:
+            return pr.control_rig
+    raise RuntimeError("no control rig found for that track")
+
+
+def presentation_mode(seq, game_view=True):
+    """Hide Control Rig gizmos and editor overlays so captured frames are clean plates.
+    Rig gizmos otherwise cover the character in every screenshot."""
+    for pr in L.get_control_rigs(seq):
+        pr.control_rig.clear_control_selection()
+        L.hide_all_controls(pr.track.get_sections()[0])
+    if game_view:
+        unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).editor_set_game_view(True)
+
+
+def show_frame(seq, frame=0):
+    """Lock the viewport to the shot camera, scrub, and SETTLE before a capture.
+    CLAUDE-NOTE: one set_current_time is not enough — a spawnable's transform track is applied on
+    the NEXT evaluation, so the first captured frame shows the previous pose/placement. Scrubbing
+    twice and invalidating costs nothing and removes a whole class of "the tool is lying" confusion."""
+    look_through(seq, frame)
+    presentation_mode(seq)
+    LSE.set_current_time(int(frame))
+    unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).editor_invalidate_viewports()
 
 
 # ---------------------------------------------------------------- self-check
