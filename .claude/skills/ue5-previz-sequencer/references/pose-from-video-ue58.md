@@ -134,9 +134,9 @@ Win64/Mac/Linux, installing to `Engine/Plugins/Marketplace/MetaHumanBodyTracker_
 
 ## Using the result
 
-The AnimSequence is on `metahuman_base_skel`, not the UE5 Mannequin. Either previz with
-MetaHuman-skeleton characters (`/MetaHumanBodyTracker/SKM_Body` works as a grey dummy) or retarget
-through `RTG_UE5Mannequin_To_MetaHuman`. Then `pose_from_clip(seq, binding, anim_path, clip_frame=N)`
+The AnimSequence is on `metahuman_base_skel`, not the UE5 Mannequin. **Decided 2026-09-23:** previz
+characters are MetaHuman-skeleton dummies (`/MetaHumanBodyTracker/SKM_Body` + `MetaHuman_ControlRig_Simple`),
+so solves need no retarget — see "MetaHuman-skeleton dummies" in SKILL.md. Then `pose_from_clip(seq, binding, anim_path, clip_frame=N)`
 turns any frame into a held Control Rig pose — the step already proven in SKILL.md.
 
 ## Sources

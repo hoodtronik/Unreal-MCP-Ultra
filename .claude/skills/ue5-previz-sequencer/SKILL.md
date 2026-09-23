@@ -120,10 +120,32 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 12 | Long lens = blurry frame | CineCamera default manual focus + DoF. `add_shot_camera(sharp=True)` (default) sets `focus_settings.focus_method = DISABLE`. |
 | 13 | **A character spawned at yaw 180 renders in profile, not back-to-camera** | The UE5 mannequin *mesh* faces **−Y at actor yaw 0** — a −90° offset a Character BP normally cancels on its mesh component but a bare `SkeletalMeshActor` does not. Aim with `set_facing(seq, name, visual_yaw)` (applies `MESH_YAW_OFFSET`), never the raw spawn yaw. |
 | 14 | Two different "measurements" both confirm a facing that is visibly wrong | Actor yaw describes the actor, not the mesh inside it; **bone/socket rotation is not facing** (the head socket read −180 while the character faced +Y). Only shoulder geometry is convention-free — `facing_yaw()`. Always round-trip: set, then re-measure. |
-| 15 | Every captured frame is covered in coloured rig circles | Control Rig gizmos draw in the editor viewport. `presentation_mode(seq)` clears the selection, hides the controls and enables game view. |
+| 15 | Every captured frame is covered in coloured rig circles | Control Rig gizmos draw in the editor viewport. `presentation_mode(seq)` clears the selection and enables game view — **never** `hide_all_controls` (gotcha 19). |
 | 16 | The captured frame shows the *previous* shot's pose or placement | A spawnable's transform track applies on the NEXT evaluation, so one `set_current_time` is not enough. `show_frame(seq, f)` scrubs twice and invalidates the viewport. |
 | 17 | In a two-character shot, posing the second character moves the first | `get_rig(seq)` / `cr_section(seq)` are index 0 — the *other* character's rig. Resolve per track with `rig_for(seq, track)`. |
 | 18 | `capture_view` returns a frame from the wrong camera | **Plugin bug on UE 5.8.3:** it ignores `location`/`lookAt` and returns the current viewport. See `docs/KNOWN-ISSUE-capture-view-ignores-camera.md`. Use `show_frame()` + the locked viewport instead. |
+| 19 | **Held poses snap back to the reference pose after a capture; later bakes write 0 keys but return True** | `ControlRigSequencerLibrary.hide_all_controls` sets the section's controls *mask*, which is saved, stops those controls evaluating, and hides their channels from `get_all_channels()`. The old `presentation_mode` did this — it silently flattened every posed shot it framed. Fixed: the lib now calls `show_all_controls`; to repair an old sequence, `show_all_controls(section)` + save. |
+| 20 | A bone/socket read (or the rig hierarchy) says the character is in reference pose while the viewport shows the pose | Sequencer applies the Control Rig pose on the **editor tick**, and none runs inside one `run_python` call. Open + scrub in one call, read in the **next**. Vision-mode frames lag the same way — capture with `viewport_capture` on a later call before judging. |
+| 21 | `SequencerTools.export_anim_sequence` returns False for a spawnable | 5.8.3 logs `No skel mesh found in Sequencer`, open or closed. Use `bake_displayed_pose()` (component bone read, on the following call). |
+
+## MetaHuman-skeleton dummies (decided 2026-09-23)
+
+Previz characters are `/MetaHumanBodyTracker/SKM_Body` + `MetaHuman_ControlRig_Simple` (`MH_BODY_MESH` /
+`MH_BODY_RIG`), so markerless-mocap solves (which land on `metahuman_base_skel`) drop straight in with
+`pose_from_clip` — no retarget per solve. Facing offset is the same −90° as the mannequin; `set_facing` works.
+Two costs: the rig is **FK only** (one control per bone, no IK handles), and the body is **headless**.
+
+Poses authored on Manny/Quinn move across once via `/Game/Previz/Retarget/RTG_UE5Mannequin_To_MetaHuman`
+(built with `IKRigController.apply_auto_generated_retarget_definition` + `IKRetargeterController.auto_map_chains(EXACT)`;
+chain names match `IK_Metahuman` 1:1):
+
+```python
+# call 1: open_sequence(manny_shot); show_frame(manny_shot, 0)
+# call 2 (the pose is only applied on the tick between calls — gotcha 20):
+anim, mesh = bake_displayed_pose(manny_shot, "QUINN", "/Game/Previz/Retarget/Baked", "AS_Pose_X_Manny")
+mh_path = retarget_anim(anim, mesh, "/Game/Previz/Retarget/RTG_UE5Mannequin_To_MetaHuman", "/Game/Previz/Retarget/Baked")
+pose_from_clip(mh_shot, binding, mh_path, 0, 0, section=track.get_sections()[0])
+```
 
 ## Aiming and framing without guessing
 

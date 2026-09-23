@@ -79,6 +79,14 @@ Import from disk with AssetImportTask (filename, destination_path, automated=Tru
 to avoid: LevelSequence.add_spawnable_from_instance, SequencerTools.get_bound_objects,
 L.load_anim_sequence_into_control_rig_section (use _with_range). Pose-from-VIDEO needs the 5.8-only
 "MetaHuman Animator Markerless Motion Capture" Fab plugin: its output is an AnimSequence, so it feeds the
-same one-frame bake above.
+same one-frame bake above. Solves land on metahuman_base_skel — previz with /MetaHumanBodyTracker/SKM_Body +
+MetaHuman_ControlRig_Simple (FK, headless, same -90 mesh yaw offset) and no retarget is needed.
+
+## Two silent traps (5.8.3, 2026-09-23)
+- NEVER L.hide_all_controls to clean up a capture: it saves a controls MASK that stops those controls
+  evaluating (held poses snap to reference) and makes later bakes write 0 keys while returning True.
+  Repair with L.show_all_controls(section) + save.
+- Sequencer applies Control Rig poses on the editor TICK. Inside one run_python call, bone/socket and
+  rig-hierarchy reads return the reference pose. Scrub in one call, read or bake in the next.
 `,
 };

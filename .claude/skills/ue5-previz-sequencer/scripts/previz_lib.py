@@ -257,6 +257,10 @@ def pose_from_clip(seq, binding, anim_path, clip_frame, at_frame=0, constant=Tru
     if not skel:
         raise RuntimeError("no SkeletalMeshComponent bound — is the sequence open?")
     interp = unreal.MovieSceneKeyInterpolation.CONSTANT if constant else unreal.MovieSceneKeyInterpolation.SMART_AUTO
+    # CLAUDE-NOTE: presentation_mode()/show_frame() hide controls via the section's controls MASK, and the
+    # mask persists. Masked channels vanish from get_all_channels() and the anim load writes NOTHING while
+    # still returning True (measured 2026-09-23, UE 5.8.3: 0 keys vs 3078). Unmask before every bake.
+    L.show_all_controls(sec)
     clear_keys(sec)   # a held pose REPLACES whatever was keyed; re-baking on top stacks duplicate keys
     ok = L.load_anim_sequence_into_control_rig_section_with_range(
         sec, anim, skel, FN(at_frame), True, FN(clip_frame), FN(clip_frame + 1), DR,
@@ -275,6 +279,53 @@ def load_clip(seq, binding, anim_path, at_frame=0, section=None):
     return L.load_anim_sequence_into_control_rig_section_with_range(
         sec, anim, skel, FN(at_frame), False, FN(0), FN(0), DR,
         False, 0.001, unreal.MovieSceneKeyInterpolation.SMART_AUTO, True, False)
+
+
+MH_BODY_MESH = "/MetaHumanBodyTracker/SKM_Body"                      # headless grey dummy, metahuman_base_skel
+MH_BODY_RIG = "/MetaHumanBodyTracker/MetaHuman_ControlRig_Simple"    # FK only: one control per bone, 342 of them
+
+
+def bake_displayed_pose(seq, char, out_dir, name):
+    """Write the pose a character is SHOWING right now to a 1-frame AnimSequence on its own skeleton.
+    CLAUDE-NOTE: call this in a SEPARATE run_python call from the one that opened/scrubbed the sequence.
+    Sequencer applies the Control Rig pose on the editor tick, and no tick runs inside one call — a read
+    in the same call returns the reference pose (measured: hand 45 cm out to the side vs 131 cm up at the
+    chest one call later). The rig hierarchy has the same lag. SequencerTools.export_anim_sequence is no
+    alternative for spawnables on 5.8.3: 'No skel mesh found in Sequencer', returns False."""
+    eal = unreal.EditorAssetLibrary
+    _, act = bound_actor(seq, char)
+    comp = act.get_component_by_class(unreal.SkeletalMeshComponent)
+    mesh = comp.get_skeletal_mesh_asset()
+    if eal.does_asset_exist(f"{out_dir}/{name}"):
+        eal.delete_asset(f"{out_dir}/{name}")
+    fac = unreal.AnimSequenceFactory()
+    fac.set_editor_property("target_skeleton", mesh.skeleton)
+    fac.set_editor_property("preview_skeletal_mesh", mesh)
+    anim = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, out_dir, unreal.AnimSequence, fac)
+    ctrl = anim.get_editor_property("controller")
+    ctrl.open_bracket(unreal.Text("bake displayed pose"))
+    try:
+        # default 30 fps; set_frame_rate(24) raises "not a multiple or factor of 30" on 5.8
+        ctrl.set_number_of_frames(unreal.FrameNumber(1))
+        for i in range(comp.get_num_bones()):
+            bn = comp.get_bone_name(i)
+            t = comp.get_socket_transform(bn, unreal.RelativeTransformSpace.RTS_PARENT_BONE_SPACE)
+            ctrl.add_bone_curve(bn)
+            ctrl.set_bone_track_keys(bn, [t.translation] * 2, [t.rotation] * 2, [t.scale3d] * 2)
+    finally:
+        ctrl.close_bracket()
+    eal.save_loaded_asset(anim)
+    return anim, mesh
+
+
+def retarget_anim(anim, source_mesh, retargeter_path, out_dir, target_mesh=MH_BODY_MESH,
+                  search="_Manny", replace="_MH"):
+    """Duplicate+retarget one AnimSequence through an IK Retargeter. Returns the new asset path."""
+    ad = unreal.AssetRegistryHelpers.get_asset_registry().get_asset_by_object_path(anim.get_path_name())
+    res = unreal.IKRetargetBatchOperation.duplicate_and_retarget(
+        [ad], source_mesh, unreal.load_asset(target_mesh), unreal.load_asset(retargeter_path),
+        search, replace, "", "", out_dir, False, False, True)
+    return str(res[0].package_name) if res else None
 
 
 def make_constant(section):
@@ -502,9 +553,12 @@ def rig_for(seq, track):
 def presentation_mode(seq, game_view=True):
     """Hide Control Rig gizmos and editor overlays so captured frames are clean plates.
     Rig gizmos otherwise cover the character in every screenshot."""
+    # CLAUDE-NOTE: do NOT call hide_all_controls here. It sets the section's controls MASK, and masked
+    # controls stop evaluating — every held pose snaps back to the reference pose (measured 2026-09-23,
+    # UE 5.8.3), and later bakes into that section write nothing. Game view hides the gizmos on its own.
     for pr in L.get_control_rigs(seq):
         pr.control_rig.clear_control_selection()
-        L.hide_all_controls(pr.track.get_sections()[0])
+        L.show_all_controls(pr.track.get_sections()[0])
     if game_view:
         unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).editor_set_game_view(True)
 
