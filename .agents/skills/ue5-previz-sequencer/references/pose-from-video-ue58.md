@@ -34,7 +34,7 @@ Qwen Image 2.1 7B (wan2gp)        896x1344 pose plate            ~90 s
   server alive across a session, or enable filesystem reads.
 - wan2gp is **single-threaded**: while generating it answers nothing, not even a status query, so a
   long render is indistinguishable from a hung server. Set a per-server `"timeout"` in
-  `.claude.json` — the default silent-timeout aborts the *call* while the render keeps going.
+  your MCP client's config (`~/.claude.json` for Claude Code; see `docs/mcp-clients.md` for others) — the default silent-timeout aborts the *call* while the render keeps going.
 
 ## Ingest — the Capture Manager is not optional
 

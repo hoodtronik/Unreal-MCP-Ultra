@@ -1,6 +1,6 @@
 # UE5 MCP — Give AI agents full access to your UE5 assets
 
-Vibe code your Blueprints, materials, and Anim Blueprints. This plugin lets Claude Code (or any MCP client) read, modify, and create Unreal Engine 5 Blueprints — just describe what you want in plain English.
+Vibe code your Blueprints, materials, and Anim Blueprints. This plugin lets any MCP-capable coding agent — Claude Code, Codex, Cursor, Copilot, Gemini CLI and others — read, modify, and create Unreal Engine 5 Blueprints — just describe what you want in plain English.
 
 > "Add a health component to my player character" · "Find everywhere I use GetActorLocation and replace it" · "What does my damage system do?"
 
@@ -14,11 +14,15 @@ will load, but expect to fix API drift yourself.
 
 ## Getting Started
 
-Tell Claude Code:
+Tell your coding agent:
 
 ```
 Set up https://github.com/hoodtronik/Unreal-MCP-Ultra in my project
 ```
+
+The agent follows `.agents/skills/blueprintmcp-install/SKILL.md`. To wire up a client by hand, see
+[docs/mcp-clients.md](docs/mcp-clients.md) (Claude Code, Claude Desktop, Cursor, VS Code/Copilot, Codex,
+Gemini CLI, Windsurf). Agent instructions for working *on* this repo are in [AGENTS.md](AGENTS.md).
 
 ## Prebuilt binaries (no C++ toolchain needed)
 
@@ -33,7 +37,7 @@ versions, build from source in this repo.)
 
 ## How It Works
 
-A UE5 editor plugin exposes your project's Blueprints over a local HTTP server. An [MCP](https://modelcontextprotocol.io) wrapper connects that to AI tools like Claude Code. When the editor is open, it runs inside the editor process with zero overhead. When the editor is closed, it can spawn a headless process instead.
+A UE5 editor plugin exposes your project's Blueprints over a local HTTP server. An [MCP](https://modelcontextprotocol.io) wrapper connects that to any MCP client. When the editor is open, it runs inside the editor process with zero overhead. When the editor is closed, it can spawn a headless process instead.
 
 ## Editor console commands
 

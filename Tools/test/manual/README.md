@@ -7,7 +7,7 @@ device), so they cannot run in CI and must be invoked deliberately.
 ## `vision-e2e.mjs`
 
 End-to-end check of `vision_mode` through a **real MCP client over stdio**, driving the compiled
-`dist/index.js` exactly as Claude Code would.
+`dist/index.js` exactly as an MCP client would.
 
 This exists because the auto-attach wrapper lives in `index.ts` and wraps `server.tool` at
 registration time — it only exists inside a live server process, so no unit test can reach it. It

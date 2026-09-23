@@ -26,11 +26,11 @@ issues:
   trigger: missing or insufficient BlueprintMCP capability
   action: gh issue create --repo hoodtronik/Unreal-MCP-Ultra
   scope: capability gap only, not the user's higher-level goal
-  template: see CLAUDE.md "Missing functionality" section
+  template: see AGENTS.md "Missing functionality" section
   notes: file it yourself — never ask the user to do it
 
 pull_requests:
   branch: main
   authorship: AI-only, no human code
-  notes: see CLAUDE.md "Development" section for patterns
+  notes: see AGENTS.md "Development" section for patterns
 ```

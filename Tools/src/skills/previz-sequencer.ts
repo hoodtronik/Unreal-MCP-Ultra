@@ -4,7 +4,7 @@ import type { Skill } from "./types.js";
 // (there is no MCP sequencer or control-rig tool). Every call below was executed against a live UE 5.6.1
 // editor; the same library functions are what Epic's shipped 5.8 AnimationAssistantToolset calls, so the
 // surface exists on 5.8 too (not yet run there). The long-form version with the raw probes and a Python
-// helper library lives in .claude/skills/ue5-previz-sequencer/ — this is the condensed hub copy.
+// helper library lives in .agents/skills/ue5-previz-sequencer/ — this is the condensed hub copy.
 
 export const previzSequencerSkill: Skill = {
   name: "previz-sequencer",

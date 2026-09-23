@@ -13,7 +13,7 @@ Follow these steps sequentially when installing BlueprintMCP into a UE5 project 
 
 | Requirement | Check command | Notes |
 |-------------|--------------|-------|
-| UE 5.6.1 | `ls "C:/Program Files/Epic Games/UE_5.6/"` | Uses Editor-only modules (`UnrealEd`, `BlueprintGraph`, `KismetCompiler`). Other 5.x versions are untested — see the "Engine version" section of the repo-root CLAUDE.md. |
+| UE 5.6.1 | `ls "C:/Program Files/Epic Games/UE_5.6/"` | Uses Editor-only modules (`UnrealEd`, `BlueprintGraph`, `KismetCompiler`). Other 5.x versions are untested — see the "Engine version" section of the repo-root AGENTS.md. |
 | Node.js 18+ | `node --version` | Required for the TypeScript MCP server |
 | npm | `npm --version` | Comes with Node.js |
 
@@ -47,9 +47,11 @@ ls Plugins/BlueprintMCP/Tools/dist/index.js
 
 If `npm run build` fails, check that `tsconfig.json` exists and TypeScript is in `devDependencies`.
 
-## Step 3: Create `.mcp.json` at the project root
+## Step 3: Register the MCP server with your client
 
-Create or merge into `.mcp.json` in the directory containing the `.uproject` file:
+The example below is the project-level `.mcp.json` that Claude Code reads. **Using another client** (Cursor, VS Code/Copilot, Codex, Gemini CLI, Windsurf, Claude Desktop)? Use its config from `docs/mcp-clients.md` in this repo instead — same command, args and env, different file.
+
+For Claude Code, create or merge into `.mcp.json` in the directory containing the `.uproject` file:
 
 ```json
 {
@@ -77,23 +79,9 @@ If `.mcp.json` already exists, merge the `blueprint-mcp` key into the existing `
 | `UE_PORT` | `9847` | HTTP port for the C++ backend. Change only if port 9847 is in use. |
 | `UE_EDITOR_CMD` | Auto-detected | Full path to `UnrealEditor-Cmd.exe`. Only needed for commandlet mode if UE5 is in a non-standard location. |
 
-### Claude Desktop configuration
+### Other clients
 
-Claude Desktop uses absolute paths in `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "blueprint-mcp": {
-      "command": "node",
-      "args": ["C:/absolute/path/to/YourProject/Plugins/BlueprintMCP/Tools/dist/index.js"],
-      "env": {
-        "UE_PROJECT_DIR": "C:/absolute/path/to/YourProject"
-      }
-    }
-  }
-}
-```
+Claude Desktop, Cursor, VS Code/Copilot, Codex, Gemini CLI and Windsurf configs (with the timeout settings each needs) are in `docs/mcp-clients.md`.
 
 ## Step 4: Build C++ (automatic)
 
