@@ -96,7 +96,14 @@ camera path.
   output convert with cv2). Then in the editor run `scripts/ue_backdrop.py` with env
   `BACKDROP_HDR`, `BACKDROP_NAME`, `BACKDROP_CAM_HEIGHT` (cm) → `/Game/Maps/<Name>_Backdrop`
   (HDRI Backdrop, 4096 cubemap, exposure locked at EV0).
-- Anyone standing still the whole clip (and their shadow) cannot be removed by the median.
+- Someone sitting by the camera all clip: add `--mask-people` (YOLO + median over unmasked samples;
+  writes `<plate>.holes.png` of pixels never seen clear), then
+  `scripts/fill_holes.py PLATE HOLES OUT` (LaMa inpaint, model `tools/models/big-lama.pt`). Do this to
+  both ground and sky plates before `sky_blend.py`.
+- Handheld stick: check yaw drift (phase correlation on the band just below the horizon) and add
+  `--derotate`. Horizon levelling fixes pitch/roll, not yaw.
+- `ue_backdrop.py` leaves the viewport at the new-level default; put it at (0,0,cam height) to judge.
+- Still left after all this: shadows of removed people, the holder's hands at the nadir.
 
 ## Driving the editor
 
