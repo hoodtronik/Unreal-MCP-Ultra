@@ -116,3 +116,9 @@ the Python to a file and JSON-encode it (Windows paths with `\_`/`\u` break inli
   YOLO misses partial bodies at view edges (an arm scored 0 even at conf 0.08); pano-space mask
   union fixed it. Installing ultralytics tried to swap OpenCV to 5.0 and failed while another
   process held cv2.pyd — do installs while nothing in the venv is running.
+- 2026-10-07 Athens motorcycle RESULT: SfM looked perfect (215/215 frames, 0.81 px) but the splat
+  FAILED — held-out PSNR 12.6 (13.3 without masks, so not the masks) vs 20.5 for Ephesus on the same
+  eval. Mean track length 4.7 vs 14.5: at ~16 km/h and 3 fps panos are ~1.5 m apart, so every
+  surface is seen from too few views; night blur makes it worse. **Good SfM numbers do not mean a
+  trainable dataset — check track length, and run a 7k `--eval --test-every 25` before the 30k
+  train** (Ephesus-quality ~20 at 7k). Masked LichtFeld training ran ~10x slower than unmasked.
