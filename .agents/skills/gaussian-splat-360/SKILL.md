@@ -138,3 +138,8 @@ the Python to a file and JSON-encode it (Windows paths with `\_`/`\u` break inli
   1007(1) was handheld on a stick and yawed 14° over 2 min (horizon levelling does not fix yaw) →
   `--derotate` (phase correlation on the band just below the horizon; the sky band measures cloud
   drift instead).
+- 2026-10-07 AthensMotoSeg in UE: a good street splat (cars, facades, lamps) along the 86 m path, but
+  the masked rider zone right around the camera holds unconstrained floaters (never supervised).
+  Judge from points ON the path: get them from `dataset/sparse/0` camera centres through
+  align.json (UE = R·(to_ue(C)·100·scale) + t); straight +X runs off a curving road into fog.
+  Possible fix: crop splats within ~1 m of the camera path.
