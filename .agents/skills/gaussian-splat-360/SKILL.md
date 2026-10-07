@@ -122,3 +122,12 @@ the Python to a file and JSON-encode it (Windows paths with `\_`/`\u` break inli
   surface is seen from too few views; night blur makes it worse. **Good SfM numbers do not mean a
   trainable dataset — check track length, and run a 7k `--eval --test-every 25` before the 30k
   train** (Ephesus-quality ~20 at 7k). Masked LichtFeld training ran ~10x slower than unmasked.
+- 2026-10-07 Athens moto DENSE SEGMENT (44-64 s at `--fps 8`, 160 panos): 7k PSNR **21.9** (vs 12.6 at
+  3 fps), so spacing was the problem, not the night. Track length only rose 4.7 → 5.8, so it is a weak
+  predictor across clips; trust the 7k eval. **Vehicle footage: `--fps 8` (≈0.5 m between panos at
+  16 km/h).** Close side surfaces (a van beside the bike) stay soft from motion blur.
+- 2026-10-07 Athens static clips: someone sat beside the camera the whole clip → `clean_plate.py
+  --mask-people` (YOLO, nan-median over unmasked samples, writes `.holes.png` of never-seen pixels).
+  1007(1) was handheld on a stick and yawed 14° over 2 min (horizon levelling does not fix yaw) →
+  `--derotate` (phase correlation on the band just below the horizon; the sky band measures cloud
+  drift instead).
