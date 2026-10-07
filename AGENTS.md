@@ -28,6 +28,7 @@ plus `scripts/` and `references/`). Read the matching one before starting that k
 | `blueprintmcp-install` | Installing the plugin into a UE project: prerequisites, clone into `Plugins/`, build, MCP client config, verification |
 | `ue5-previz-sequencer` | Storyboards/previz in Sequencer via `run_python`: posing, cameras, shots, held poses, audio, image→pose mocap |
 | `led-wall-content` | 11Weeks/Wonderwall LED-stage background plates, slideshow blueprint, stage lighting |
+| `gaussian-splat-360` | 360 footage → Gaussian splats (COLMAP + LichtFeld + NanoGS) and 360 HDRI backdrops; living playbook for the Splat360 project |
 
 Claude Code reads skills from `.claude/skills/`; run `scripts/link-agent-skills.ps1` (or `.sh`) once
 per clone to link that folder to `.agents/skills/`. Other agents can read the files directly.
