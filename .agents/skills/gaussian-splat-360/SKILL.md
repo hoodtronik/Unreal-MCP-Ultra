@@ -151,3 +151,7 @@ the Python to a file and JSON-encode it (Windows paths with `\_`/`\u` break inli
   0.29 (good) vs both full rides about 0.075 (fog). Rescaling the cut to metres scored **25.3**.
   `prep_splat.py` now always rescales. Test one variable at a time: my first fix changed density
   AND scene units together.
+- 2026-10-07 AthensMoto FULL RIDE after the metric rescale: 7k PSNR 21.6, 30k train 20 min (the
+  tiny-unit runs took 46+ min). In UE it is a continuous ~330 m night street; middle sharpest, the
+  ride's first/last seconds soft (seen by fewer frames). Moving the viewport along the path:
+  compute on-path points from the sparse model + align.json, as above.
