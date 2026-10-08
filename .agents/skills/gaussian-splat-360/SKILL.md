@@ -52,6 +52,10 @@ MP4, max resolution/bitrate, horizon levelling ON**. Horizon levelling matters: 
 - Not resumable: a rerun wipes `colmap/`. `--skip-extract` reuses `panos/`.
 - Good result: every frame registered, mean reprojection error < ~1.2 px.
 
+- The dataset model is rescaled to metres (`--cam-height`, the same estimate `align_splat.py` uses).
+  **LichtFeld silently trains to grey fog on models in tiny units** (see Lessons); fix an old
+  dataset with `prep_splat.py x x --cam-height H --rescale-only <dataset>/sparse/0`.
+
 ## 4. Train (LichtFeld, GPU)
 
 ```
@@ -125,14 +129,12 @@ the Python to a file and JSON-encode it (Windows paths with `\_`/`\u` break inli
   process held cv2.pyd — do installs while nothing in the venv is running.
 - 2026-10-07 Athens motorcycle RESULT: SfM looked perfect (215/215 frames, 0.81 px) but the splat
   FAILED — held-out PSNR 12.6 (13.3 without masks, so not the masks) vs 20.5 for Ephesus on the same
-  eval. Mean track length 4.7 vs 14.5: at ~16 km/h and 3 fps panos are ~1.5 m apart, so every
-  surface is seen from too few views; night blur makes it worse. **Good SfM numbers do not mean a
-  trainable dataset — check track length, and run a 7k `--eval --test-every 25` before the 30k
-  train** (Ephesus-quality ~20 at 7k). Masked LichtFeld training ran ~10x slower than unmasked.
+  eval. (I blamed sparse frames; WRONG, see the scale lesson below.) **Good SfM numbers do not mean
+  a trainable dataset: run a 7k `--eval --test-every 25` before the 30k train** (Ephesus-quality
+  ~20 at 7k). Masked LichtFeld training ran ~10x slower than unmasked.
 - 2026-10-07 Athens moto DENSE SEGMENT (44-64 s at `--fps 8`, 160 panos): 7k PSNR **21.9** (vs 12.6 at
-  3 fps), so spacing was the problem, not the night. Track length only rose 4.7 → 5.8, so it is a weak
-  predictor across clips; trust the 7k eval. **Vehicle footage: `--fps 8` (≈0.5 m between panos at
-  16 km/h).** Close side surfaces (a van beside the bike) stay soft from motion blur.
+  3 fps). I concluded spacing was the problem: confounded, see the scale lesson. `--fps 8` is still
+  a sensible default for vehicles. Close side surfaces (a van beside the bike) stay soft from blur.
 - 2026-10-07 Athens static clips: someone sat beside the camera the whole clip → `clean_plate.py
   --mask-people` (YOLO, nan-median over unmasked samples, writes `.holes.png` of never-seen pixels).
   1007(1) was handheld on a stick and yawed 14° over 2 min (horizon levelling does not fix yaw) →
@@ -143,3 +145,9 @@ the Python to a file and JSON-encode it (Windows paths with `\_`/`\u` break inli
   Judge from points ON the path: get them from `dataset/sparse/0` camera centres through
   align.json (UE = R·(to_ue(C)·100·scale) + t); straight +X runs off a curving road into fog.
   Possible fix: crop splats within ~1 m of the camera path.
+- 2026-10-07 ROOT CAUSE of the Athens fog: COLMAP model scale. The full 8 fps ride (572/572 frames,
+  0.86 px) still trained to fog (PSNR 13.4), and so did the SAME 44-64 s frames cut from that model
+  (12.7), so it wasn't length or density. Camera height in model units: Ephesus 13.9 and the segment
+  0.29 (good) vs both full rides about 0.075 (fog). Rescaling the cut to metres scored **25.3**.
+  `prep_splat.py` now always rescales. Test one variable at a time: my first fix changed density
+  AND scene units together.
