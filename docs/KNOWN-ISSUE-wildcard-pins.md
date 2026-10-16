@@ -68,3 +68,13 @@ either). Compile error verbatim: *"The type of Item is undetermined. Connect som
 imply a specific type."* Real cost: descriptive scene-name plate labels were abandoned for numeric
 `T_VBG_<i>` names because index→array→display-name is unreachable. Also note `add_node` offers no
 Array-Get nodeType — the node must be created as CallFunction `KismetArrayLibrary.Array_Get`.
+
+## Field note 2026-10-16 (pre-fix plugin copy, fc4ab11)
+
+On a project still carrying the pre-fix copy, a `Select` node built with `build_graph` (Index wired
+from a UserDefinedEnum variable, ReturnValue wired into `SetStaticMesh.NewMesh`) kept two wildcard
+`Option` pins and failed to compile. **`refresh_all_nodes` DID fix this one**: after it the node had
+one typed `NewEnumeratorN` pin per enum value, and object defaults (`/Engine/BasicShapes/Cone.Cone`)
+then landed via `set_pin_default` (confirmed with `get_pin_info`). So for Select, try refresh before
+redesigning. The same copy also could not create a Level Blueprint for a fresh map (fixed in
+canonical by the `bDontCreate=false` fallback in `LoadBlueprintByName`); re-sync stale copies.
