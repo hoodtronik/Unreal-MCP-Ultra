@@ -487,6 +487,11 @@ private:
 	FString HandleSetEditorSelection(const FString& Body);
 	FString HandleClearSelection(const FString& Body);
 
+	// ----- Editor UI (Slate) -----
+	FString HandleUIFind(const FString& Body);
+	FString HandleUIClick(const FString& Body);
+	FString HandleUISetText(const FString& Body);
+
 	// ----- PIE control + runtime queries -----
 	FString HandleStartPIE(const FString& Body);
 	FString HandleStopPIE(const FString& Body);

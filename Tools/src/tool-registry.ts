@@ -27,6 +27,7 @@ import { registerPIERuntimeTools } from "./tools/pie-runtime.js";
 import { registerSublevelTools } from "./tools/sublevels.js";
 import { registerEditorUtilityTools } from "./tools/editor-utils.js";
 import { registerSelectionTools } from "./tools/selection.js";
+import { registerEditorUITools } from "./tools/editor-ui.js";
 import { registerCVarTools } from "./tools/cvars.js";
 import { registerOutputLogTools } from "./tools/output-log.js";
 import { registerScreenshotTools } from "./tools/screenshot.js";
@@ -88,6 +89,7 @@ export const TOOL_REGISTRATIONS: ToolRegistration[] = [
   { register: registerSublevelTools, category: "Sublevels" },
   { register: registerEditorUtilityTools, category: "Editor Utility" },
   { register: registerSelectionTools, category: "Editor Selection" },
+  { register: registerEditorUITools, category: "Editor UI" },
   { register: registerCVarTools, category: "Console Variables" },
   { register: registerOutputLogTools, category: "Output Log" },
   { register: registerScreenshotTools, category: "Screenshots" },

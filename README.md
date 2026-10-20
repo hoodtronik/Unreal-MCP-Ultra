@@ -173,6 +173,7 @@ The MCP server exposes **242 tools**, grouped by area below. Every mutation tool
   · `focus_actor` · `raycast`
 - Sublevels: `list_sublevels` · `load_sublevel` · `unload_sublevel`
 - Selection: `get_editor_selection` · `set_editor_selection` · `clear_selection`
+- Editor UI (test panels and wizards like a person would): `ui_find` · `ui_click` · `ui_set_text`
 
 **Editor / viewport**
 - `server_status` · `rescan_assets` · `exec_command` · `shutdown_server` · `editor_notification`

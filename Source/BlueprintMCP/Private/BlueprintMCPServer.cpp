@@ -996,6 +996,12 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 		QueuedHandler(TEXT("clearOutputLog")));
 	Router->BindRoute(FHttpPath(TEXT("/api/clear-selection")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("clearSelection")));
+	Router->BindRoute(FHttpPath(TEXT("/api/ui-find")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("uiFind")));
+	Router->BindRoute(FHttpPath(TEXT("/api/ui-click")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("uiClick")));
+	Router->BindRoute(FHttpPath(TEXT("/api/ui-set-text")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("uiSetText")));
 	Router->BindRoute(FHttpPath(TEXT("/api/create-curve-table")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("createCurveTable")));
 	Router->BindRoute(FHttpPath(TEXT("/api/create-data-asset")), EHttpServerRequestVerbs::VERB_POST,
@@ -1718,6 +1724,9 @@ void FBlueprintMCPServer::RegisterHandlers()
 	HandlerMap.Add(TEXT("bindWidgetEvent"), [this](const TMap<FString, FString>&, const FString& B) { return HandleBindWidgetEvent(B); });
 	HandlerMap.Add(TEXT("clearOutputLog"), [this](const TMap<FString, FString>&, const FString& B) { return HandleClearOutputLog(B); });
 	HandlerMap.Add(TEXT("clearSelection"), [this](const TMap<FString, FString>&, const FString& B) { return HandleClearSelection(B); });
+	HandlerMap.Add(TEXT("uiFind"), [this](const TMap<FString, FString>&, const FString& B) { return HandleUIFind(B); });
+	HandlerMap.Add(TEXT("uiClick"), [this](const TMap<FString, FString>&, const FString& B) { return HandleUIClick(B); });
+	HandlerMap.Add(TEXT("uiSetText"), [this](const TMap<FString, FString>&, const FString& B) { return HandleUISetText(B); });
 	HandlerMap.Add(TEXT("createCurveTable"), [this](const TMap<FString, FString>&, const FString& B) { return HandleCreateCurveTable(B); });
 	HandlerMap.Add(TEXT("createDataAsset"), [this](const TMap<FString, FString>&, const FString& B) { return HandleCreateDataAsset(B); });
 	HandlerMap.Add(TEXT("createDataTable"), [this](const TMap<FString, FString>&, const FString& B) { return HandleCreateDataTable(B); });
