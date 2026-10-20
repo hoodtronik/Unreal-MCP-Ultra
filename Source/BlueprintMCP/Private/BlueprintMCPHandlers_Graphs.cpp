@@ -351,6 +351,7 @@ FString FBlueprintMCPServer::HandleCreateGraph(const FString& Body)
 		*GraphType, *GraphName, *BlueprintName);
 
 	FString CreatedNodeId;
+	bool bIsOverride = false;
 
 	if (GraphType == TEXT("function"))
 	{
@@ -360,7 +361,21 @@ FString FBlueprintMCPServer::HandleCreateGraph(const FString& Body)
 		{
 			return MakeErrorJson(TEXT("Failed to create function graph"));
 		}
-		FBlueprintEditorUtils::AddFunctionGraph(BP, NewGraph, /*bIsUserCreated=*/true, /*SignatureFromObject=*/static_cast<UClass*>(nullptr));
+		// CLAUDE-NOTE: a function a parent class already declares must be created as an OVERRIDE (the parent's
+		// signature, not a user function), exactly like the Blueprint editor's "Override" dropdown
+		// (SMyBlueprint::ImplementFunction). The plain path made a clashing graph that failed to compile ("function
+		// name already used ... declared in a parent with a different signature"), seen 2026-10-20.
+		UClass* OverrideClass = FBlueprintEditorUtils::GetOverrideFunctionClass(BP, FName(*GraphName));
+		if (OverrideClass)
+		{
+			NewGraph->bAllowDeletion = false;
+			FBlueprintEditorUtils::AddFunctionGraph(BP, NewGraph, /*bIsUserCreated=*/false, OverrideClass);
+			bIsOverride = true;
+		}
+		else
+		{
+			FBlueprintEditorUtils::AddFunctionGraph(BP, NewGraph, /*bIsUserCreated=*/true, /*SignatureFromObject=*/static_cast<UClass*>(nullptr));
+		}
 	}
 	else if (GraphType == TEXT("macro"))
 	{
@@ -407,6 +422,7 @@ FString FBlueprintMCPServer::HandleCreateGraph(const FString& Body)
 	Result->SetStringField(TEXT("blueprint"), BlueprintName);
 	Result->SetStringField(TEXT("graphName"), GraphName);
 	Result->SetStringField(TEXT("graphType"), GraphType);
+	Result->SetBoolField(TEXT("isOverride"), bIsOverride);
 	Result->SetBoolField(TEXT("saved"), bSaved);
 	if (!CreatedNodeId.IsEmpty())
 	{

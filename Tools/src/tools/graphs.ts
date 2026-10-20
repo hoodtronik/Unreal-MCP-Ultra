@@ -65,7 +65,7 @@ export function registerGraphTools(server: McpServer): void {
 
   server.tool(
     "create_graph",
-    "Create a new function graph, macro graph, or custom event in a Blueprint. For function/macro, creates a new named graph with entry/exit nodes. For customEvent, adds a CustomEvent node to the EventGraph.",
+    "Create a new function graph, macro graph, or custom event in a Blueprint. For function/macro, creates a new named graph with entry/exit nodes. For customEvent, adds a CustomEvent node to the EventGraph. OVERRIDES: if graphType is 'function' and a parent class already declares a function with this name, the graph is created as an override with the parent's exact signature (like the editor's Override dropdown); the result says isOverride=true. Add a CallParentFunction node yourself if the parent's logic should still run.",
     {
       blueprint: z.string().describe("Blueprint name or package path"),
       graphName: z.string().describe("Name for the new graph or custom event"),
@@ -83,6 +83,7 @@ export function registerGraphTools(server: McpServer): void {
       lines.push(`Blueprint: ${data.blueprint}`);
       lines.push(`Graph: ${data.graphName}`);
       lines.push(`Type: ${data.graphType}`);
+      if (data.isOverride) lines.push(`Override: yes (parent signature; the parent's version no longer runs unless you add a CallParentFunction node)`);
       if (data.nodeId) lines.push(`Node ID: ${data.nodeId}`);
       if (data.saved !== undefined) lines.push(`Saved: ${data.saved}`);
       lines.push(``);

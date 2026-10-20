@@ -142,7 +142,7 @@ export function registerVariableTools(server: McpServer): void {
 
   server.tool(
     "set_variable_metadata",
-    "Set variable properties beyond type: category, tooltip, replication, exposeOnSpawn, editability, isPrivate. Provide any combination of fields to update.",
+    "Set variable properties beyond type: category, tooltip, replication, exposeOnSpawn, editability, isPrivate, and arbitrary metadata (e.g. ClampMin/ClampMax/UIMin/UIMax for numeric ranges — RenderStream reads ClampMin/ClampMax as the Designer slider range). Provide any combination of fields to update.",
     {
       blueprint: z.string().describe("Blueprint name or package path"),
       variable: z.string().describe("Variable name"),
@@ -153,8 +153,10 @@ export function registerVariableTools(server: McpServer): void {
       editability: z.enum(["editAnywhere", "editDefaultsOnly", "editInstanceOnly", "none"]).optional()
         .describe("Edit visibility: editAnywhere (CDO + instances), editDefaultsOnly (CDO only), editInstanceOnly (instances only), none"),
       isPrivate: z.boolean().optional().describe("Mark variable as private (only accessible within this Blueprint)"),
+      metadata: z.record(z.string(), z.string()).optional()
+        .describe("Arbitrary variable metadata key -> value, e.g. {\"ClampMin\":\"0\",\"ClampMax\":\"63\"}. An empty value removes the key."),
     },
-    async ({ blueprint, variable, category, tooltip, replication, exposeOnSpawn, editability, isPrivate }) => {
+    async ({ blueprint, variable, category, tooltip, replication, exposeOnSpawn, editability, isPrivate, metadata }) => {
       const err = await ensureUE();
       if (err) return { content: [{ type: "text" as const, text: err }] };
 
@@ -165,6 +167,7 @@ export function registerVariableTools(server: McpServer): void {
       if (exposeOnSpawn !== undefined) body.exposeOnSpawn = exposeOnSpawn;
       if (editability !== undefined) body.editability = editability;
       if (isPrivate !== undefined) body.isPrivate = isPrivate;
+      if (metadata !== undefined) body.metadata = metadata;
 
       const data = await uePost("/api/set-variable-metadata", body);
 

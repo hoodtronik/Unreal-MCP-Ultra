@@ -601,9 +601,45 @@ FString FBlueprintMCPServer::HandleSetVariableMetadata(const FString& Body)
 		Changes.Add(MakeShared<FJsonValueObject>(Change));
 	}
 
+	// Arbitrary metadata, e.g. {"ClampMin":"0","ClampMax":"63","UIMin":"0","UIMax":"63"}. An empty value removes the key.
+	// CLAUDE-NOTE: added 2026-10-20 for RenderStream sliders: RenderStream reads a numeric parameter's range from
+	// ClampMin/ClampMax only (Slider Range is ignored), so agents need to set them; there was no tool for it.
+	const TSharedPtr<FJsonObject>* MetaObj = nullptr;
+	if (Json->TryGetObjectField(TEXT("metadata"), MetaObj) && MetaObj && MetaObj->IsValid())
+	{
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*MetaObj)->Values)
+		{
+			const FName Key(*Pair.Key);
+			FString OldValue;
+			const bool bHadOld = FBlueprintEditorUtils::GetBlueprintVariableMetaData(BP, VarFName, nullptr, Key, OldValue);
+			FString NewValue;
+			if (!Pair.Value.IsValid() || !Pair.Value->TryGetString(NewValue))
+			{
+				double Num = 0.0;
+				if (Pair.Value.IsValid() && Pair.Value->TryGetNumber(Num))
+				{
+					NewValue = FString::SanitizeFloat(Num);
+				}
+			}
+			if (NewValue.IsEmpty())
+			{
+				FBlueprintEditorUtils::RemoveBlueprintVariableMetaData(BP, VarFName, nullptr, Key);
+			}
+			else
+			{
+				FBlueprintEditorUtils::SetBlueprintVariableMetaData(BP, VarFName, nullptr, Key, NewValue);
+			}
+			TSharedRef<FJsonObject> Change = MakeShared<FJsonObject>();
+			Change->SetStringField(TEXT("field"), FString::Printf(TEXT("metadata.%s"), *Pair.Key));
+			Change->SetStringField(TEXT("oldValue"), bHadOld ? OldValue : TEXT("(unset)"));
+			Change->SetStringField(TEXT("newValue"), NewValue.IsEmpty() ? TEXT("(removed)") : NewValue);
+			Changes.Add(MakeShared<FJsonValueObject>(Change));
+		}
+	}
+
 	if (Changes.Num() == 0)
 	{
-		return MakeErrorJson(TEXT("No metadata fields specified. Provide at least one of: category, tooltip, replication, exposeOnSpawn, isPrivate, editability"));
+		return MakeErrorJson(TEXT("No metadata fields specified. Provide at least one of: category, tooltip, replication, exposeOnSpawn, isPrivate, editability, metadata"));
 	}
 
 	UE_LOG(LogTemp, Display, TEXT("BlueprintMCP: SetVariableMetadata on '%s.%s' — %d field(s) changed"),
