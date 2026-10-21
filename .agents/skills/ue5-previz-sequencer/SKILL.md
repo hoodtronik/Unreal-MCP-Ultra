@@ -40,6 +40,7 @@ tick and `isError` is set from that readback:
 | ABP tools (`add_state_machine`, `add_anim_state`, `set_state_animation`, `set_state_blend_space`, ...) | now resolve assets first (typo / wrong skeleton = error, nothing changed), auto-wire Output Pose / Entry / state player, compile after each step (unwired = error) | ABP_Loco: idle + BS state compiles clean |
 | `anim_bp_check` | compile + run the ABP on a hidden mannequin; fails if it plays the reference pose | unwired ABP -> 0.0 cm -> FAIL; ABP_Loco 30.9 cm |
 | `pose_library_save` / `pose_library_apply` | Control Rig pose -> ControlRigPoseAsset (+ bone snapshot metadata); apply keys every stored control and verifies against the snapshot (same mesh 0.5 cm) | wave/handshake/sip onto new Mannys: 17 bones 0.0 cm; Quinn kneel on Manny: proportions <= 11 cm, ground contact ok |
+| `pose_mirror` / `pose_library_apply mirror:true` | flip a pose left<->right in place (keys all 148 controls, limbs end in FK); verifies every rendered bone vs the mirror image (0.5 cm) and fails on reflected (negative-scale) bones | 4 library poses mirrored: 82 bones <= 0.04 cm, 0 reflected, foot contact equal |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -195,6 +196,9 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 50 | `ControlRigPoseAsset.paste_pose(do_key=True)` keys nothing | Outside the Control Rig edit mode it only touches selected controls on the rig instance, which Sequencer re-evaluates. `pose_library_apply` keys the stored values itself. |
 | 51 | Pose tools take rotation as [pitch, yaw, roll] | `unreal.Rotator` positional order is (roll, pitch, yaw); a swapped triple silently twists every FK control. |
 | 52 | Control Rig reads on a sequence that is not open return defaults | Opening a second sequence closes the first; read the source BEFORE opening the target (the pose tools settle the frame first). |
+| 53 | Mirrored pose: arms 12-75 cm off, or a shoulder on the wrong side | FK controls of an IK-mode limb are stale; IK limbs mis-solve with mirrored IK controls on target. `pose_mirror` derives FK targets from the rendered bones and keys limbs in FK. |
+| 54 | Mirror "verified" to 0.04 cm but the shoes render dark and speckled, feet sunk 2.8 cm | Right-side controls on CR_Mannequin_Body have a NEGATIVE initial scale; copying it across reflects the bones (inside-out skin). Positions cannot see it - check scale determinants (`pose_mirror` does) and look at a close-up. |
+| 55 | Rig hierarchy bone != what renders (ball_l 5 cm off in a kneel, helper bones stale) | Read bones from the skeletal mesh (`get_socket_transform` component space), not `hierarchy.get_global_transform`. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

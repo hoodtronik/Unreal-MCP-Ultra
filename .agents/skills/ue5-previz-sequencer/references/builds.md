@@ -93,3 +93,17 @@ sequential solves both failed -> even-arc wrap. The first tilt put the cup 2 cm 
 Eyes vs numbers: the first walk slid in reference pose while every section property read back fine (auto-added rig
 track); the first render had a scratch test mannequin standing in the shot (deleted); framing at three frames
 measured one frame (frame arg silently dropped -> added).
+
+## 6. Mirror pairs (2026-10-21, `/Game/_MCPLab/Scenes/SEQ_Mirror`, pose mirroring)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Src / Dst (Manny, CR_Mannequin_Body), side by side at y -70 / +70 | 148 controls each |
+| 2 | `pose_library_apply` CRP_Wave/Handshake/KneelOffer/Sip on Src at f0/12/24/36 | 17 bones 0.0 cm (kneel: Quinn source, proportions) |
+| 3 | same on Dst with `mirror: true` | 82 rendered bones <= 0.04 cm, 0 reflected |
+| 4 | `pose_mirror` Dst f0 twice (back to the original, then mirrored again) | both verified |
+| 5 | `shot_camera` 28 mm [430,0,100] rot [-3,180,0]; `shot_capture` f0/12/24/36 + a 35 mm foot close-up | grid + feet |
+
+Eyes vs numbers: the first passing mirror (0.04 cm) had inside-out shoes and feet 2.8 cm in the floor - negative
+initial scale copied from the right-side controls (gotcha 54); the kneel failed at ball_r 5 cm until bones were read
+from the mesh instead of the rig hierarchy (gotcha 55).
