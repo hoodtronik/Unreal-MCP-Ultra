@@ -109,6 +109,10 @@ def control_type(rig, name):
     """'EULER_TRANSFORM' | 'TRANSFORM' | 'FLOAT' | 'BOOL' | 'INTEGER' | 'VECTOR2D' | 'POSITION' | 'ROTATOR' | 'SCALE' | None"""
     key = unreal.RigElementKey(type=unreal.RigElementType.CONTROL, name=name)
     h = rig.get_hierarchy()
+    # CLAUDE-NOTE (2026-10-21, live 5.6.1): find_control() on a MISSING name returns a default element (index -1)
+    # whose type is EulerTransform, so a typo looked like a real transform control and writes "succeeded".
+    if hasattr(h, "get_index") and h.get_index(key) < 0:
+        return None
     # CLAUDE-NOTE: 5.8 deprecates find_control()/.settings in favour of get_control_settings(), which
     # 5.6 does not have. Feature-detect so the same file runs warning-free on both (verified 5.6.1 + 5.8.3).
     if hasattr(h, "get_control_settings"):

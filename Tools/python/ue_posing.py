@@ -1,0 +1,482 @@
+# ue_posing.py - Control Rig posing helpers behind the pose_* MCP tools (Tools/src/tools/posing.ts).
+#
+# The TS tool prepends this file to a short call and runs it through /api/run-python; every public
+# function returns a JSON-able dict. Kept as a real .py file so it can be exec()'d and probed by hand:
+#   exec(open(r"<repo>/Tools/python/ue_posing.py").read()); print(read_pose("/Game/X/SEQ", "Manny"))
+#
+# CLAUDE-NOTE (2026-10-21): ported from .agents/skills/ue5-previz-sequencer/scripts/previz_lib.py (live-verified
+# on 5.6.1 + 5.8.3) and re-verified on UE 5.6.1 / MyLab_5_6. Three rules shape this module:
+#  1. Control Rig reads/writes only work while the sequence is OPEN in Sequencer (else identity / silent no-op).
+#  2. Sequencer applies a Control Rig pose on the editor TICK: bones read in the same run_python call as the
+#     write are stale. Writers here never report bone positions; the TS tool reads back on a later call.
+#  3. Typed accessors must match the control type; the wrong one silently returns 0 / identity. Dispatch on type.
+import math
+
+import unreal
+
+L = unreal.ControlRigSequencerLibrary
+LSE = unreal.LevelSequenceEditorBlueprintLibrary
+FN = unreal.FrameNumber
+DR = unreal.MovieSceneTimeUnit.DISPLAY_RATE
+
+# CLAUDE-NOTE (2026-10-21, live): UE5 mannequin / MetaHuman meshes face +Y at actor yaw 0, so the direction a
+# bare SkeletalMeshActor visually faces is actor_yaw + 90. Measured: toes foot->ball 96/137 deg at yaw 0.
+MESH_YAW_OFFSET = 90.0
+
+# Bone-name candidates per role, mannequin first. Matched case-insensitively as a suffix-insensitive stem.
+ROLE_BONES = {
+    "pelvis": ["pelvis", "hips"], "head": ["head"],
+    "upperarm_l": ["upperarm_l", "leftarm"], "upperarm_r": ["upperarm_r", "rightarm"],
+    "hand_l": ["hand_l", "lefthand"], "hand_r": ["hand_r", "righthand"],
+    "foot_l": ["foot_l", "leftfoot"], "foot_r": ["foot_r", "rightfoot"],
+    "ball_l": ["ball_l", "lefttoebase"], "ball_r": ["ball_r", "righttoebase"],
+}
+# Effector -> (IK control, FK/IK switch control) on CR_Mannequin_Body (148 controls) and rigs that copy its naming.
+EFFECTORS = {
+    "hand_l": ("hand_l_ik_ctrl", "arm_l_fk_ik_switch"), "hand_r": ("hand_r_ik_ctrl", "arm_r_fk_ik_switch"),
+    "foot_l": ("foot_l_ik_ctrl", "leg_l_fk_ik_switch"), "foot_r": ("foot_r_ik_ctrl", "leg_r_fk_ik_switch"),
+}
+
+
+def _v(x):
+    return [round(float(x.x), 3), round(float(x.y), 3), round(float(x.z), 3)]
+
+
+def _rot(r):
+    # unreal.Rotator's POSITIONAL order is (roll, pitch, yaw); tools take [pitch, yaw, roll] and pass keywords.
+    return unreal.Rotator(pitch=float(r[0]), yaw=float(r[1]), roll=float(r[2]))
+
+
+def _r(r):
+    return [round(float(r.pitch), 3), round(float(r.yaw), 3), round(float(r.roll), 3)]
+
+
+def _world():
+    return unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+
+
+def _eas():
+    return unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+
+
+# ------------------------------------------------------------------ sequence + binding resolution
+
+def load_sequence(path, open_it=True, create=False, fps=24, end=48):
+    seq = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
+    if seq is None:
+        if not create:
+            raise ValueError("LevelSequence not found: " + path)
+        pkg, name = path.rsplit("/", 1)
+        seq = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            name, pkg, unreal.LevelSequence, unreal.LevelSequenceFactoryNew())
+        seq.set_display_rate(unreal.FrameRate(int(fps), 1))
+        seq.set_playback_start(0)
+        seq.set_playback_end(int(end))
+    if not isinstance(seq, unreal.LevelSequence):
+        raise ValueError(path + " is not a LevelSequence")
+    if open_it and LSE.get_focused_level_sequence() != seq:
+        LSE.open_level_sequence(seq)
+    return seq
+
+
+def find_binding(seq, name):
+    for b in seq.get_bindings():
+        if str(b.get_display_name()) == name:
+            return b
+    raise ValueError("No binding '%s' in %s. Bindings: %s" % (
+        name, seq.get_name(), ", ".join(str(b.get_display_name()) for b in seq.get_bindings())))
+
+
+def set_time(frame):
+    # set_current_time(int) is deprecated on 5.6; the playback-params form is the replacement on 5.6 and 5.8.
+    pp = unreal.MovieSceneSequencePlaybackParams()
+    pp.position_type = unreal.MovieScenePositionType.FRAME
+    pp.frame = unreal.FrameTime(FN(int(frame)))
+    LSE.set_global_position(pp, DR)
+
+
+def current_frame():
+    return int(LSE.get_global_position(DR).frame.frame_number.value)
+
+
+def evaluate(seq, frame=None):
+    if hasattr(LSE, "refresh_current_level_sequence"):
+        LSE.refresh_current_level_sequence()
+    set_time(seq.get_playback_start() if frame is None else frame)
+
+
+def bound_actor(seq, binding):
+    bid = unreal.MovieSceneSequenceExtensions.get_binding_id(seq, binding)
+    for _ in range(2):
+        for o in LSE.get_bound_objects(bid):
+            if isinstance(o, unreal.Actor):
+                return o
+        evaluate(seq)  # a spawnable added in this call only exists after the next evaluation
+    return None
+
+
+def skel_comp(seq, binding):
+    a = bound_actor(seq, binding)
+    return a.get_component_by_class(unreal.SkeletalMeshComponent) if a else None
+
+
+def rig_proxy(seq, binding):
+    """(control_rig, track) for ONE binding - multi-character shots must never use index 0."""
+    tracks = list(binding.get_tracks())
+    for pr in L.get_control_rigs(seq):
+        if pr.track in tracks:
+            return pr.control_rig, pr.track
+    raise ValueError("Binding '%s' has no Control Rig track (pose_setup_character adds one)" % binding.get_display_name())
+
+
+def control_type(rig, name):
+    key = unreal.RigElementKey(type=unreal.RigElementType.CONTROL, name=name)
+    h = rig.get_hierarchy()
+    # CLAUDE-NOTE (2026-10-21, live 5.6.1): find_control() on a MISSING name returns a default element (index -1)
+    # whose type is EulerTransform, so a typo looked like a real transform control and writes "succeeded".
+    if hasattr(h, "get_index") and h.get_index(key) < 0:
+        return None
+    if hasattr(h, "get_control_settings"):
+        if hasattr(h, "contains") and not h.contains(key):
+            return None
+        ct = h.get_control_settings(key).control_type
+    else:
+        el = h.find_control(key)
+        if not el:
+            return None
+        ct = el.settings.control_type
+    return str(ct).split(".")[-1].split(":")[0].strip("<> ")
+
+
+# ------------------------------------------------------------------ setup
+
+def setup_character(seq_path, name, mesh, rig_bp, location=(0, 0, 0), facing=None, fps=24, end=48,
+                    clip=None, clip_frame=0, frame=0):
+    seq = load_sequence(seq_path, open_it=True, create=True, fps=fps, end=end)
+    created = False
+    try:
+        b = find_binding(seq, name)
+    except ValueError:
+        m = unreal.load_asset(mesh)
+        if not isinstance(m, unreal.SkeletalMesh):
+            raise ValueError("Not a SkeletalMesh: " + mesh)
+        tmp = _eas().spawn_actor_from_object(m, unreal.Vector(*location), unreal.Rotator())
+        b = unreal.get_editor_subsystem(unreal.LevelSequenceEditorSubsystem).add_spawnable_from_instance(seq, tmp)
+        b.set_display_name(name)
+        _eas().destroy_actor(tmp)
+        created = True
+    rig_cls = unreal.load_asset(rig_bp)
+    if rig_cls is None or not hasattr(rig_cls, "get_control_rig_class"):
+        raise ValueError("Not a Control Rig Blueprint: " + str(rig_bp))
+    try:
+        rig, track = rig_proxy(seq, b)
+    except ValueError:
+        L.find_or_create_control_rig_track(_world(), seq, rig_cls.get_control_rig_class(), b)
+        rig, track = rig_proxy(seq, b)
+    if facing is not None:
+        set_actor_yaw(seq, b, float(facing) - MESH_YAW_OFFSET, location)
+    baked = None
+    if clip:
+        baked = bake_clip_frame(seq, b, clip, int(clip_frame), int(frame))
+    evaluate(seq, frame)
+    return {"ok": True, "sequence": seq.get_path_name().split(".")[0], "binding": name, "created": created,
+            "rig": rig.get_class().get_name(), "controls": len(rig.get_hierarchy().get_controls()), "clip_baked": baked}
+
+
+def _xform_section(binding):
+    for t in binding.get_tracks():
+        if isinstance(t, unreal.MovieScene3DTransformTrack):
+            secs = t.get_sections()
+            if secs:
+                return secs[0]
+    t = binding.add_track(unreal.MovieScene3DTransformTrack)
+    s = t.add_section()
+    s.set_range(-100000, 100000)
+    return s
+
+
+def _write_channel(section, channel, value):
+    for ch in section.get_all_channels():
+        if str(ch.channel_name) == channel:
+            keys = ch.get_keys() if hasattr(ch, "get_keys") else []
+            if keys:
+                for k in keys:
+                    k.set_value(float(value))
+            else:
+                ch.set_default(float(value))
+            return True
+    return False
+
+
+def set_actor_yaw(seq, binding, yaw, location=None):
+    sec = _xform_section(binding)
+    if not _write_channel(sec, "Rotation.Z", yaw):
+        raise RuntimeError("transform section has no Rotation.Z channel")
+    if location is not None:
+        for ch, v in zip(("Location.X", "Location.Y", "Location.Z"), location):
+            _write_channel(sec, ch, v)
+    evaluate(seq)
+    return {"ok": True, "yaw": float(yaw)}
+
+
+# ------------------------------------------------------------------ clip -> held pose
+
+def _clear_keys(section):
+    n = 0
+    for ch in section.get_all_channels():
+        if hasattr(ch, "get_keys"):
+            for k in list(ch.get_keys()):
+                ch.remove_key(k)
+                n += 1
+    return n
+
+
+def _collapse(section, at_frame):
+    for ch in section.get_all_channels():
+        if not hasattr(ch, "get_keys"):
+            continue
+        kept = False
+        for k in list(ch.get_keys()):
+            t = k.get_time(DR)
+            if t.frame_number.value == int(at_frame) and abs(t.sub_frame) < 1e-6 and not kept:
+                kept = True
+                continue
+            ch.remove_key(k)
+
+
+def bake_clip_frame(seq, binding, clip, clip_frame, at_frame=0):
+    """Hold ONE frame of an AnimSequence on the Control Rig at at_frame (replaces existing keys)."""
+    rig, track = rig_proxy(seq, binding)
+    sec = track.get_sections()[0]
+    anim = unreal.load_asset(clip)
+    if not isinstance(anim, unreal.AnimSequence):
+        raise ValueError("Not an AnimSequence: " + str(clip))
+    sk = skel_comp(seq, binding)
+    L.show_all_controls(sec)   # a masked section silently bakes 0 keys while returning True
+    _clear_keys(sec)
+    ok = L.load_anim_sequence_into_control_rig_section_with_range(
+        sec, anim, sk, FN(at_frame), True, FN(clip_frame), FN(clip_frame + 1), DR,
+        False, 0.001, unreal.MovieSceneKeyInterpolation.CONSTANT, True, False)
+    if ok:
+        _collapse(sec, at_frame)
+    keys = sum(len(ch.get_keys()) for ch in sec.get_all_channels() if hasattr(ch, "get_keys"))
+    if not ok or keys == 0:
+        raise RuntimeError("Clip bake wrote %d keys (ok=%s) - skeleton mismatch or masked section?" % (keys, ok))
+    return {"clip": clip, "clip_frame": clip_frame, "at_frame": at_frame, "keys": keys}
+
+
+# ------------------------------------------------------------------ controls
+
+def list_controls(seq_path, binding_name, contains=None, kind=None, limit=400):
+    seq = load_sequence(seq_path)
+    rig, _ = rig_proxy(seq, find_binding(seq, binding_name))
+    out = []
+    for k in rig.get_hierarchy().get_controls():
+        n = str(k.name)
+        if contains and contains.lower() not in n.lower():
+            continue
+        t = control_type(rig, n)
+        if kind and t != kind.upper():
+            continue
+        out.append([n, t])
+    return {"ok": True, "count": len(out), "controls": out[:int(limit)], "truncated": len(out) > int(limit)}
+
+
+def get_control_value(seq, rig, name, frame, world=False):
+    t = control_type(rig, name)
+    f = FN(int(frame))
+    if t is None:
+        raise ValueError("No control named '%s'" % name)
+    if world:
+        x = L.get_control_rig_world_transform(seq, rig, name, f, DR)
+        return {"type": t, "space": "world", "location": _v(x.translation), "rotation": _r(x.rotation.rotator())}
+    if t == "EULER_TRANSFORM":
+        e = L.get_local_control_rig_euler_transform(seq, rig, name, f, DR)
+        return {"type": t, "location": _v(e.location), "rotation": _r(e.rotation), "scale": _v(e.scale)}
+    if t == "TRANSFORM":
+        x = L.get_local_control_rig_transform(seq, rig, name, f, DR)
+        return {"type": t, "location": _v(x.translation), "rotation": _r(x.rotation.rotator()), "scale": _v(x.scale3d)}
+    if t == "TRANSFORM_NO_SCALE":
+        x = L.get_local_control_rig_transform_no_scale(seq, rig, name, f, DR)
+        return {"type": t, "location": _v(x.location), "rotation": _r(x.rotation.rotator())}
+    if t == "FLOAT":
+        return {"type": t, "value": round(L.get_local_control_rig_float(seq, rig, name, f, DR), 5)}
+    if t == "BOOL":
+        return {"type": t, "value": bool(L.get_local_control_rig_bool(seq, rig, name, f, DR))}
+    if t == "INTEGER":
+        return {"type": t, "value": int(L.get_local_control_rig_int(seq, rig, name, f, DR))}
+    if t == "POSITION":
+        return {"type": t, "location": _v(L.get_local_control_rig_position(seq, rig, name, f, DR))}
+    if t == "ROTATOR":
+        return {"type": t, "rotation": _r(L.get_local_control_rig_rotator(seq, rig, name, f, DR))}
+    if t == "VECTOR2D":
+        v = L.get_local_control_rig_vector2d(seq, rig, name, f, DR)
+        return {"type": t, "value": [v.x, v.y]}
+    raise ValueError("%s: unsupported control type %s" % (name, t))
+
+
+def _set_one(seq, rig, c, frame, key=True):
+    name = c["control"]
+    t = control_type(rig, name)
+    f = FN(int(frame))
+    if t is None:
+        raise ValueError("No control named '%s'" % name)
+    loc, rot, scl, val = c.get("location"), c.get("rotation"), c.get("scale"), c.get("value")
+    if c.get("world"):
+        cur = L.get_control_rig_world_transform(seq, rig, name, f, DR)
+        x = unreal.Transform(location=unreal.Vector(*loc) if loc is not None else cur.translation,
+                             rotation=_rot(rot) if rot is not None else cur.rotation.rotator(),
+                             scale=cur.scale3d)
+        L.set_control_rig_world_transform(seq, rig, name, f, x, DR, key)
+    elif t == "EULER_TRANSFORM":
+        cur = L.get_local_control_rig_euler_transform(seq, rig, name, f, DR)
+        L.set_local_control_rig_euler_transform(seq, rig, name, f, unreal.EulerTransform(
+            location=unreal.Vector(*loc) if loc is not None else cur.location,
+            rotation=_rot(rot) if rot is not None else cur.rotation,
+            scale=unreal.Vector(*scl) if scl is not None else cur.scale), DR, key)
+    elif t == "TRANSFORM":
+        cur = L.get_local_control_rig_transform(seq, rig, name, f, DR)
+        L.set_local_control_rig_transform(seq, rig, name, f, unreal.Transform(
+            location=unreal.Vector(*loc) if loc is not None else cur.translation,
+            rotation=_rot(rot) if rot is not None else cur.rotation.rotator(),
+            scale=unreal.Vector(*scl) if scl is not None else cur.scale3d), DR, key)
+    elif t == "FLOAT":
+        L.set_local_control_rig_float(seq, rig, name, f, float(val), DR, key)
+    elif t == "BOOL":
+        L.set_local_control_rig_bool(seq, rig, name, f, bool(val), DR, key)
+    elif t == "INTEGER":
+        L.set_local_control_rig_int(seq, rig, name, f, int(val), DR, key)
+    elif t == "POSITION":
+        L.set_local_control_rig_position(seq, rig, name, f, unreal.Vector(*loc), DR, key)
+    elif t == "ROTATOR":
+        L.set_local_control_rig_rotator(seq, rig, name, f, _rot(rot), DR, key)
+    else:
+        raise ValueError("%s: unsupported control type %s" % (name, t))
+    return t
+
+
+def set_controls(seq_path, binding_name, frame, controls, key=True):
+    """Write several controls at one frame. Bone effects are only visible on the NEXT call (read_pose)."""
+    seq = load_sequence(seq_path)
+    b = find_binding(seq, binding_name)
+    rig, _ = rig_proxy(seq, b)
+    written = []
+    for c in controls:
+        written.append([c["control"], _set_one(seq, rig, c, frame, key)])
+    evaluate(seq, frame)
+    return {"ok": True, "written": written}
+
+
+# ------------------------------------------------------------------ readback
+
+def _bone_map(sk):
+    return [str(sk.get_bone_name(i)) for i in range(sk.get_num_bones())]
+
+
+def resolve_role(bones, role):
+    low = {b.lower(): b for b in bones}
+    for cand in ROLE_BONES.get(role, [role]):
+        if cand in low:
+            return low[cand]
+    for cand in ROLE_BONES.get(role, [role]):   # prefixed / suffixed names (mixamorig:LeftHand, girl02_hand_l_09)
+        for lb, b in low.items():
+            if cand in lb.replace(":", "_") and "twist" not in lb and "ik_" not in lb:
+                return b
+    return None
+
+
+def measure_facing(sk):
+    """World yaw the character visually faces, from shoulders (convention-free) and toes (foot->ball)."""
+    bones = _bone_map(sk)
+    out = {}
+    ul, ur = resolve_role(bones, "upperarm_l"), resolve_role(bones, "upperarm_r")
+    if ul and ur:
+        l, r = sk.get_socket_location(ul), sk.get_socket_location(ur)
+        lx, ly = l.x - r.x, l.y - r.y
+        # UE is left-handed (X fwd, Y right, Z up): facing +X puts the LEFT shoulder on -Y.
+        out["shoulders"] = round(math.degrees(math.atan2(lx, -ly)), 2)
+    toes = []
+    for s in ("l", "r"):
+        fb, bb = resolve_role(bones, "foot_" + s), resolve_role(bones, "ball_" + s)
+        if fb and bb:
+            f, t = sk.get_socket_location(fb), sk.get_socket_location(bb)
+            toes.append(math.atan2(t.y - f.y, t.x - f.x))
+    if toes:
+        out["toes"] = round(math.degrees(math.atan2(sum(math.sin(a) for a in toes), sum(math.cos(a) for a in toes))), 2)
+    return out
+
+
+def read_pose(seq_path, binding_name, frame=None, bones=None, controls=None, world_controls=False):
+    """Posed WORLD bone positions + facing + ground contact for a binding. Call on a later tick than a write."""
+    seq = load_sequence(seq_path)
+    b = find_binding(seq, binding_name)
+    if frame is not None and current_frame() != int(frame):
+        evaluate(seq, frame)
+        stale = True   # scrubbed in this call: Control Rig poses apply on the next tick
+    else:
+        stale = False
+    sk = skel_comp(seq, b)
+    if sk is None:
+        raise RuntimeError("No SkeletalMeshComponent bound to '%s' (sequence open?)" % binding_name)
+    allb = _bone_map(sk)
+    want = bones or ["pelvis", "head", "hand_l", "hand_r", "foot_l", "foot_r"]
+    pos = {}
+    for w in want:
+        real = w if w in allb else resolve_role(allb, w)
+        pos[w] = _v(sk.get_socket_location(real)) if real else None
+    feet = [sk.get_socket_location(x).z for x in (resolve_role(allb, "foot_l"), resolve_role(allb, "foot_r"),
+                                                   resolve_role(allb, "ball_l"), resolve_role(allb, "ball_r")) if x]
+    act = sk.get_owner()
+    res = {"ok": True, "frame": current_frame(), "stale": stale, "bones": pos,
+           "facing": measure_facing(sk), "lowest_foot_z": round(min(feet), 3) if feet else None,
+           "actor": {"location": _v(act.get_actor_location()), "yaw": round(act.get_actor_rotation().yaw, 3)}}
+    if controls:
+        rig, _ = rig_proxy(seq, b)
+        res["controls"] = {c: get_control_value(seq, rig, c, res["frame"], world_controls) for c in controls}
+    return res
+
+
+# ------------------------------------------------------------------ IK reach
+
+def reach(seq_path, binding_name, effector, target, frame=0, rotation=None):
+    """Switch a limb to IK and put its IK control at a WORLD point. Verify with read_pose on the next call."""
+    if effector not in EFFECTORS:
+        raise ValueError("effector must be one of " + ", ".join(EFFECTORS))
+    ctrl, switch = EFFECTORS[effector]
+    seq = load_sequence(seq_path)
+    b = find_binding(seq, binding_name)
+    rig, _ = rig_proxy(seq, b)
+    if control_type(rig, ctrl) is None:
+        raise ValueError("Rig %s has no control '%s' - reach supports CR_Mannequin_Body-style rigs" % (rig.get_class().get_name(), ctrl))
+    if control_type(rig, switch) == "BOOL":
+        L.set_local_control_rig_bool(seq, rig, switch, FN(int(frame)), True, DR, True)
+    elif control_type(rig, switch) == "FLOAT":
+        L.set_local_control_rig_float(seq, rig, switch, FN(int(frame)), 1.0, DR, True)
+    _set_one(seq, rig, {"control": ctrl, "location": target, "rotation": rotation, "world": True}, frame)
+    # Reach budget from the reference skeleton (pose-independent): root of the limb -> target vs. limb length.
+    side = effector[-1]
+    chain = ["upperarm_", "lowerarm_", "hand_"] if effector.startswith("hand") else ["thigh_", "calf_", "foot_"]
+    out = {"ok": True, "control": ctrl, "switch": switch, "target": list(target)}
+    sk = skel_comp(seq, b)
+    if sk is not None:
+        ref = [sk.get_socket_location(c + side) for c in chain]   # current pose; only bone LENGTHS are used
+        out["limb_length"] = round((ref[1] - ref[0]).length() + (ref[2] - ref[1]).length(), 2)
+        out["limb_root"] = chain[0] + side
+    evaluate(seq, frame)
+    return out
+
+
+def target_point(spec):
+    """[x,y,z] | {"actor": label} | {"actor": label, "bone": name} | {"actor": label, "offset": [x,y,z]}"""
+    if isinstance(spec, (list, tuple)):
+        return [float(v) for v in spec]
+    lbl = spec.get("actor")
+    a = next((x for x in _eas().get_all_level_actors() if x.get_actor_label() == lbl), None)
+    if a is None:
+        raise ValueError("No level actor labelled '%s'" % lbl)
+    if spec.get("bone"):
+        p = a.get_component_by_class(unreal.SkeletalMeshComponent).get_socket_location(spec["bone"])
+    else:
+        p = a.get_actor_location()
+    o = spec.get("offset") or [0, 0, 0]
+    return [p.x + o[0], p.y + o[1], p.z + o[2]]

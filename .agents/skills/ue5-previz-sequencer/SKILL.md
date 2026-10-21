@@ -1,6 +1,6 @@
 ---
 name: ue5-previz-sequencer
-description: Build a storyboard / audio-visual first draft in UE5 Sequencer through BlueprintMCP run_python — pose Control Rig characters (or borrow a pose from a clip), place CineCameras with real lenses, assemble a master sequence of shots, hold poses on constant keys, and lay scratch dialogue/music/SFX. Use for previz, storyboards, animatics, blocking, "the screenshot method", shot timing, or any request to pose a mannequin/MetaHuman in Sequencer. Verified on UE 5.6.1; written to run unchanged on 5.8.
+description: Build a storyboard / audio-visual first draft in UE5 Sequencer through BlueprintMCP (pose_* tools + run_python) — pose Control Rig characters (or borrow a pose from a clip), place CineCameras with real lenses, assemble a master sequence of shots, hold poses on constant keys, and lay scratch dialogue/music/SFX. Use for previz, storyboards, animatics, blocking, "the screenshot method", shot timing, or any request to pose a mannequin/MetaHuman in Sequencer. Verified on UE 5.6.1; written to run unchanged on 5.8.
 ---
 
 # UE5 previz in Sequencer (via BlueprintMCP `run_python`)
@@ -16,9 +16,19 @@ pacing and sound with mannequins and a grid before any lighting or polish.
 1 pose characters  →  2 place cameras  →  3 assemble shots  →  4 hold poses (constant keys)  →  5 lay audio
 ```
 
-There is no dedicated MCP tool for any of this. Everything goes through `run_python` with
-`ControlRigSequencerLibrary` + `MovieSceneSequenceExtensions`. Load the helper library once per
-session and call its functions instead of re-deriving the API:
+**Posing has dedicated MCP tools (2026-10-21)** - prefer them; each write is read back on the next editor
+tick and `isError` is set from that readback:
+
+| Tool | Does | Verified (UE 5.6.1) |
+|---|---|---|
+| `pose_setup_character` | sequence + spawnable mesh + Control Rig track + held clip frame + **measured** facing (corrects clip hip twist) | facing -90 wanted -> -90.0 measured |
+| `pose_list_controls` | controls + types (filter `contains`/`type`) | 148 on CR_Mannequin_Body |
+| `pose_set_controls` | batch key controls (local or `world`), typed dispatch, per-control readback | unknown control -> error, not "ok" |
+| `pose_read` | world bones (roles resolve on prefixed skeletons), facing (shoulders+toes), lowest foot z, control values | |
+| `pose_reach` | hand/foot IK to a point/actor/bone, miss distance + reach budget vs limb length | 0.000 cm reachable; 6.1 cm predicted = 6.147 measured out-of-reach |
+
+Lib: `Tools/python/ue_posing.py`; live check: `node Tools/test/manual/posing-e2e.mjs`. Cameras, shots, audio,
+bake/retarget below still go through `run_python` + the helper library:
 
 ```python
 exec(open(r"<this skill's base directory>/scripts/previz_lib.py").read())
