@@ -101,13 +101,20 @@ export function registerShotTools(server: McpServer): void {
       camera: z.string(),
       subject: z.string(),
       bones: z.array(z.string()).optional(),
+      frame: z.number().int().optional().describe("Frame to check (scrubbed first); default the current frame."),
     },
     async (a) => {
       const err = await ensureUE();
       if (err) return text(err, true);
+      // CLAUDE-NOTE (2026-10-21, live): before this param a {frame} argument was silently stripped by the schema and
+      // three "per-frame" checks of a walk all measured the same frame. Scrub, then read on a later tick.
+      if (a.frame != null) {
+        await run("scrub(P['seq'], P['f'])", { seq: a.sequence, f: a.frame });
+        await run("scrub(P['seq'], P['f'])", { seq: a.sequence, f: a.frame });
+      }
       const f = await run("framing(P['seq'], P['cam'], P['subj'], P['bones'])", { seq: a.sequence, cam: a.camera, subj: a.subject, bones: a.bones ?? null });
       if (!f.ok) return text(`Error: ${f.error}`, true);
-      return text(fmtFraming(f).join("\n"));
+      return text([...(a.frame != null ? [`Frame ${a.frame}:`] : []), ...fmtFraming(f)].join("\n"));
     },
   );
 

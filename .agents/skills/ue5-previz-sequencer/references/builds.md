@@ -79,3 +79,17 @@ Eyes vs numbers: bone-only grip = fingers 3.5 cm in the cup; palm-only skin = st
 the knuckle hinge = every curl went INTO it (moved one radius back over the palm); whole-finger and per-segment
 sequential solves both failed -> even-arc wrap. The first tilt put the cup 2 cm into the face (prop_check BODY) -> hand
 3 cm forward. The held cup also "occluded" its own hand in the framing check -> reported as held prop.
+
+## 5. Walk (2026-10-21, `/Game/_MCPLab/Scenes/SEQ_Walk`, first locomotion)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `anim_walk` Walker straight [-300,0,0]->[300,0,0] | MF_Unarmed_Walk_Fwd root 300 cm/s; planted slide mean 0.4 / max 1.16 cm/frame |
+| 2 | calibration: same with speed 200 | SKATING 4.19 cm/frame (predicted 100/24 = 4.17) |
+| 3 | `anim_walk` L path [-450,-150,0] -> [0,-150,0] -> [0,300,0] | corner f34 slide 9.25 -> foot lock pass 1 (6 frames, path end shifted 15 cm) -> max 0.67 |
+| 4 | `shot_camera` 24 mm static [450,-500,160] rot [-5,140,0] cut 0-72; `shot_frame_check` f0/36/71 | head u 0.71 / 0.08 / -0.77, all in frame |
+| 5 | `shot_render` 72 frames | MP4 |
+
+Eyes vs numbers: the first walk slid in reference pose while every section property read back fine (auto-added rig
+track); the first render had a scratch test mannequin standing in the shot (deleted); framing at three frames
+measured one frame (frame arg silently dropped -> added).
