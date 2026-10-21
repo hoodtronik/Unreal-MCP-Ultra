@@ -27,13 +27,15 @@ tick and `isError` is set from that readback:
 | `pose_read` | world bones (roles resolve on prefixed skeletons), facing (shoulders+toes), lowest foot z, control values | |
 | `pose_reach` | hand/foot IK to a point/actor/bone, miss distance + reach budget vs limb length | 0.000 cm reachable; 6.1 cm predicted = 6.147 measured out-of-reach |
 | `pose_look_at` | head gaze at a point / actor / other character's bone, iterated on measured gaze (head +Y) | 22.9 -> 0.027 deg in one step |
+| `pose_ground_check` | per-part contact from the POSED SKIN (GeometryScript copy of the posed mesh): feet, knees, hands, seat vs floor | knee joint z=-1.1 was 6 cm of skin under the floor |
+| `pose_ground_fix` | move body_ctrl in Z until one part's skin touches the floor, report all parts after | knee -6.08 -> -0.15 cm in one step |
 | `anim_preview` | one moment of a clip on a level SkeletalMeshActor, bones read back | skeleton mismatch rejected |
 | `ikrig_create` | IK Rig: auto for Epic skeletons, bone-stem name map vs a template rig for custom ones | Manny 28 chains; Fab girl02_* 20 |
 | `retarget_setup` | IK Retargeter, chains auto-mapped, scaled-root (glTF) Pelvis Motion compensation | root 0.0093 -> pelvis scale 107 |
 | `retarget_animations` | batch retarget into a folder + per-clip verification (limb motion, rendered pelvis height) | walk 1.64 deg, jump 3.39 deg; broken case caught |
 | `pose_asset_create` | Pose Asset from a clip, poses renamed in order | 27 poses |
 | `shot_camera` | spawnable CineCamera + lens + cut (kept on update) + aim at a measured bone around the subject's facing + framing | aimed bone at u,v 0,0 |
-| `shot_frame_check` | project bones through the LIVE lens: u,v in frame, subject turn vs camera | feet out of frame caught |
+| `shot_frame_check` | project bones through the LIVE lens: u,v in frame, subject turn vs camera, OCCLUSION (visibility trace) | feet out of frame caught; head behind Manny caught |
 | `shot_capture` | lock to cut, clear selection, game view, settle, verify viewport == cut camera, image | offset 0.0 cm |
 
 Worked builds (tool calls only, with readbacks and frames): `references/builds.md`.
@@ -156,6 +158,8 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 27 | A transform gizmo in a "clean" frame | A selected actor (Sequencer selects a spawned camera) draws its gizmo even in game view; `shot_capture` clears selection. |
 | 28 | A typo'd control name "worked" | On 5.6 `find_control()` returns a default EulerTransform element for a missing name; the tools check `get_index() >= 0`. |
 | 29 | run_python says `Could not load Python file '.../<your code>'` | ExecuteFile mode treats any `.py` + whitespace in the command as a file path. Avoid it in code/comments (the tools send their libs base64). |
+| 30 | A kneel "looks fine" in numbers but the knee is buried | Bone centres are not skin: judge contact with `pose_ground_check` (posed mesh) and fix with `pose_ground_fix`. Mannequin feet rest ~1 cm into the floor by default (sole below ball bone). |
+| 31 | Close-up aimed dead centre shows another character's back | Projection cannot see occlusion; `shot_frame_check`/`shot_camera` trace camera->bone and fail when the aimed bone is hidden. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

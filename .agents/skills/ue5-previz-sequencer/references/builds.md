@@ -24,3 +24,23 @@ What the eyes caught that the numbers did not, each now fixed in the tools:
 - gaze drifting off into space in the close-up -> `pose_look_at` added;
 - a transform gizmo in the clean plate (selected spawned camera) -> `shot_capture` clears selection;
 - re-aiming TwoShot silently extended its cut over the close-up -> updates keep the cut range.
+
+## 2. Kneel and offer (2026-10-21, `/Game/_MCPLab/Scenes/SEQ_Kneel`)
+
+Quinn kneels on her right knee and offers her right hand up to Manny, who reaches down; they look at each other.
+Wide side shot (0-16), high over-the-shoulder on Quinn (16-32), low reverse on Manny (32-48).
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Quinn [0,0,0] facing -90, MM_Idle f10 | facing -90.0 |
+| 2 | `pose_set_controls` world: leg_l/r_fk_ik_switch true, body_ctrl [-1,8,54], foot_l_ik [-14,-34,8.5], leg_l_pv [-14,-90,50], foot_r_ik [13,46,11], leg_r_pv [13,-30,-20] | 7/7 verified; knee joint z -1.1 |
+| 3 | `pose_ground_check` | knee_r skin -6.08 cm PENETRATING |
+| 4 | `pose_ground_fix` region knee_r | -0.15 cm after one step (body +6.08) |
+| 5 | `pose_set_controls` foot_r_ik z 9.2 | back toes -0.03 cm contact |
+| 6 | `pose_setup_character` Manny [2,-78,0] facing 90 (moved in from -105: reach budget said 16.4 cm short) | facing 90.0 |
+| 7 | `pose_reach` Quinn hand_r [14,-34,116], Manny hand_l [14,-38,119], Quinn hand_l on knee [-12,-30,63] | 0.000 / 0.000 / 0.274 cm |
+| 8 | `pose_look_at` both heads | 47.0 -> 0.025 deg, 24.6 -> 0.035 deg |
+| 9 | `shot_camera` Wide 28 mm [400,-38,95]; CU_Quinn 70 mm aim head d 220 az -40 rise 30; CU_Manny 50 mm aim head d 240 az 15 rise -45 | Manny head v 0.77 (was 0.99 at 32 mm); CU_Quinn head clear |
+
+Eyes vs numbers: the first CU_Quinn (az -18) put her head at u,v 0,0 and rendered only Manny's back -> occlusion
+trace added to the framing check; the knee "contact" from bone centres was 6 cm of buried skin -> skin contact tools.

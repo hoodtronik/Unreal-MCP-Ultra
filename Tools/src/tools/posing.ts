@@ -127,6 +127,13 @@ function text(t: string, isError = false) {
   return { content: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) };
 }
 
+function fmtContacts(r: PoseResult): string[] {
+  const lines = [`Skin vs floor z=${r.floor_z}: mesh lowest ${r.mesh_min_z} cm${r.penetration > 0 ? ` (penetration ${r.penetration} cm)` : ""}, ${r.vertices} verts.`];
+  for (const [k, v] of Object.entries(r.regions ?? {}) as [string, any][])
+    lines.push(`  ${k}: ${v.state} (${v.height >= 0 ? "+" : ""}${v.height} cm at ${JSON.stringify(v.lowest)})`);
+  return lines;
+}
+
 function fmtPose(r: PoseResult): string[] {
   const lines: string[] = [];
   if (r.facing) lines.push(`Facing (measured): shoulders ${r.facing.shoulders ?? "-"}°, toes ${r.facing.toes ?? "-"}°`);
@@ -407,6 +414,73 @@ export function registerPosingTools(server: McpServer): void {
       lines.push(`${ok ? "Looking at" : "NOT looking at"} ${JSON.stringify(t.p.map((v: number) => +v.toFixed(2)))}: gaze error ${g.error_deg} deg ` +
         `(gaze yaw ${g.gaze_yaw}, pitch ${g.gaze_pitch}; head turned ${g.head_turn_vs_body} deg from the body).`);
       if (warning) lines.push(`Warning: ${warning}`);
+      return text(lines.join("\n"), !ok);
+    },
+  );
+
+
+  server.tool(
+    "pose_ground_check",
+    "Ground contact from the POSED SKIN (not bone centres): copies the character's current posed mesh (GeometryScript) " +
+      "and reports, per body part (foot_l/r, knee_l/r, hand_l/r, seat), the lowest skin point relative to the floor - " +
+      "PENETRATING, contact (within tolerance) or above - plus the whole mesh's lowest point. A kneeling knee joint at " +
+      "z=-1 cm looked fine as a bone but was 6 cm of skin under the floor. Read-only; call on a later call than a pose write.",
+    {
+      sequence: seqArg,
+      binding: bindingArg,
+      floorZ: z.number().optional().describe("Floor height in cm (default 0)."),
+      toleranceCm: z.number().optional().describe("Within this of the floor = contact (default 1)."),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const r = await runPose("mesh_contacts(P['seq'], P['b'], P['floor'], P['tol'])",
+        { seq: a.sequence, b: a.binding, floor: a.floorZ ?? 0, tol: a.toleranceCm ?? 1 });
+      if (!r.ok) return text(`Error: ${r.error}`, true);
+      return text(fmtContacts(r).join("\n"));
+    },
+  );
+
+  server.tool(
+    "pose_ground_fix",
+    "Move a body control (default body_ctrl, world Z) until one body part's lowest SKIN point sits at the floor: e.g. " +
+      "region 'knee_r' for a kneel, 'seat' for sitting on the ground, 'foot_l' to plant a foot. Iterates write -> " +
+      "next-tick skin readback (up to 6 steps) and reports every region afterwards, so you see whether fixing one " +
+      "contact pushed another part through the floor. Limbs on IK stay where their IK controls are.",
+    {
+      sequence: seqArg,
+      binding: bindingArg,
+      region: z.enum(["foot_l", "foot_r", "knee_l", "knee_r", "hand_l", "hand_r", "seat"]),
+      targetHeight: z.number().optional().describe("Wanted height of that part's lowest skin point above the floor (default 0)."),
+      control: z.string().optional().describe("Control to move vertically (default body_ctrl)."),
+      floorZ: z.number().optional(),
+      frame: z.number().int().optional(),
+      toleranceCm: z.number().optional().describe("Accepted error (default 0.5 cm)."),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const floor = a.floorZ ?? 0, want = a.targetHeight ?? 0, tol = a.toleranceCm ?? 0.5;
+      const lines: string[] = [];
+      let r: PoseResult = { ok: false };
+      let moved = 0;
+      for (let i = 0; i < 7; i++) {
+        r = await runPose("mesh_contacts(P['seq'], P['b'], P['floor'])", { seq: a.sequence, b: a.binding, floor });
+        if (!r.ok) return text(`Error: ${r.error}`, true);
+        const reg = r.regions?.[a.region];
+        if (!reg) return text(`Region '${a.region}' has no skin within 25 cm of the floor - move it near the floor first (e.g. pose_set_controls).`, true);
+        if (i === 0) lines.push(`${a.region} lowest skin at ${reg.height} cm before.`);
+        const dz = want - reg.height;
+        if (Math.abs(dz) <= tol || i === 6) break;
+        const n = await runPose("nudge_control_z(P['seq'], P['b'], P['c'], P['dz'], P['f'])",
+          { seq: a.sequence, b: a.binding, c: a.control ?? "body_ctrl", dz, f: a.frame ?? 0 });
+        if (!n.ok) return text([...lines, `Error: ${n.error}`].join("\n"), true);
+        moved += dz;
+      }
+      const fin = r.regions[a.region].height;
+      const ok = Math.abs(fin - want) <= tol;
+      lines.push(`${ok ? "Fixed" : "NOT fixed"}: ${a.region} at ${fin} cm (wanted ${want}); moved ${a.control ?? "body_ctrl"} ${moved >= 0 ? "+" : ""}${moved.toFixed(2)} cm in Z.`);
+      lines.push(...fmtContacts(r));
       return text(lines.join("\n"), !ok);
     },
   );

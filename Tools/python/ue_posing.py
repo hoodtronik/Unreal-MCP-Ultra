@@ -619,3 +619,70 @@ def seq_target(seq_path, spec):
         o = spec.get("offset") or [0, 0, 0]
         return [p.x + o[0], p.y + o[1], p.z + o[2]]
     return target_point(spec)
+
+
+# ------------------------------------------------------------------ ground contact from the POSED SKIN
+
+# Region -> bones whose nearest vertices belong to it. Bone centres cannot judge contact: a knee joint at z=-1.1
+# meant skin 6 cm under the floor (measured 2026-10-21). The skin is read with GeometryScript's
+# copy_mesh_from_component, which returns the CURRENT pose in world space (43,761 verts in 0.16 s for Quinn).
+CONTACT_REGIONS = {
+    "foot_l": ["foot_l", "ball_l"], "foot_r": ["foot_r", "ball_r"],
+    "knee_l": ["calf_l"], "knee_r": ["calf_r"],
+    "hand_l": ["hand_l"], "hand_r": ["hand_r"],
+    "seat": ["pelvis", "thigh_l", "thigh_r"],
+}
+_OTHER = ["spine_01", "spine_03", "head", "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r"]
+
+
+def mesh_contacts(seq_path, binding_name, floor_z=0.0, tol=1.0):
+    seq = load_sequence(seq_path)
+    sk = skel_comp(seq, find_binding(seq, binding_name))
+    if sk is None:
+        raise RuntimeError("no skeletal mesh bound to '%s'" % binding_name)
+    dm = unreal.DynamicMesh()
+    res = unreal.GeometryScript_SceneUtils.copy_mesh_from_component(
+        sk, dm, unreal.GeometryScriptCopyMeshFromComponentOptions(), True)
+    if str(res[-1]).find("SUCCESS") < 0:
+        raise RuntimeError("could not copy the posed mesh: %s" % res[-1])
+    verts = unreal.GeometryScript_MeshQueries.get_all_vertex_positions(dm, False)[1].convert_vector_list_to_array()
+    allb = _bone_map(sk)
+    anchors = []
+    for region, names in CONTACT_REGIONS.items():
+        for n in names:
+            real = resolve_role(allb, n) or (n if n in allb else None)
+            if real:
+                anchors.append((region, sk.get_socket_location(real)))
+    for n in _OTHER:
+        real = resolve_role(allb, n) or (n if n in allb else None)
+        if real:
+            anchors.append(("other", sk.get_socket_location(real)))
+    low = {}
+    cutoff = floor_z + 25.0   # only skin near the floor can be a contact; keeps the nearest-bone loop small
+    for v in verts:
+        if v.z > cutoff:
+            continue
+        region = min(anchors, key=lambda a: (a[1] - v).length())[0]
+        if region not in low or v.z < low[region][2]:
+            low[region] = (v.x, v.y, v.z)
+    out = {}
+    for region, p in low.items():
+        if region == "other":
+            continue
+        h = p[2] - floor_z
+        out[region] = {"lowest": [round(p[0], 2), round(p[1], 2), round(p[2], 2)], "height": round(h, 2),
+                       "state": "PENETRATING" if h < -tol else ("contact" if h <= tol else "above")}
+    zmin = min(v.z for v in verts)
+    return {"ok": True, "floor_z": floor_z, "vertices": len(verts), "mesh_min_z": round(zmin, 2),
+            "regions": out, "penetration": round(max(0.0, floor_z - zmin), 2)}
+
+
+def nudge_control_z(seq_path, binding_name, control, dz, frame=0):
+    seq = load_sequence(seq_path)
+    rig, _ = rig_proxy(seq, find_binding(seq, binding_name))
+    f = FN(int(frame))
+    cur = L.get_control_rig_world_transform(seq, rig, control, f, DR)
+    cur.translation = unreal.Vector(cur.translation.x, cur.translation.y, cur.translation.z + float(dz))
+    L.set_control_rig_world_transform(seq, rig, control, f, cur, DR, True)
+    evaluate(seq, frame)
+    return {"ok": True, "control": control, "z": round(cur.translation.z, 3)}

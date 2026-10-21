@@ -162,6 +162,30 @@ def aim(seq_path, cam_name, subject, bone="head", distance=300.0, azimuth=0.0, r
             "subject_facing": face, "bone": real, "bone_location": _v(p)}
 
 
+def _occluder(seq, start, end, subject_actor):
+    """First thing between the camera and a bone (visibility trace, skeletal meshes hit via their physics asset).
+    CLAUDE-NOTE (2026-10-21, live): a close-up aimed dead-centre on Quinn's head (u,v = 0,0) rendered nothing but
+    Manny's back - projection alone cannot see occlusion. Spawned SkeletalMeshActors use the PhysicsActor profile,
+    so a visibility trace hits them (it hit Manny's upperarm_l at 65% of the way)."""
+    hit = unreal.SystemLibrary.line_trace_single(
+        unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world(), start, end,
+        unreal.TraceTypeQuery.TRACE_TYPE_QUERY1, True, [subject_actor], unreal.DrawDebugTrace.NONE, True)
+    if not hit:
+        return None
+    t = hit.to_tuple()
+    if not t[0]:
+        return None
+    actor = t[9]
+    name = actor.get_actor_label() if actor else "?"
+    for b in seq.get_bindings():
+        try:
+            if bound_actor(seq, b) == actor:
+                name = str(b.get_display_name())
+        except Exception:
+            pass
+    return {"by": name, "bone": str(t[11]), "at": round(float(t[2]), 3)}
+
+
 def framing(seq_path, cam_name, subject, bones=None):
     """Project subject bones through the camera lens: u,v in [-1,1] = inside the frame (0,0 = centre)."""
     seq = load_sequence(seq_path)
@@ -191,6 +215,9 @@ def framing(seq_path, cam_name, subject, bones=None):
         u = math.atan2(d.dot(right), z) / hh
         v = math.atan2(d.dot(up), z) / vh
         out[w] = {"u": round(u, 3), "v": round(v, 3), "in_frame": abs(u) <= 1 and abs(v) <= 1, "dist": round(d.length(), 1)}
+        occ = _occluder(seq, c, sk.get_socket_location(real), sk.get_owner())
+        if occ:
+            out[w]["occluded_by"] = occ
     # is the subject facing the camera? angle between its facing and the direction to the camera
     f = measure_facing(sk)
     face = f.get("shoulders", f.get("toes"))
