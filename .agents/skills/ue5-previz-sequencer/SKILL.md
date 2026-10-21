@@ -35,6 +35,10 @@ tick and `isError` is set from that readback:
 | `prop_check` | per-frame: bone-space offset drift, world path, distance to a target (mouth), hand gaps, BODY skin inside the prop | drift 0.000 cm; caught the cup 2 cm inside the face |
 | `anim_walk` | walk a path: in-place (root-locked copy) locomotion clip + transform keys at the clip's MEASURED root speed, turns per leg, strips the auto-added rig track, verifies feet and foot-locks corners | L path 9 m: corner slide 9.25 -> 0.67 cm/frame |
 | `anim_foot_report` | per-frame planted-ball slide (skating) + floor height for any animated character | right speed 0.4 vs wrong 4.17 cm/frame |
+| `create_blend_space` / `set_blend_space_samples` | 1D/2D, replace or merge, every sample validated (exists, skeleton, inside axes) else nothing written; resamples like the editor and evaluates each sample point vs its clip | BS_Loco1D idle/walk/jog: 0.00 cm each |
+| `blend_space_check` | read + evaluate any blend space at its sample points | un-resampled: 33-36 cm off -> FAIL |
+| ABP tools (`add_state_machine`, `add_anim_state`, `set_state_animation`, `set_state_blend_space`, ...) | now resolve assets first (typo / wrong skeleton = error, nothing changed), auto-wire Output Pose / Entry / state player, compile after each step (unwired = error) | ABP_Loco: idle + BS state compiles clean |
+| `anim_bp_check` | compile + run the ABP on a hidden mannequin; fails if it plays the reference pose | unwired ABP -> 0.0 cm -> FAIL; ABP_Loco 30.9 cm |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -183,6 +187,10 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 43 | Root-motion clip snaps back every loop | Sequencer does not move the actor by root motion here; play a root-locked copy and key the travel at the clip's root speed (`anim_walk`). |
 | 44 | Feet skate at corners | The actor turns about its origin while a foot is planted; `anim_walk` foot-locks (shifts the path by the measured planted slide) and reports the end shift. |
 | 45 | A per-frame check measured the same frame every time | Unknown args are silently stripped by the schema (`frame` on a tool without it). Check the tool has the parameter; `shot_frame_check` now takes `frame`. |
+| 46 | Blend space written from Python plays the reference pose | `ResampleData()` only runs in the Blend Space editor; `set_blend_space_samples` opens/closes it to rebuild, then evaluates every sample. |
+| 47 | ABP "compiles" but the character stands in the reference pose | "visible but ignored" / "not connected to state" are only warnings. The ABP tools now wire Output Pose, Entry and state players and treat those warnings as errors; prove it with `anim_bp_check`. |
+| 48 | `add_state_machine` name ignored | The plugin always names it "New State Machine"; the tool says so - use the returned name. |
+| 49 | Deleted asset "already exists" on re-create | The editor keeps the deleted object in memory; use a new name (or restart). |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 
