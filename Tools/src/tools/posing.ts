@@ -397,6 +397,7 @@ export function registerPosingTools(server: McpServer): void {
       const t = await runPose("{'ok': True, 'p': seq_target(P['seq'], P['t'])}", { seq: a.sequence, t: a.target });
       if (!t.ok) return text(`Error: ${t.error}`, true);
       const tol = a.toleranceDeg ?? 2;
+      await runPose("scrub(P['seq'], P['f'])", { seq: a.sequence, f: frame });   // measure at the keyed frame (see pose_palm)
       const lines: string[] = [];
       let g: PoseResult = { ok: false };
       let warning = "";
@@ -531,7 +532,14 @@ export function registerPosingTools(server: McpServer): void {
       for (let f = a.start; f <= a.end; f += stepF) {
         const s = await runPose("scrub(P['seq'], P['f'])", { seq: a.sequence, f });
         if (!s.ok) return text(`Error: ${s.error}`, true);
-        const r = await runPose("bones_now(P['seq'], P['b'], P['bones'])", { seq: a.sequence, b: a.binding, bones });
+        // CLAUDE-NOTE (2026-10-21, live): one read after a scrub is occasionally a tick early (a smooth wave showed a
+        // 10.8 cm "pop" at f19 that two re-reads did not reproduce). Read until two consecutive reads agree.
+        let r = await runPose("bones_now(P['seq'], P['b'], P['bones'])", { seq: a.sequence, b: a.binding, bones });
+        for (let k = 0; k < 4 && r.ok; k++) {
+          const r2 = await runPose("bones_now(P['seq'], P['b'], P['bones'])", { seq: a.sequence, b: a.binding, bones });
+          if (!r2.ok || JSON.stringify(r2.bones) === JSON.stringify(r.bones)) break;
+          r = r2;
+        }
         if (!r.ok) return text(`Error: ${r.error}`, true);
         frames.push(f);
         for (const b of bones) track[b].push(r.bones[b] ?? [NaN, NaN, NaN]);
@@ -555,6 +563,77 @@ export function registerPosingTools(server: McpServer): void {
       }
       lines.push(pops ? `${pops} pop(s) found.` : "No pops.");
       return text(lines.join("\n"), pops > 0);
+    },
+  );
+
+
+  server.tool(
+    "pose_hand",
+    "Shape a hand: 'open' (flat), 'relaxed', 'fist' or 'point' (index out), keyed on the finger controls at a frame, " +
+      "then MEASURED: per-finger chord ratio knuckle->tip joint (1.0 straight, lower = curled). Clip bakes often leave " +
+      "half-closed hands that read as fists on camera - open the hand for waves, presentations and reaches.",
+    {
+      sequence: seqArg,
+      binding: bindingArg,
+      side: z.enum(["l", "r"]),
+      shape: z.enum(["open", "relaxed", "fist", "point"]),
+      frame: z.number().int().optional(),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const before = await runPose("hand_curl(P['seq'], P['b'], P['s'])", { seq: a.sequence, b: a.binding, s: a.side });
+      const w = await runPose("hand_shape(P['seq'], P['b'], P['s'], P['shape'], P['f'])", { seq: a.sequence, b: a.binding, s: a.side, shape: a.shape, f: a.frame ?? 0 });
+      if (!w.ok) return text(`Error: ${w.error}`, true);
+      const r = await runPose("hand_curl(P['seq'], P['b'], P['s'])", { seq: a.sequence, b: a.binding, s: a.side });
+      if (!r.ok) return text(`Keyed ${w.controls} finger controls but readback failed: ${r.error}`, true);
+      const ratios = Object.values(r.chord_ratio as Record<string, number>);
+      const mean = ratios.reduce((x, y) => x + y, 0) / Math.max(1, ratios.length);
+      const ok = a.shape === "open" ? mean > 0.95 : a.shape === "fist" ? mean < 0.85 : true;
+      return text([
+        `${ok ? "Shaped" : "SHAPE NOT REACHED:"} ${a.side} hand '${a.shape}' (${w.controls} controls at frame ${a.frame ?? 0}).`,
+        `Chord ratio (1 = straight): before ${JSON.stringify(before.chord_ratio ?? {})}, after ${JSON.stringify(r.chord_ratio)}.`,
+      ].join("\n"), !ok);
+    },
+  );
+
+
+  server.tool(
+    "pose_palm",
+    "Turn a hand so its PALM faces a point, a level actor, another character's bone or a camera binding (e.g. a wave " +
+      "to camera: {binding:'Cam'}; a stop gesture at a person). Rotates the hand's IK control about the wrist by the " +
+      "measured palm-normal error and iterates on the next-tick readback. The arm must be on IK (pose_reach first). " +
+      "Palm normal is measured from the finger and knuckle bones, mirrored per side.",
+    {
+      sequence: seqArg,
+      binding: bindingArg,
+      side: z.enum(["l", "r"]),
+      target: z.union([vec3, z.object({ binding: z.string().optional(), actor: z.string().optional(), bone: z.string().optional(), offset: vec3.optional() }).strict()]),
+      frame: z.number().int().optional(),
+      toleranceDeg: z.number().optional().describe("Default 3 deg."),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const t = await runPose("{'ok': True, 'p': seq_target(P['seq'], P['t'])}", { seq: a.sequence, t: a.target });
+      if (!t.ok) return text(`Error: ${t.error}`, true);
+      const tol = a.toleranceDeg ?? 3;
+      // CLAUDE-NOTE (2026-10-21, live): measure AT the frame being keyed. Without this scrub the first read measured
+      // whatever frame was current (the previous call's), so frames 20-38 of a wave "already faced" the camera.
+      await runPose("scrub(P['seq'], P['f'])", { seq: a.sequence, f: a.frame ?? 0 });
+      let p: PoseResult = { ok: false };
+      let first = NaN;
+      for (let i = 0; i < 5; i++) {
+        // always take at least one full-orientation step so the finger direction is set even when the palm already faces
+        p = await runPose("palm(P['seq'], P['b'], P['s'], P['t'])", { seq: a.sequence, b: a.binding, s: a.side, t: t.p });
+        if (!p.ok) return text(`Error: ${p.error}`, true);
+        if (i === 0) first = p.error_deg;
+        if (p.error_deg <= tol && i > 0) break;
+        const s2 = await runPose("palm_step(P['seq'], P['b'], P['s'], P['t'], P['f'])", { seq: a.sequence, b: a.binding, s: a.side, t: t.p, f: a.frame ?? 0 });
+        if (!s2.ok) return text(`Error: ${s2.error}`, true);
+      }
+      const ok = p.error_deg <= tol;
+      return text(`${ok ? "Palm faces" : "Palm does NOT face"} ${JSON.stringify(t.p.map((v: number) => +v.toFixed(1)))}: error ${first} -> ${p.error_deg} deg (palm ${JSON.stringify(p.palm)}); fingers ${p.fingers_up_deg} deg from straight up.`, !ok);
     },
   );
 

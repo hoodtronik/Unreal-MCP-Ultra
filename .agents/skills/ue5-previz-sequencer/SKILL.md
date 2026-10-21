@@ -29,6 +29,8 @@ tick and `isError` is set from that readback:
 | `pose_look_at` | head gaze at a point / actor / other character's bone, iterated on measured gaze (head +Y) | 22.9 -> 0.027 deg in one step |
 | `pose_ground_check` | per-part contact from the POSED SKIN (GeometryScript copy of the posed mesh): feet, knees, hands, seat vs floor | knee joint z=-1.1 was 6 cm of skin under the floor |
 | `pose_ground_fix` | move body_ctrl in Z until one part's skin touches the floor, report all parts after | knee -6.08 -> -0.15 cm in one step |
+| `pose_hand` | open / relaxed / fist / point on the finger controls (curl = negative yaw), measured chord ratio | fist 0.60, open 0.99 |
+| `pose_palm` | palm faces a point/actor/camera binding with fingers up (two-vector orientation), next-tick readback | 85 -> 0.01 deg, fingers 7-8 deg from up |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -167,6 +169,8 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 33 | Elbow/knee flips mid-move | IK plane flips when the effector passes the limb root; key the pole vector (`arm_r_pv_ik_ctrl` world) at the same frames, then `pose_motion_report`. |
 | 34 | Actors you hid in the editor show up in the render | "Temporarily hidden in editor" is editor-only; MRQ (PIE) renders them. Delete or really hide them; `shot_render` lists them. |
 | 35 | IK switched on at a later frame pops the arm | Key the IK control at frame 0 at the limb's rest position first (read it with pose_read), then the move. |
+| 36 | Palm faces the camera but the fingers point down | A shortest-arc rotation ignores twist; `pose_palm` solves palm AND finger direction. |
+| 37 | A tool reports "already done" at a frame it never looked at | Readbacks measure the CURRENT frame; scrub to the frame and read on the next tick (pose_palm/pose_look_at do). Single reads after a scrub can still be a tick early - `pose_motion_report` re-reads until stable. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

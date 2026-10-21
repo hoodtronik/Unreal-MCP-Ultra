@@ -758,3 +758,113 @@ def bones_now(seq_path, binding_name, bones):
         real = w if w in allb else resolve_role(allb, w)
         out[w] = _v(sk.get_socket_location(real)) if real else None
     return {"ok": True, "frame": current_frame(), "bones": out}
+
+
+# ------------------------------------------------------------------ hand shapes
+
+# CLAUDE-NOTE (2026-10-21, live 5.6.1, CR_Mannequin_Body): finger joint controls curl toward the palm with NEGATIVE
+# yaw (index_02/03 yaw -45 shortened knuckle->tip; +45 lengthened it; pitch/roll barely moved it). The idle clip's
+# own finger values sit at yaw -3..-19, consistent with that. Per-joint curl (deg) for 01/02/03:
+HAND_SHAPES = {
+    "open":    {"fingers": (0, 0, 0), "thumb": (0, 0, 0)},
+    "relaxed": {"fingers": (-15, -20, -12), "thumb": (0, -10, -5)},
+    "fist":    {"fingers": (-75, -95, -60), "thumb": (0, -35, -30)},
+    "point":   {"fingers": (-75, -95, -60), "thumb": (0, -35, -30), "index": (0, 0, 0)},
+}
+FINGERS = ["index", "middle", "ring", "pinky"]
+
+
+def hand_shape(seq_path, binding_name, side, shape, frame=0):
+    if shape not in HAND_SHAPES:
+        raise ValueError("shape must be one of " + ", ".join(HAND_SHAPES))
+    if side not in ("l", "r"):
+        raise ValueError("side must be 'l' or 'r'")
+    seq = load_sequence(seq_path)
+    rig, _ = rig_proxy(seq, find_binding(seq, binding_name))
+    spec = HAND_SHAPES[shape]
+    written = []
+    for fname in FINGERS + ["thumb"]:
+        curl = spec.get(fname) or (spec["thumb"] if fname == "thumb" else spec["fingers"])
+        for j, deg in zip(("01", "02", "03"), curl):
+            c = "%s_%s_%s_ctrl" % (fname, j, side)
+            if control_type(rig, c) is None:
+                continue
+            _set_one(seq, rig, {"control": c, "rotation": [0.0, float(deg), 0.0]}, frame)
+            written.append(c)
+    evaluate(seq, frame)
+    if not written:
+        raise ValueError("rig has no finger controls named like index_01_%s_ctrl" % side)
+    return {"ok": True, "shape": shape, "side": side, "controls": len(written)}
+
+
+def hand_curl(seq_path, binding_name, side):
+    """Measured curl per finger: knuckle(01)->joint(03) chord / straight length (1.0 = straight)."""
+    seq = load_sequence(seq_path)
+    sk = skel_comp(seq, find_binding(seq, binding_name))
+    out = {}
+    for fname in FINGERS:
+        try:
+            p = [sk.get_socket_location("%s_%s_%s" % (fname, j, side)) for j in ("01", "02", "03")]
+        except Exception:
+            continue
+        straight = (p[1] - p[0]).length() + (p[2] - p[1]).length()
+        out[fname] = round((p[2] - p[0]).length() / straight, 3) if straight > 0 else None
+    return {"ok": True, "side": side, "chord_ratio": out}
+
+
+# ------------------------------------------------------------------ palm direction
+
+def palm(seq_path, binding_name, side, target=None):
+    """Palm normal from geometry: (+1 right / -1 left) * cross(finger_dir, index_01 - pinky_01).
+    CLAUDE-NOTE (2026-10-21, live): calibrated on Manny - right palm = +Y of hand_r (a fist moves the middle finger
+    toward it), left palm = -Y of hand_l; at rest both point at the thighs. The cross product alone has the same
+    sign on both hands (knuckle line and finger direction do not mirror), hence the side factor."""
+    seq = load_sequence(seq_path)
+    sk = skel_comp(seq, find_binding(seq, binding_name))
+    h = sk.get_socket_location("hand_" + side)
+    f = sk.get_socket_location("middle_01_" + side) - h
+    sd = sk.get_socket_location("index_01_" + side) - sk.get_socket_location("pinky_01_" + side)
+    f, sd = f / f.length(), sd / sd.length()
+    n = f.cross(sd)
+    n = n / n.length() * (1.0 if side == "r" else -1.0)
+    out = {"ok": True, "hand": _v(h), "palm": _v(n), "fingers": _v(f)}
+    if target is not None:
+        d = unreal.Vector(*target) - h
+        d = d / (d.length() or 1.0)
+        out["error_deg"] = round(math.degrees(math.acos(max(-1.0, min(1.0, n.dot(d))))), 3)
+    out["fingers_up_deg"] = round(math.degrees(math.acos(max(-1.0, min(1.0, f.z)))), 1)
+    return out
+
+
+def palm_step(seq_path, binding_name, side, target, frame=0, fingers=(0.0, 0.0, 1.0)):
+    """Rotate the hand IK control so the palm faces `target` AND the fingers point as close to `fingers` (world
+    direction, default up) as that allows.
+    CLAUDE-NOTE (2026-10-21, live): a shortest-arc palm rotation faced the palm to camera but left the fingers
+    pointing DOWN (wrist twisted backwards) - a wave needs the full orientation from two vectors. Built as
+    delta = basis(desired palm, desired fingers) * basis(current palm, current fingers)^-1."""
+    seq = load_sequence(seq_path)
+    rig, _ = rig_proxy(seq, find_binding(seq, binding_name))
+    ctrl = "hand_%s_ik_ctrl" % side
+    if control_type(rig, ctrl) is None:
+        raise ValueError("rig has no control " + ctrl)
+    pm = palm(seq_path, binding_name, side, target)
+    n, f = unreal.Vector(*pm["palm"]), unreal.Vector(*pm["fingers"])
+    d = unreal.Vector(*target) - unreal.Vector(*pm["hand"])
+    d = d / (d.length() or 1.0)
+    want_f = unreal.Vector(*fingers)
+    want_f = want_f - d * want_f.dot(d)          # fingers perpendicular to the palm normal
+    if want_f.length() < 1e-3:
+        want_f = f - d * f.dot(d)
+    want_f = want_f / want_f.length()
+    f_perp = f - n * f.dot(n)
+    f_perp = f_perp / (f_perp.length() or 1.0)
+    cur_basis = unreal.MathLibrary.make_rot_from_xz(n, f_perp).quaternion()
+    new_basis = unreal.MathLibrary.make_rot_from_xz(d, want_f).quaternion()
+    q = new_basis.multiply(cur_basis.inversed())
+    ang = math.degrees(q.get_angle())
+    fr = FN(int(frame))
+    cur = L.get_control_rig_world_transform(seq, rig, ctrl, fr, DR)
+    L.set_control_rig_world_transform(seq, rig, ctrl, fr, unreal.Transform(
+        location=cur.translation, rotation=q.multiply(cur.rotation).rotator(), scale=cur.scale3d), DR, True)
+    evaluate(seq, frame)
+    return {"ok": True, "applied_deg": round(ang, 3)}

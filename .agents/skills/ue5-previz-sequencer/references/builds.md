@@ -57,4 +57,7 @@ trace added to the framing check; the knee "contact" from bone centres was 6 cm 
 | 6 | `shot_camera` Cam 30 mm aim pelvis d 440 az 12 rise 15; `pose_look_at` {binding:'Cam'} | head v 0.69, feet -0.86; gaze 0.039 deg into the lens |
 | 7 | `shot_render` 960x540 | 60/60 frames + MP4 |
 
-Eyes: the wave reads, but the hand is a closed fist with the palm inward -> next: hand-shape tool (open/fist/point) + palm orientation.
+Eyes: the wave read, but as a fist with the palm inward -> `pose_hand` open + `pose_palm` to {binding:'Cam'} at
+f14-38. First palm version faced the palm but pointed the fingers down (shortest arc) -> two-vector solve; it also
+measured the wrong frame for f20-38 (no scrub) -> scrub first. Final: palm error <= 0.022 deg, fingers 7-8 deg from
+up, no pops (motion report re-reads until stable after one stale read showed a false 10.8 cm pop).
