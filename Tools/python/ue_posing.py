@@ -540,3 +540,82 @@ def read_actor_pose(label, bones=None):
             "lowest_foot_z": round(min(feet), 3) if feet else None,
             "anim": asset.get_path_name() if asset else None,
             "position": round(sk.get_position(), 4) if hasattr(sk, "get_position") else None}
+
+
+# ------------------------------------------------------------------ gaze / look-at
+
+# CLAUDE-NOTE (2026-10-21, live 5.6.1): on the UE5 mannequin (and MetaHuman-style skeletons) the head bone's +Y
+# axis is the gaze direction and +X runs up the neck (Manny facing +Y: head Y = (0.25, 0.95, -0.19)).
+GAZE_AXIS = "Y"
+
+
+def gaze(seq_path, binding_name, target=None, frame=None):
+    seq = load_sequence(seq_path)
+    sk = skel_comp(seq, find_binding(seq, binding_name))
+    if sk is None:
+        raise RuntimeError("no skeletal mesh bound to '%s'" % binding_name)
+    head = resolve_role(_bone_map(sk), "head")
+    t = sk.get_socket_transform(head, unreal.RelativeTransformSpace.RTS_WORLD)
+    r = t.rotation.rotator()
+    g = r.get_right_vector() if GAZE_AXIS == "Y" else r.get_forward_vector()
+    out = {"ok": True, "head": _v(t.translation), "gaze": _v(g),
+           "gaze_yaw": round(math.degrees(math.atan2(g.y, g.x)), 2),
+           "gaze_pitch": round(math.degrees(math.asin(max(-1.0, min(1.0, g.z)))), 2)}
+    f = measure_facing(sk)
+    face = f.get("shoulders", f.get("toes"))
+    if face is not None:
+        out["head_turn_vs_body"] = round((out["gaze_yaw"] - face + 540) % 360 - 180, 2)
+    if target is not None:
+        d = unreal.Vector(*target) - t.translation
+        d = d / (d.length() or 1.0)
+        out["error_deg"] = round(math.degrees(math.acos(max(-1.0, min(1.0, g.dot(d))))), 3)
+    return out
+
+
+def look_at_step(seq_path, binding_name, target, frame=0, control="head_ctrl", max_turn=75.0):
+    """Rotate `control` in WORLD space by the rotation that takes the current gaze onto the target direction.
+    One step; the effect is only visible on the next tick (the TS tool iterates write -> read)."""
+    seq = load_sequence(seq_path)
+    b = find_binding(seq, binding_name)
+    rig, _ = rig_proxy(seq, b)
+    if control_type(rig, control) is None:
+        raise ValueError("rig has no control '%s'" % control)
+    gz = gaze(seq_path, binding_name, target)
+    g = unreal.Vector(*gz["gaze"])
+    d = unreal.Vector(*target) - unreal.Vector(*gz["head"])
+    d = d / (d.length() or 1.0)
+    axis = g.cross(d)
+    ang = math.degrees(math.acos(max(-1.0, min(1.0, g.dot(d)))))
+    if axis.length() < 1e-6 or ang < 1e-3:
+        return {"ok": True, "applied_deg": 0.0, "before_error_deg": gz["error_deg"]}
+    q_delta = unreal.MathLibrary.rotator_from_axis_and_angle(axis / axis.length(), ang).quaternion()
+    f = FN(int(frame))
+    cur = L.get_control_rig_world_transform(seq, rig, control, f, DR)
+    new_q = q_delta.multiply(cur.rotation)
+    L.set_control_rig_world_transform(seq, rig, control, f,
+                                      unreal.Transform(location=cur.translation, rotation=new_q.rotator(), scale=cur.scale3d), DR, True)
+    evaluate(seq, frame)
+    res = {"ok": True, "applied_deg": round(ang, 3), "before_error_deg": gz["error_deg"]}
+    turn = gz.get("head_turn_vs_body")
+    if turn is not None:
+        dyaw = math.degrees(math.atan2(d.y, d.x)) - (gz["gaze_yaw"] - turn)
+        dyaw = (dyaw + 540) % 360 - 180
+        if abs(dyaw) > max_turn:
+            res["warning"] = "target is %.0f deg off the body's facing (> %.0f): turn the body/spine too" % (dyaw, max_turn)
+    return res
+
+
+def seq_target(seq_path, spec):
+    """[x,y,z] | {binding, bone?, offset?} (a character in this sequence) | {actor, bone?, offset?} (level actor)."""
+    if isinstance(spec, dict) and spec.get("binding"):
+        seq = load_sequence(seq_path)
+        sk = skel_comp(seq, find_binding(seq, spec["binding"]))
+        bones = _bone_map(sk)
+        bone = spec.get("bone") or "head"
+        real = bone if bone in bones else resolve_role(bones, bone)
+        if not real:
+            raise ValueError("bone/role '%s' not on '%s'" % (bone, spec["binding"]))
+        p = sk.get_socket_location(real)
+        o = spec.get("offset") or [0, 0, 0]
+        return [p.x + o[0], p.y + o[1], p.z + o[2]]
+    return target_point(spec)

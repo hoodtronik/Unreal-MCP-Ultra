@@ -365,4 +365,50 @@ export function registerPosingTools(server: McpServer): void {
     },
   );
 
+
+  server.tool(
+    "pose_look_at",
+    "Aim a character's head (gaze) at a point, a level actor, or another character's bone in the same sequence " +
+      "(e.g. {binding:'Manny', bone:'head'} for an eye-line, {binding:'Manny', bone:'hand_r'} to watch a hand-off). " +
+      "Rotates the head control in world space by the measured gaze error, re-reads the gaze on the next tick and " +
+      "iterates until within tolerance. Gaze = head bone +Y axis (UE5 mannequin / MetaHuman convention). Warns " +
+      "when the target is so far off the body's facing that the torso should turn too.",
+    {
+      sequence: seqArg,
+      binding: bindingArg,
+      target: z.union([vec3, z.object({
+        binding: z.string().optional(), actor: z.string().optional(), bone: z.string().optional(), offset: vec3.optional(),
+      }).strict()]),
+      frame: z.number().int().optional(),
+      control: z.string().optional().describe("Control to rotate (default head_ctrl)."),
+      toleranceDeg: z.number().optional().describe("Gaze error accepted (default 2 deg)."),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const frame = a.frame ?? 0;
+      const t = await runPose("{'ok': True, 'p': seq_target(P['seq'], P['t'])}", { seq: a.sequence, t: a.target });
+      if (!t.ok) return text(`Error: ${t.error}`, true);
+      const tol = a.toleranceDeg ?? 2;
+      const lines: string[] = [];
+      let g: PoseResult = { ok: false };
+      let warning = "";
+      for (let i = 0; i < 4; i++) {
+        g = await runPose("gaze(P['seq'], P['b'], P['t'])", { seq: a.sequence, b: a.binding, t: t.p });
+        if (!g.ok) return text(`Error: ${g.error}`, true);
+        if (i === 0) lines.push(`Gaze error before: ${g.error_deg} deg.`);
+        if (g.error_deg <= tol) break;
+        const s = await runPose("look_at_step(P['seq'], P['b'], P['t'], P['f'], P['c'])",
+          { seq: a.sequence, b: a.binding, t: t.p, f: frame, c: a.control ?? "head_ctrl" });
+        if (!s.ok) return text([...lines, `Error: ${s.error}`].join("\n"), true);
+        if (s.warning) warning = s.warning;
+      }
+      const ok = g.error_deg <= tol;
+      lines.push(`${ok ? "Looking at" : "NOT looking at"} ${JSON.stringify(t.p.map((v: number) => +v.toFixed(2)))}: gaze error ${g.error_deg} deg ` +
+        `(gaze yaw ${g.gaze_yaw}, pitch ${g.gaze_pitch}; head turned ${g.head_turn_vs_body} deg from the body).`);
+      if (warning) lines.push(`Warning: ${warning}`);
+      return text(lines.join("\n"), !ok);
+    },
+  );
+
 }

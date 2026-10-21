@@ -106,8 +106,15 @@ def camera(seq_path, name, location=None, rotation=None, focal_length=None, film
     if sec is None:
         sec = cut_track.add_section()
         sec.set_camera_binding_id(bid)
-    r = cut or [seq.get_playback_start(), seq.get_playback_end()]
-    sec.set_range(int(r[0]), int(r[1]))
+        r = cut or [seq.get_playback_start(), seq.get_playback_end()]
+        sec.set_range(int(r[0]), int(r[1]))
+    elif cut:
+        r = cut
+        sec.set_range(int(r[0]), int(r[1]))
+    else:
+        # CLAUDE-NOTE (2026-10-21): an update without `cut` keeps the existing range - re-ranging to the full playback
+        # range made a re-aimed camera overlap the next shot's cut (TwoShot 0-36 became 0-72 over CU_Quinn 36-72).
+        r = [sec.get_start_frame(), sec.get_end_frame()]
     evaluate(seq)
     fb = cc.get_editor_property("filmback")
     return {"ok": True, "camera": name, "created": created, "focal_length": round(cc.get_editor_property("current_focal_length"), 3),
@@ -197,6 +204,9 @@ def framing(seq_path, cam_name, subject, bones=None):
 def look_through(seq_path, frame=0, game_view=True):
     seq = load_sequence(seq_path)
     LSE.set_lock_camera_cut_to_viewport(True)
+    # CLAUDE-NOTE (2026-10-21, live): a SELECTED actor (here the spawned camera, selected when Sequencer created it)
+    # draws its transform gizmo even in game view - it showed up in a "clean" two-shot. Clear actor selection too.
+    _eas().clear_actor_selection_set()
     for pr in unreal.ControlRigSequencerLibrary.get_control_rigs(seq):
         pr.control_rig.clear_control_selection()
         unreal.ControlRigSequencerLibrary.show_all_controls(pr.track.get_sections()[0])   # never hide_all_controls

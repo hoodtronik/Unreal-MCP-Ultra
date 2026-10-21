@@ -26,6 +26,17 @@ tick and `isError` is set from that readback:
 | `pose_set_controls` | batch key controls (local or `world`), typed dispatch, per-control readback | unknown control -> error, not "ok" |
 | `pose_read` | world bones (roles resolve on prefixed skeletons), facing (shoulders+toes), lowest foot z, control values | |
 | `pose_reach` | hand/foot IK to a point/actor/bone, miss distance + reach budget vs limb length | 0.000 cm reachable; 6.1 cm predicted = 6.147 measured out-of-reach |
+| `pose_look_at` | head gaze at a point / actor / other character's bone, iterated on measured gaze (head +Y) | 22.9 -> 0.027 deg in one step |
+| `anim_preview` | one moment of a clip on a level SkeletalMeshActor, bones read back | skeleton mismatch rejected |
+| `ikrig_create` | IK Rig: auto for Epic skeletons, bone-stem name map vs a template rig for custom ones | Manny 28 chains; Fab girl02_* 20 |
+| `retarget_setup` | IK Retargeter, chains auto-mapped, scaled-root (glTF) Pelvis Motion compensation | root 0.0093 -> pelvis scale 107 |
+| `retarget_animations` | batch retarget into a folder + per-clip verification (limb motion, rendered pelvis height) | walk 1.64 deg, jump 3.39 deg; broken case caught |
+| `pose_asset_create` | Pose Asset from a clip, poses renamed in order | 27 poses |
+| `shot_camera` | spawnable CineCamera + lens + cut (kept on update) + aim at a measured bone around the subject's facing + framing | aimed bone at u,v 0,0 |
+| `shot_frame_check` | project bones through the LIVE lens: u,v in frame, subject turn vs camera | feet out of frame caught |
+| `shot_capture` | lock to cut, clear selection, game view, settle, verify viewport == cut camera, image | offset 0.0 cm |
+
+Worked builds (tool calls only, with readbacks and frames): `references/builds.md`.
 
 Lib: `Tools/python/ue_posing.py`; live check: `node Tools/test/manual/posing-e2e.mjs`. Cameras, shots, audio,
 bake/retarget below still go through `run_python` + the helper library:
@@ -137,6 +148,14 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 19 | **Held poses snap back to the reference pose after a capture; later bakes write 0 keys but return True** | `ControlRigSequencerLibrary.hide_all_controls` sets the section's controls *mask*, which is saved, stops those controls evaluating, and hides their channels from `get_all_channels()`. The old `presentation_mode` did this — it silently flattened every posed shot it framed. Fixed: the lib now calls `show_all_controls`; to repair an old sequence, `show_all_controls(section)` + save. |
 | 20 | A bone/socket read (or the rig hierarchy) says the character is in reference pose while the viewport shows the pose | Sequencer applies the Control Rig pose on the **editor tick**, and none runs inside one `run_python` call. Open + scrub in one call, read in the **next**. Vision-mode frames lag the same way — capture with `viewport_capture` on a later call before judging. |
 | 21 | `SequencerTools.export_anim_sequence` returns False for a spawnable | 5.8.3 logs `No skel mesh found in Sequencer`, open or closed. Use `bake_displayed_pose()` (component bone read, on the following call). |
+| 22 | Retargeted character sinks into the floor (pelvis ~1 cm) | Target skeleton has a SCALED root bone (Fab/glTF import, `_rootJoint` scale 0.0093) and Pelvis Motion ignores parent scale. `retarget_setup` sets the op's scale to 1/root scale. AnimPose WORLD space also omits that root scale - never judge heights from it raw. |
+| 23 | Retargeted clips appear at `/Game/<name>` | `duplicate_and_retarget` ignores folders; `retarget_animations` moves them. |
+| 24 | A level SkeletalMeshActor keeps showing the old clip | `override_animation_data` / `set_animation` don't re-evaluate in the editor; `anim_preview` uses `set_update_animation_in_editor(True)` + `play_animation`, applied on the next tick. |
+| 25 | Camera lens edit "applied" but the frame is blurred / wrong focal length | Editing a spawnable camera's template doesn't touch the instance already spawned. `shot_camera` edits both and reads the live lens. |
+| 26 | Re-aimed camera now covers the next shot | Old behaviour re-ranged the cut to the whole sequence; updates now keep the existing range unless `cut` is passed. |
+| 27 | A transform gizmo in a "clean" frame | A selected actor (Sequencer selects a spawned camera) draws its gizmo even in game view; `shot_capture` clears selection. |
+| 28 | A typo'd control name "worked" | On 5.6 `find_control()` returns a default EulerTransform element for a missing name; the tools check `get_index() >= 0`. |
+| 29 | run_python says `Could not load Python file '.../<your code>'` | ExecuteFile mode treats any `.py` + whitespace in the command as a file path. Avoid it in code/comments (the tools send their libs base64). |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 
@@ -187,6 +206,7 @@ On any new engine version, run `selfcheck("/Game/Previz/_check")` first and reco
 
 ## References
 
+- `references/builds.md` — scene builds done with the MCP tools only (calls, readbacks, what the eyes caught).
 - `references/api-recipes.md` — the raw verified snippets behind each helper, with readbacks.
 - `references/pose-from-video-ue58.md` — image → video → MetaHuman Animator markerless solve → held pose.
 - Epic: *Python Scripting for Animating with Control Rig* (5.8 docs) — the canonical snippet set.
