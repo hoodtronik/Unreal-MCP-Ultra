@@ -30,7 +30,9 @@ tick and `isError` is set from that readback:
 | `pose_ground_check` | per-part contact from the POSED SKIN (GeometryScript copy of the posed mesh): feet, knees, hands, seat vs floor | knee joint z=-1.1 was 6 cm of skin under the floor |
 | `pose_ground_fix` | move body_ctrl in Z until one part's skin touches the floor, report all parts after | knee -6.08 -> -0.15 cm in one step |
 | `pose_hand` | open / relaxed / fist / point on the finger controls (curl = negative yaw), measured chord ratio | fist 0.60, open 0.99 |
-| `pose_palm` | palm faces a point/actor/camera binding with fingers up (two-vector orientation), next-tick readback | 85 -> 0.01 deg, fingers 7-8 deg from up |
+| `pose_palm` | palm faces a point/actor/camera binding with fingers up or along `fingers` (two-vector orientation), next-tick readback | 85 -> 0.01 deg, fingers 7-8 deg from up |
+| `prop_attach` | prop as a spawnable on a Sequencer Attach track to a bone; `size`, `color`; `grip:"r"` lays it on the open hand's skin and curls fingers (even arc, bisection) + thumb roll until each touches | 7 cm cup: 5/5 digits, deepest skin -0.20 cm |
+| `prop_check` | per-frame: bone-space offset drift, world path, distance to a target (mouth), hand gaps, BODY skin inside the prop | drift 0.000 cm; caught the cup 2 cm inside the face |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -171,6 +173,10 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 35 | IK switched on at a later frame pops the arm | Key the IK control at frame 0 at the limb's rest position first (read it with pose_read), then the move. |
 | 36 | Palm faces the camera but the fingers point down | A shortest-arc rotation ignores twist; `pose_palm` solves palm AND finger direction. |
 | 37 | A tool reports "already done" at a frame it never looked at | Readbacks measure the CURRENT frame; scrub to the frame and read on the next tick (pose_palm/pose_look_at do). Single reads after a scrub can still be a tick early - `pose_motion_report` re-reads until stable. |
+| 38 | A prop placed from bones sits inside the fingers | Hand skin is 2-3 cm off the bone lines. `prop_attach grip` measures the palm + finger skin (open hand) and curls fingers onto the prop by contact readback. |
+| 39 | Uniform finger curls drive the middle phalanx through the prop | Wrapping bends joints about equally (`WRAP` 1/1/0.8); the 'fist' profile (75/95/60) and per-joint sequential solves both penetrated. |
+| 40 | Cup reaches the mouth "fine" but goes through the face | Read the body skin vs the prop (`prop_check side`), not just distance to a mouth point; a head look-at changes it again - re-check after head keys. |
+| 41 | `get_component_by_class` is None on a spawnable template | Template components are not registered; use `StaticMeshActor.static_mesh_component`, and edit template AND live instance. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

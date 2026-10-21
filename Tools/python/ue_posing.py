@@ -814,7 +814,7 @@ def hand_curl(seq_path, binding_name, side):
 
 # ------------------------------------------------------------------ palm direction
 
-def palm(seq_path, binding_name, side, target=None):
+def palm(seq_path, binding_name, side, target=None, fingers=None):
     """Palm normal from geometry: (+1 right / -1 left) * cross(finger_dir, index_01 - pinky_01).
     CLAUDE-NOTE (2026-10-21, live): calibrated on Manny - right palm = +Y of hand_r (a fist moves the middle finger
     toward it), left palm = -Y of hand_l; at rest both point at the thighs. The cross product alone has the same
@@ -833,6 +833,10 @@ def palm(seq_path, binding_name, side, target=None):
         d = d / (d.length() or 1.0)
         out["error_deg"] = round(math.degrees(math.acos(max(-1.0, min(1.0, n.dot(d))))), 3)
     out["fingers_up_deg"] = round(math.degrees(math.acos(max(-1.0, min(1.0, f.z)))), 1)
+    if fingers is not None:
+        w = unreal.Vector(*fingers)
+        w = w / (w.length() or 1.0)
+        out["fingers_err_deg"] = round(math.degrees(math.acos(max(-1.0, min(1.0, f.dot(w))))), 1)
     return out
 
 

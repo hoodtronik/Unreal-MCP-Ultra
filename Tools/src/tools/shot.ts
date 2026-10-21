@@ -28,7 +28,7 @@ function fmtFraming(f: PoseResult): string[] {
   const lines = [`Lens ${f.focal_length} mm (hfov ${f.hfov} deg); subject turned ${f.subject_to_camera_deg} deg from facing the camera.`];
   for (const [b, v] of Object.entries(f.bones ?? {}) as [string, any][]) {
     lines.push(v.behind_camera ? `  ${b}: BEHIND camera` : `  ${b}: ${v.in_frame ? "in frame" : "OUT of frame"} at u=${v.u}, v=${v.v} (${v.dist} cm)` +
-      (v.occluded_by ? ` - OCCLUDED by ${v.occluded_by.by} (${v.occluded_by.bone}) ${Math.round(v.occluded_by.at * 100)}% of the way` : ""));
+      (v.occluded_by ? ` - ${v.occluded_by.held_prop ? "behind held prop" : "OCCLUDED by"} ${v.occluded_by.by}${v.occluded_by.bone ? ` (${v.occluded_by.bone})` : ""} ${Math.round(v.occluded_by.at * 100)}% of the way` : ""));
   }
   return lines;
 }
@@ -84,7 +84,7 @@ export function registerShotTools(server: McpServer): void {
         const aimed = f.bones?.[a.aim?.bone ?? "head"];
         if (aimed && (!aimed.in_frame || Math.abs(aimed.u) > 0.05 || Math.abs(aimed.v) > 0.05))
           return text([...lines, "Aimed bone is not at frame centre - framing check FAILED."].join("\n"), true);
-        if (aimed?.occluded_by)
+        if (aimed?.occluded_by && !aimed.occluded_by.held_prop)
           return text([...lines, `Aimed bone is hidden behind ${aimed.occluded_by.by} - change azimuth/rise/distance (framing check FAILED).`].join("\n"), true);
       }
       return text(lines.join("\n"));

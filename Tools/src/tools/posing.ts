@@ -611,6 +611,7 @@ export function registerPosingTools(server: McpServer): void {
       target: z.union([vec3, z.object({ binding: z.string().optional(), actor: z.string().optional(), bone: z.string().optional(), offset: vec3.optional() }).strict()]),
       frame: z.number().int().optional(),
       toleranceDeg: z.number().optional().describe("Default 3 deg."),
+      fingers: vec3.optional().describe("World direction the fingers should point (kept perpendicular to the palm). Default [0,0,1] = up (wave); e.g. the facing direction to hold a cup upright."),
     },
     async (a) => {
       const err = await ensureUE();
@@ -625,15 +626,15 @@ export function registerPosingTools(server: McpServer): void {
       let first = NaN;
       for (let i = 0; i < 5; i++) {
         // always take at least one full-orientation step so the finger direction is set even when the palm already faces
-        p = await runPose("palm(P['seq'], P['b'], P['s'], P['t'])", { seq: a.sequence, b: a.binding, s: a.side, t: t.p });
+        p = await runPose("palm(P['seq'], P['b'], P['s'], P['t'], P['fd'])", { seq: a.sequence, b: a.binding, s: a.side, t: t.p, fd: a.fingers ?? null });
         if (!p.ok) return text(`Error: ${p.error}`, true);
         if (i === 0) first = p.error_deg;
         if (p.error_deg <= tol && i > 0) break;
-        const s2 = await runPose("palm_step(P['seq'], P['b'], P['s'], P['t'], P['f'])", { seq: a.sequence, b: a.binding, s: a.side, t: t.p, f: a.frame ?? 0 });
+        const s2 = await runPose("palm_step(P['seq'], P['b'], P['s'], P['t'], P['f'], P['fd'])", { seq: a.sequence, b: a.binding, s: a.side, t: t.p, f: a.frame ?? 0, fd: a.fingers ?? [0, 0, 1] });
         if (!s2.ok) return text(`Error: ${s2.error}`, true);
       }
       const ok = p.error_deg <= tol;
-      return text(`${ok ? "Palm faces" : "Palm does NOT face"} ${JSON.stringify(t.p.map((v: number) => +v.toFixed(1)))}: error ${first} -> ${p.error_deg} deg (palm ${JSON.stringify(p.palm)}); fingers ${p.fingers_up_deg} deg from straight up.`, !ok);
+      return text(`${ok ? "Palm faces" : "Palm does NOT face"} ${JSON.stringify(t.p.map((v: number) => +v.toFixed(1)))}: error ${first} -> ${p.error_deg} deg (palm ${JSON.stringify(p.palm)}); fingers ${a.fingers ? `${p.fingers_err_deg} deg from ${JSON.stringify(a.fingers)}` : `${p.fingers_up_deg} deg from straight up`}.`, !ok);
     },
   );
 

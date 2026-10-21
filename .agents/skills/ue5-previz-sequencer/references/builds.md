@@ -61,3 +61,21 @@ Eyes: the wave read, but as a fist with the palm inward -> `pose_hand` open + `p
 f14-38. First palm version faced the palm but pointed the fingers down (shortest arc) -> two-vector solve; it also
 measured the wrong frame for f20-38 (no scrub) -> scrub first. Final: palm error <= 0.022 deg, fingers 7-8 deg from
 up, no pops (motion report re-reads until stable after one stale read showed a false 10.8 cm pop).
+
+## 4. Drink (2026-10-21, `/Game/_MCPLab/Scenes/SEQ_Prop`, first held prop)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Manny facing -90, MM_Idle f10 | facing -90.0 |
+| 2 | `pose_reach` hand_r f0 [14,-34,112]; `pose_palm` target [-100,-34,112] fingers [0,-1,0] | 0.000 cm; palm 0.028 deg, fingers 0 deg |
+| 3 | `prop_attach` Cup, Cylinder size [7,7,11], color, grip r, f0 | palm gap 0.6, fingers -0.09..-0.20 cm, thumb roll 20; curls 27/27/22 |
+| 4 | `pose_reach`+`pose_palm` f18 mouth [6,-20,150]; f26/34 [6,-22,151] fingers [0,-0.82,0.57] (35 deg tilt); f46 = f0 | all 0.000 cm / <0.03 deg |
+| 5 | `pose_look_at` f0/46 level, f18 slightly up, f26/34 [-1,-110,190] (sip, head back 16 deg) | <= 0.23 deg |
+| 6 | `pose_set_interpolation` smooth; `pose_motion_report` | no pops |
+| 7 | `prop_check` 9 frames side r near mouth | drift 0.000 cm; lips touch rim 0.33 cm at f26-34 |
+| 8 | `shot_camera` 35 mm aim spine_05 d 190 az 40; `shot_render` | 48/48 + MP4 |
+
+Eyes vs numbers: bone-only grip = fingers 3.5 cm in the cup; palm-only skin = straight fingers 2.6 cm in; cup centred on
+the knuckle hinge = every curl went INTO it (moved one radius back over the palm); whole-finger and per-segment
+sequential solves both failed -> even-arc wrap. The first tilt put the cup 2 cm into the face (prop_check BODY) -> hand
+3 cm forward. The held cup also "occluded" its own hand in the framing check -> reported as held prop.

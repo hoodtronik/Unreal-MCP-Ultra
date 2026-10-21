@@ -183,7 +183,15 @@ def _occluder(seq, start, end, subject_actor):
                 name = str(b.get_display_name())
         except Exception:
             pass
-    return {"by": name, "bone": str(t[11]), "at": round(float(t[2]), 3)}
+    out = {"by": name, "at": round(float(t[2]), 3)}
+    if t[11] is not None and str(t[11]) not in ("None", ""):
+        out["bone"] = str(t[11])
+    # CLAUDE-NOTE (2026-10-21, live): a cup held in hand_r 'occluded' the hand it is attached to. A prop riding
+    # the subject is reported as held_prop (informational), not as a blocked shot.
+    par = actor.get_attach_parent_actor() if actor else None
+    if par is not None and par == subject_actor:
+        out["held_prop"] = True
+    return out
 
 
 def framing(seq_path, cam_name, subject, bones=None):

@@ -30,3 +30,6 @@ at a scratch project rather than anything precious. Adjust `PROJECT_DIR` at the 
 Expected: all checks pass. A failure on "mutating tool -> image auto-attached" means the wrapper
 is not firing; a failure on "repeat with no visual change -> suppressed" means digest suppression
 has regressed.
+
+`py-call.mjs` runs ONE function from `Tools/python/*.py` against the live editor through the same bridge the tools
+use (probe helper): `node Tools/test/manual/py-call.mjs "prop_state(P['s'],'Cup','Manny','hand_r',side='r')" '{"s":"/Game/X/SEQ"}' ue_posing.py,ue_props.py`
