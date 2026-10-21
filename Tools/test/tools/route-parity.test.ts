@@ -31,7 +31,9 @@ const ROUTE_RE = /\/api\/[a-zA-Z0-9-]+/g;
 // CLAUDE-NOTE: /api/test-save is an intentional diagnostic-only endpoint with no MCP tool wrapper
 // (see BlueprintMCPHandlers_Read.cpp: "load a Blueprint and save it unmodified") — everything else
 // is expected to have a TS caller.
-const KNOWN_ORPHAN_CPP_ROUTES = new Set(["/api/test-save"]);
+// CLAUDE-NOTE (2026-10-21): the blend-space routes are superseded by the Python path in anim-guard.ts (the C++
+// wiped samples and skipped assets silently); kept until the C++ is fixed at the next editor restart.
+const KNOWN_ORPHAN_CPP_ROUTES = new Set(["/api/test-save", "/api/create-blend-space", "/api/set-blend-space-samples"]);
 
 function walkTsFiles(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

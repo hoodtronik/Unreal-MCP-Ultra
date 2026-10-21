@@ -13,7 +13,7 @@ import { runPose, type PoseResult } from "./posing.js";
 //    opening/closing the Blend Space editor - Python-written samples otherwise evaluate to the reference pose -
 //    and verified by evaluating the asset at every sample point against the sample clip.
 
-const LIBS = ["ue_posing.py", "ue_anim.py"];
+const LIBS = ["ue_posing.py", "ue_anim.py", "ue_abp.py"];
 const MESH = "/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple";
 export const MATCH_CM = 0.5; // pose at a sample point vs the sample clip (live: 0.000 when resampled, ~40 cm when not)
 
@@ -39,8 +39,9 @@ const COMPILE_AFTER = new Set(["add_anim_state", "remove_anim_state", "add_anim_
 
 // CLAUDE-NOTE (2026-10-21, live): an ABP built with add_state_machine + add_anim_state compiled with only WARNINGS
 // ("Output Pose: Result was visible but ignored", "Entry node ... is not connected to state") and played the
-// reference pose. Those warnings mean an unwired graph, so they count as errors here.
-export const UNWIRED = /visible but ignored|is not connected to state|no entry state connection/i;
+// reference pose. Those warnings mean an unwired graph, so they count as errors here - and so does a transition
+// whose Can Enter Transition is unconnected ("will never be taken"; live, round 9).
+export const UNWIRED = /visible but ignored|is not connected to state|no entry state connection|will never be taken/i;
 
 function msg(e: any): string {
   return typeof e === "string" ? e : `${e.source === "log" ? "[log] " : ""}${e.graph ? `[${e.graph}] ` : ""}${e.nodeTitle ? `${e.nodeTitle}: ` : ""}${e.message}`;
@@ -152,8 +153,17 @@ export function withAnimGuards(server: McpServer): McpServer {
         }
       }
       const r = await handler(args, extra);
-      const body = r.content.map((c) => c.text).join("\n");
+      let body = r.content.map((c) => c.text).join("\n");
       if (r.isError || /^Error/m.test(body)) return { ...r, isError: true };
+      // CLAUDE-NOTE (2026-10-21, live): the C++ reads add_state_machine's name but never applies it - every machine
+      // came out "New State Machine". Rename the new graph the way the editor does (BlueprintEditorLibrary.rename_graph).
+      const sub = name === "add_state_machine" && a.name ? /Sub-graph: (.+)/.exec(body)?.[1]?.trim() : undefined;
+      if (sub && sub !== a.name) {
+        const rn = await run("sm_rename(P['b'], P['o'], P['n'])", { b: args.blueprint, o: sub, n: a.name });
+        if (!rn.ok) return text(`${body}\nCould not apply the name '${a.name}': ${rn.error}`, true);
+        body = body.split(sub).join(rn.name);
+        if (rn.name !== a.name) notes.push(`Name '${a.name}' was taken; the machine is '${rn.name}'.`);
+      }
       if (!COMPILE_AFTER.has(name) || !args.blueprint) return notes.length ? text([body, ...notes].join("\n")) : r;
       notes.push(...(await autowire(name, args, body)));
       const v = compileSummary(await uePost("/api/validate-blueprint", { blueprint: args.blueprint }), expectedFor(name, args, body));

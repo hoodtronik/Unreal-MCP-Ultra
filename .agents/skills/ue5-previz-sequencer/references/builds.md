@@ -107,3 +107,20 @@ measured one frame (frame arg silently dropped -> added).
 Eyes vs numbers: the first passing mirror (0.04 cm) had inside-out shoes and feet 2.8 cm in the floor - negative
 initial scale copied from the right-side controls (gotcha 54); the kneel failed at ball_r 5 cm until bones were read
 from the mesh instead of the rig hierarchy (gotcha 55).
+
+## 7. Locomotion switch (2026-10-21, `/Game/_MCPLab/Anim/ABP_Locomotion`, first state-machine rules + PIE test)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `create_anim_blueprint` ABP_Locomotion (SK_Mannequin); `add_state_machine` name Locomotion | machine named Locomotion (was "New State Machine"), wired to Output Pose |
+| 2 | `add_anim_state` Idle/Walk/Jog (MM_Idle, MF_Unarmed_Walk_Fwd, MF_Unarmed_Jog_Fwd); `add_anim_transition` Idle<->Walk, Walk<->Jog; `add_variable` Speed (float), bRun (bool) | 3 states, 4 transitions |
+| 3 | `anim_transition_rule` Idle->Walk Speed >= 60, Walk->Idle Speed < 50, Walk->Jog bRun true, Jog->Walk bRun false | Compile OK after the 4th (the first three report the rest as unwired) |
+| 4 | `anim_bp_check` | animates, 30.9 cm from ref |
+| 5 | `anim_bp_drive pie:true` bRun -> Speed 200 -> bRun off -> Speed 55 -> Speed 0 | Idle (no Idle->Jog), Jog (chained via Walk), Walk, Walk (hysteresis), Idle |
+| 6 | `anim_bp_drive place` Loco_Idle/Walk/Jog at y -820/-600/-380 facing +X; viewport 60 deg from [900,-600,130]; `screenshot_graph` Locomotion + "Walk to Idle" | trio + graph images |
+
+Eyes vs numbers: a drive on a half-wired probe ABP stayed in Walk at Speed 0 (Walk->Idle unwired; compile only warned) -
+the test is what showed it. Clip matching first failed by 25-70 cm: the state player strips root motion, the raw clip
+walks its root forward - compare root-relative. Placed characters drift forward through the cycle and snap back (root
+motion not consumed by a SkeletalMeshActor); fine for stills, use anim_walk for travel.
+
