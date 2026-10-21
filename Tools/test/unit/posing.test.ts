@@ -38,3 +38,14 @@ describe("posing helpers", () => {
     expect(JSON.parse(Buffer.from(b64, "base64").toString("utf-8")).quote).toBe("it's \"q\"");
   });
 });
+
+import { retargetVerdict } from "../../src/tools/retarget.js";
+
+describe("retarget verdict (thresholds calibrated live 2026-10-21)", () => {
+  it("passes the good Manny->girl retarget and fails the known-broken / wrong-clip cases", () => {
+    expect(retargetVerdict({ ok: true, mean_motion_err_deg: 3.39, pelvis_height_max_diff: 0.0 }).ok).toBe(true);
+    expect(retargetVerdict({ ok: true, mean_motion_err_deg: 3.39, pelvis_height_max_diff: 1.185 }).ok).toBe(false);
+    expect(retargetVerdict({ ok: true, mean_motion_err_deg: 11.77, pelvis_height_max_diff: 0.0 }).ok).toBe(false);
+    expect(retargetVerdict({ ok: false, error: "x" }).reasons).toEqual(["x"]);
+  });
+});

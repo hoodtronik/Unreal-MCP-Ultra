@@ -480,3 +480,63 @@ def target_point(spec):
         p = a.get_actor_location()
     o = spec.get("offset") or [0, 0, 0]
     return [p.x + o[0], p.y + o[1], p.z + o[2]]
+
+
+# ------------------------------------------------------------------ preview a clip on a level actor
+
+def preview_anim(label, anim_path, time=0.0, mesh=None, location=None, facing=None):
+    """Show one moment of an AnimSequence on a level SkeletalMeshActor (spawned if missing). Bones update on the
+    NEXT editor tick - read them back with read_actor_pose on a later call.
+    CLAUDE-NOTE (2026-10-21, live 5.6.1): override_animation_data / set_animation + set_position on an editor
+    component do NOT re-evaluate bones (sockets kept the previous clip's pose across calls). What works:
+    set_update_animation_in_editor(True) + single-node play_animation + set_position, applied on the next tick."""
+    anim = unreal.load_asset(anim_path)
+    if not isinstance(anim, unreal.AnimSequenceBase):
+        raise ValueError("Not an animation asset: " + str(anim_path))
+    act = next((a for a in _eas().get_all_level_actors() if a.get_actor_label() == label), None)
+    created = False
+    if act is None:
+        if not mesh:
+            raise ValueError("No actor '%s'; pass mesh to spawn one" % label)
+        act = _eas().spawn_actor_from_class(unreal.SkeletalMeshActor, unreal.Vector(*(location or (0, 0, 0))))
+        act.set_actor_label(label)
+        created = True
+    c = act.get_component_by_class(unreal.SkeletalMeshComponent)
+    if mesh:
+        c.set_skeletal_mesh_asset(unreal.load_asset(mesh))
+    if location is not None:
+        act.set_actor_location(unreal.Vector(*location), False, False)
+    if facing is not None:
+        act.set_actor_rotation(unreal.Rotator(pitch=0.0, yaw=float(facing) - MESH_YAW_OFFSET, roll=0.0), False)
+    sk = c.get_skeletal_mesh_asset()
+    if sk is None or sk.get_editor_property("skeleton") != anim.get_editor_property("skeleton"):
+        raise ValueError("Animation skeleton does not match the actor's mesh skeleton")
+    c.set_update_animation_in_editor(True)
+    c.set_animation_mode(unreal.AnimationMode.ANIMATION_SINGLE_NODE)
+    c.play_animation(anim, False)
+    c.set_position(float(time), False)
+    c.set_play_rate(0.0)
+    return {"ok": True, "actor": label, "created": created, "anim": anim_path, "time": float(time),
+            "length": round(anim.get_play_length(), 4)}
+
+
+def read_actor_pose(label, bones=None):
+    act = next((a for a in _eas().get_all_level_actors() if a.get_actor_label() == label), None)
+    if act is None:
+        raise ValueError("No level actor labelled '%s'" % label)
+    sk = act.get_component_by_class(unreal.SkeletalMeshComponent)
+    allb = _bone_map(sk)
+    want = bones or ["pelvis", "head", "hand_l", "hand_r", "foot_l", "foot_r"]
+    pos = {}
+    for w in want:
+        real = w if w in allb else resolve_role(allb, w)
+        pos[w] = _v(sk.get_socket_location(real)) if real else None
+    feet = [sk.get_socket_location(x).z for x in (resolve_role(allb, "foot_l"), resolve_role(allb, "foot_r"),
+                                                   resolve_role(allb, "ball_l"), resolve_role(allb, "ball_r")) if x]
+    # The live clip is on the single-node instance; animation_data.anim_to_play is the stale saved field.
+    ai = sk.get_anim_instance()
+    asset = ai.get_animation_asset() if isinstance(ai, unreal.AnimSingleNodeInstance) else None
+    return {"ok": True, "actor": label, "bones": pos, "facing": measure_facing(sk),
+            "lowest_foot_z": round(min(feet), 3) if feet else None,
+            "anim": asset.get_path_name() if asset else None,
+            "position": round(sk.get_position(), 4) if hasattr(sk, "get_position") else None}

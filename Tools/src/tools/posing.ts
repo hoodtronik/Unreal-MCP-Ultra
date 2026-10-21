@@ -19,12 +19,16 @@ import { ensureUE, uePost } from "../ue-bridge.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // src/tools and dist/tools both sit two levels under Tools/.
-const LIB_PATH = resolve(HERE, "../../python/ue_posing.py");
+const PY_DIR = resolve(HERE, "../../python");
 
-let libCache: string | null = null;
-function posingLib(): string {
-  if (libCache === null) libCache = readFileSync(LIB_PATH, "utf-8");
-  return libCache;
+const libCache = new Map<string, string>();
+function pyLib(file: string): string {
+  let src = libCache.get(file);
+  if (src === undefined) {
+    src = readFileSync(resolve(PY_DIR, file), "utf-8");
+    libCache.set(file, src);
+  }
+  return src;
 }
 
 const DEFAULT_MESH = "/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple";
@@ -32,13 +36,13 @@ const DEFAULT_RIG = "/Game/Characters/Mannequins/Rigs/CR_Mannequin_Body";
 const SENTINEL = "__POSE__";
 
 /** Build a script: posing lib + params (base64 JSON as P) + one call whose dict result is emitted. */
-export function posingScript(call: string, params: Record<string, unknown>): string {
+export function posingScript(call: string, params: Record<string, unknown>, libFile = "ue_posing.py"): string {
   const b64 = Buffer.from(JSON.stringify(params), "utf-8").toString("base64");
   // CLAUDE-NOTE (2026-10-21, live): UE's ExecPythonCommand (ExecuteFile mode) treats a command containing ".py"
   // followed by whitespace as "<file> <args>" and tries to load it ("Could not load Python file '.../import
   // unreal<newline># ue_posing.py'"). The lib's comments mention its own file name, so the lib travels
   // base64-encoded and is exec()'d - the command text then contains nothing that heuristic can match.
-  const lib = Buffer.from(posingLib(), "utf-8").toString("base64");
+  const lib = Buffer.from(pyLib(libFile), "utf-8").toString("base64");
   return `import unreal, json as _json, base64 as _b64
 exec(_b64.b64decode("${lib}").decode("utf-8"), globals())
 P = _json.loads(_b64.b64decode("${b64}").decode("utf-8"))
@@ -62,8 +66,8 @@ export function parsePoseOutput(out: string): PoseResult {
   }
 }
 
-async function runPose(call: string, params: Record<string, unknown>): Promise<PoseResult> {
-  const data = await uePost("/api/run-python", { code: posingScript(call, params) });
+export async function runPose(call: string, params: Record<string, unknown>, libFile = "ue_posing.py"): Promise<PoseResult> {
+  const data = await uePost("/api/run-python", { code: posingScript(call, params, libFile) });
   if (data.error) return { ok: false, error: data.error };
   const out = typeof data.output === "string" ? data.output : "";
   // A script that never ran (syntax error, file heuristic) reports success=false with the reason in result.
@@ -329,4 +333,35 @@ export function registerPosingTools(server: McpServer): void {
       return text([...lines, ...fmtPose(r)].join("\n"), !ok);
     },
   );
+
+  server.tool(
+    "anim_preview",
+    "Show one moment of an animation clip on a level SkeletalMeshActor (spawned from 'mesh' if the label is new) " +
+      "and READ the posed bones back on the next tick - for judging a clip or a retarget by eye and by numbers " +
+      "without Sequencer. Facing is the direction the character visually faces (mesh +Y offset handled).",
+    {
+      actor: z.string().describe("Actor label (created if missing)."),
+      anim: z.string().describe("AnimSequence path; its skeleton must match the actor's mesh."),
+      time: z.number().optional().describe("Seconds into the clip. Default 0."),
+      mesh: z.string().optional().describe("SkeletalMesh to spawn/assign."),
+      location: vec3.optional(),
+      facing: z.number().optional().describe("World yaw the character should visually face."),
+      bones: z.array(z.string()).optional(),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const w = await runPose("preview_anim(P['l'], P['anim'], P['t'], P['mesh'], P['loc'], P['face'])",
+        { l: a.actor, anim: a.anim, t: a.time ?? 0, mesh: a.mesh ?? null, loc: a.location ?? null, face: a.facing ?? null });
+      if (!w.ok) return text(`Error: ${w.error}`, true);
+      const r = await runPose("read_actor_pose(P['l'], P['bones'])", { l: a.actor, bones: a.bones ?? null });
+      if (!r.ok) return text(`Applied but readback failed: ${r.error}`, true);
+      const applied = r.anim && r.anim.split(".")[0] === a.anim && (r.position === null || Math.abs(r.position - (a.time ?? 0)) < 1e-3);
+      return text([
+        `${applied ? "Showing" : "NOT APPLIED:"} ${a.anim} at ${a.time ?? 0}s / ${w.length}s on '${a.actor}'${w.created ? " (spawned)" : ""}.`,
+        ...fmtPose(r),
+      ].join("\n"), !applied);
+    },
+  );
+
 }
