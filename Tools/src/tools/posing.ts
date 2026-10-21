@@ -485,4 +485,77 @@ export function registerPosingTools(server: McpServer): void {
     },
   );
 
+
+  server.tool(
+    "pose_set_interpolation",
+    "Set how a character's Control Rig keys interpolate: 'smooth' (cubic auto - pose-to-pose motion), 'linear', or " +
+      "'constant' (stepped, held poses for animatics). Clip bakes from pose_setup_character are constant, so a pose " +
+      "keyed later SNAPS at its frame until the moving controls are made smooth. Optionally only some controls.",
+    {
+      sequence: seqArg,
+      binding: bindingArg,
+      mode: z.enum(["smooth", "linear", "constant"]),
+      controls: z.array(z.string()).optional().describe("Only these controls (default all)."),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const r = await runPose("set_interpolation(P['seq'], P['b'], P['m'], P['c'])", { seq: a.sequence, b: a.binding, m: a.mode, c: a.controls ?? null });
+      if (!r.ok) return text(`Error: ${r.error}`, true);
+      const k = await runPose("key_frames(P['seq'], P['b'], P['c'])", { seq: a.sequence, b: a.binding, c: a.controls ?? null });
+      return text(`Set ${r.keys} key(s) to ${r.mode}. Keyed frames: ${k.ok ? k.frames.join(", ") : "?"}.`, r.keys === 0);
+    },
+  );
+
+  server.tool(
+    "pose_motion_report",
+    "Play a character's animation frame by frame (scrub, then read on the next tick) and measure bone motion: path " +
+      "length, largest single-frame step and POPS (a frame whose step is far above its neighbours - a snapped key, " +
+      "an FK/IK switch flip). Use after keying pose-to-pose animation and before rendering.",
+    {
+      sequence: seqArg,
+      binding: bindingArg,
+      start: z.number().int(),
+      end: z.number().int().describe("Last frame (inclusive)."),
+      step: z.number().int().optional().describe("Frame step (default 1)."),
+      bones: z.array(z.string()).optional().describe("Default hand_l, hand_r, head, pelvis, foot_l, foot_r."),
+      popCm: z.number().optional().describe("A step counts as a pop when > this many cm AND > 2x both neighbouring steps (default 4)."),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const bones = a.bones ?? ["hand_l", "hand_r", "head", "pelvis", "foot_l", "foot_r"];
+      const stepF = a.step ?? 1;
+      const track: Record<string, number[][]> = Object.fromEntries(bones.map((b) => [b, []]));
+      const frames: number[] = [];
+      for (let f = a.start; f <= a.end; f += stepF) {
+        const s = await runPose("scrub(P['seq'], P['f'])", { seq: a.sequence, f });
+        if (!s.ok) return text(`Error: ${s.error}`, true);
+        const r = await runPose("bones_now(P['seq'], P['b'], P['bones'])", { seq: a.sequence, b: a.binding, bones });
+        if (!r.ok) return text(`Error: ${r.error}`, true);
+        frames.push(f);
+        for (const b of bones) track[b].push(r.bones[b] ?? [NaN, NaN, NaN]);
+      }
+      const lines = [`${frames.length} frame(s) ${a.start}..${a.end} step ${stepF}:`];
+      let pops = 0;
+      for (const b of bones) {
+        const pts = track[b];
+        const steps = pts.slice(1).map((p, i) => Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1], p[2] - pts[i][2]));
+        if (!steps.length || steps.some(Number.isNaN)) { lines.push(`  ${b}: not found`); continue; }
+        const sorted = [...steps].sort((x, y) => x - y);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        const maxI = steps.indexOf(Math.max(...steps));
+        // CLAUDE-NOTE (2026-10-21, live): "> 3x median" flagged a fast but smooth arm raise (elbow 9 cm/frame while the
+        // hand also moved 8.6). A pop is a SPIKE: a step much larger than both neighbouring steps.
+        const popAt = steps.map((d, i) => ({ d, f: frames[i + 1], n: Math.max(steps[i - 1] ?? 0, steps[i + 1] ?? 0) }))
+          .filter((x) => x.d > (a.popCm ?? 4) && x.d > 2 * Math.max(x.n, 0.3));
+        pops += popAt.length;
+        lines.push(`  ${b}: path ${steps.reduce((x, y) => x + y, 0).toFixed(1)} cm, max step ${steps[maxI].toFixed(2)} cm at f${frames[maxI + 1]}, median ${median.toFixed(2)}` +
+          (popAt.length ? ` - POPS at ${popAt.map((x) => `f${x.f} (${x.d.toFixed(1)} cm)`).join(", ")}` : ""));
+      }
+      lines.push(pops ? `${pops} pop(s) found.` : "No pops.");
+      return text(lines.join("\n"), pops > 0);
+    },
+  );
+
 }

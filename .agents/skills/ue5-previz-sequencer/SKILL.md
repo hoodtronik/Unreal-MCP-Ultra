@@ -29,6 +29,9 @@ tick and `isError` is set from that readback:
 | `pose_look_at` | head gaze at a point / actor / other character's bone, iterated on measured gaze (head +Y) | 22.9 -> 0.027 deg in one step |
 | `pose_ground_check` | per-part contact from the POSED SKIN (GeometryScript copy of the posed mesh): feet, knees, hands, seat vs floor | knee joint z=-1.1 was 6 cm of skin under the floor |
 | `pose_ground_fix` | move body_ctrl in Z until one part's skin touches the floor, report all parts after | knee -6.08 -> -0.15 cm in one step |
+| `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
+| `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
+| `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
 | `anim_preview` | one moment of a clip on a level SkeletalMeshActor, bones read back | skeleton mismatch rejected |
 | `ikrig_create` | IK Rig: auto for Epic skeletons, bone-stem name map vs a template rig for custom ones | Manny 28 chains; Fab girl02_* 20 |
 | `retarget_setup` | IK Retargeter, chains auto-mapped, scaled-root (glTF) Pelvis Motion compensation | root 0.0093 -> pelvis scale 107 |
@@ -160,6 +163,10 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 29 | run_python says `Could not load Python file '.../<your code>'` | ExecuteFile mode treats any `.py` + whitespace in the command as a file path. Avoid it in code/comments (the tools send their libs base64). |
 | 30 | A kneel "looks fine" in numbers but the knee is buried | Bone centres are not skin: judge contact with `pose_ground_check` (posed mesh) and fix with `pose_ground_fix`. Mannequin feet rest ~1 cm into the floor by default (sole below ball bone). |
 | 31 | Close-up aimed dead centre shows another character's back | Projection cannot see occlusion; `shot_frame_check`/`shot_camera` trace camera->bone and fail when the aimed bone is hidden. |
+| 32 | Pose-to-pose keys snap instead of moving | Clip bakes write CONSTANT keys; run `pose_set_interpolation` smooth on the controls you animate. |
+| 33 | Elbow/knee flips mid-move | IK plane flips when the effector passes the limb root; key the pole vector (`arm_r_pv_ik_ctrl` world) at the same frames, then `pose_motion_report`. |
+| 34 | Actors you hid in the editor show up in the render | "Temporarily hidden in editor" is editor-only; MRQ (PIE) renders them. Delete or really hide them; `shot_render` lists them. |
+| 35 | IK switched on at a later frame pops the arm | Key the IK control at frame 0 at the limb's rest position first (read it with pose_read), then the move. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

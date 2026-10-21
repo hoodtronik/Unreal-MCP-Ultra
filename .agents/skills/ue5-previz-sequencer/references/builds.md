@@ -44,3 +44,17 @@ Wide side shot (0-16), high over-the-shoulder on Quinn (16-32), low reverse on M
 
 Eyes vs numbers: the first CU_Quinn (az -18) put her head at u,v 0,0 and rendered only Manny's back -> occlusion
 trace added to the framing check; the knee "contact" from bone centres was 6 cm of buried skin -> skin contact tools.
+
+## 3. Wave (2026-10-21, `/Game/_MCPLab/Scenes/SEQ_Wave`, first animation + MRQ render)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Manny facing -90, MM_Idle f10, end 60 | facing -90.0 |
+| 2 | `pose_reach` hand_r at f0 = rest [25.8,-6.5,89.8] (IK on with no pop), f14 raised [32,-14,168], f20/32 out [43,-14,165], f26/38 in [26,-16,170], f52 rest | all 0.000 cm |
+| 3 | `pose_set_interpolation` smooth on hand_r_ik_ctrl | 63 keys |
+| 4 | `pose_motion_report` 0-56 | elbow (lowerarm_r) 10-14 cm/frame around f9-10, f43-45 (IK plane flip) |
+| 5 | `pose_set_controls` arm_r_pv_ik_ctrl world [80,10,110] at f0/14/26/38/52 + smooth | no pops (spike rule; calibrated: constant keys -> pops at f14 78.8 cm, f20) |
+| 6 | `shot_camera` Cam 30 mm aim pelvis d 440 az 12 rise 15; `pose_look_at` {binding:'Cam'} | head v 0.69, feet -0.86; gaze 0.039 deg into the lens |
+| 7 | `shot_render` 960x540 | 60/60 frames + MP4 |
+
+Eyes: the wave reads, but the hand is a closed fist with the palm inward -> next: hand-shape tool (open/fist/point) + palm orientation.

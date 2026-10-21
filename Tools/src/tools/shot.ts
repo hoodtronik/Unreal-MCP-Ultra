@@ -1,4 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import { ensureUE, uePost } from "../ue-bridge.js";
 import { runPose, type PoseResult } from "./posing.js";
@@ -157,4 +160,59 @@ export function registerShotTools(server: McpServer): void {
       return { content, ...(check.ok ? {} : { isError: true }) };
     },
   );
+
+  server.tool(
+    "shot_render",
+    "Render a LevelSequence (all camera cuts, or a frame range) with Movie Render Queue to a PNG sequence, wait for " +
+      "it, and encode an MP4 with ffmpeg when ffmpeg is on PATH (or FFMPEG is set). Returns paths, frame count and a " +
+      "small poster frame inline. Warns about actors hidden only 'temporarily in editor' - they DO appear in renders. " +
+      "Unlike shot_capture this is the real render path (PIE executor), so it shows what an AI-video pass will get.",
+    {
+      sequence: z.string(),
+      width: z.number().int().optional().describe("Default 960."),
+      height: z.number().int().optional().describe("Default 540."),
+      start: z.number().int().optional(),
+      end: z.number().int().optional().describe("Exclusive end frame; with start renders a sub-range."),
+      outDir: z.string().optional().describe("Absolute output folder (default <Project>/Saved/MovieRenders/<sequence>)."),
+      timeoutSec: z.number().optional().describe("Give up waiting after this (default 600)."),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const st = await run("render_start(P['seq'], P['out'], P['w'], P['h'], P['s'], P['e'])", {
+        seq: a.sequence, out: a.outDir ?? null, w: a.width ?? 960, h: a.height ?? 540, s: a.start ?? null, e: a.end ?? null,
+      });
+      if (!st.ok) return text(`Error: ${st.error}`, true);
+      const deadline = Date.now() + (a.timeoutSec ?? 600) * 1000;
+      let s2: PoseResult = { ok: false };
+      let sawRendering = false;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1000));
+        s2 = await run("render_status(P['o'], P['p'])", { o: st.out_dir, p: st.prefix });
+        if (!s2.ok) return text(`Error: ${s2.error}`, true);
+        if (s2.rendering) sawRendering = true;
+        if (!s2.rendering && (sawRendering || s2.frames >= st.expected_frames) && s2.frames > 0) break;
+      }
+      const lines = [`Rendered ${s2.frames}/${st.expected_frames} frame(s) to ${st.out_dir} (${s2.first} .. ${s2.last}).`];
+      if (st.editor_hidden_actors_will_render?.length)
+        lines.push(`WARNING: hidden only in the editor, so visible in this render: ${st.editor_hidden_actors_will_render.join(", ")}`);
+      const ffmpeg = process.env.FFMPEG ?? "ffmpeg";
+      const fps = `${st.fps[0]}/${st.fps[1]}`;
+      const mp4 = join(st.out_dir, `${st.prefix}.mp4`);
+      const poster = join(st.out_dir, `${st.prefix}_poster.jpg`);
+      const first = Number(String(s2.first ?? "").split(".")[1] ?? 0);
+      const enc = spawnSync(ffmpeg, ["-y", "-loglevel", "error", "-framerate", fps, "-start_number", String(first),
+        "-i", join(st.out_dir, `${st.prefix}.%04d.png`), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart", mp4], { encoding: "utf-8" });
+      if (enc.error || enc.status !== 0) lines.push(`MP4 not encoded (${enc.error?.message ?? enc.stderr?.trim()}); PNG frames are in the folder.`);
+      else lines.push(`MP4: ${mp4} (${fps} fps)`);
+      const mid = Math.floor((s2.frames - 1) / 2) + first;
+      spawnSync(ffmpeg, ["-y", "-loglevel", "error", "-i", join(st.out_dir, `${st.prefix}.${String(mid).padStart(4, "0")}.png`), "-vf", "scale=480:-2", poster]);
+      const ok = s2.frames >= st.expected_frames && !s2.rendering;
+      if (!ok) lines.push(`Render incomplete or still running after the timeout.`);
+      const content: any[] = [{ type: "text" as const, text: lines.join("\n") }];
+      if (existsSync(poster)) content.push({ type: "image" as const, data: readFileSync(poster).toString("base64"), mimeType: "image/jpeg" });
+      return { content, ...(ok ? {} : { isError: true }) };
+    },
+  );
+
 }

@@ -263,3 +263,57 @@ def viewport_vs_cut(seq_path, frame=0):
     dy = abs((vrot.yaw - want["rotation"][1] + 540) % 360 - 180)
     return {"ok": dl < 1.0 and dy < 0.5, "camera": str(cb.get_display_name()), "viewport_offset_cm": round(dl, 3),
             "viewport_yaw_diff": round(dy, 3)}
+
+
+# ------------------------------------------------------------------ render (Movie Render Queue)
+
+def render_start(seq_path, out_dir=None, width=960, height=540, start=None, end=None, map_path=None):
+    """Queue ONE Movie Render Queue job (PIE executor) for the sequence and start it. Returns immediately; poll
+    render_status(). Output: PNG sequence {sequence_name}.{frame_number}.png in out_dir.
+    CLAUDE-NOTE (2026-10-21, live 5.6.1): 72 frames 960x540 rendered in ~20 s. Actors hidden only with
+    'temporarily hidden in editor' DO appear in MRQ renders (they showed up in the first test) - reported here."""
+    import os
+    seq = load_sequence(seq_path, open_it=False)
+    subsys = unreal.get_editor_subsystem(unreal.MoviePipelineQueueSubsystem)
+    if subsys.is_rendering():
+        raise RuntimeError("a Movie Render Queue render is already running")
+    world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+    mp = map_path or world.get_path_name().split(".")[0]
+    name = seq.get_name()
+    od = out_dir or os.path.abspath(unreal.Paths.project_saved_dir() + "MovieRenders/" + name).replace("\\", "/")
+    os.makedirs(od, exist_ok=True)
+    for f in os.listdir(od):   # stale frames from an earlier render would be encoded with the new ones
+        if f.startswith(name + ".") and f.endswith(".png"):
+            os.remove(os.path.join(od, f))
+    q = subsys.get_queue()
+    for j in list(q.get_jobs()):
+        q.delete_job(j)
+    job = q.allocate_new_job(unreal.MoviePipelineExecutorJob)
+    job.sequence = unreal.SoftObjectPath(seq.get_path_name())
+    job.map = unreal.SoftObjectPath(mp + "." + mp.rsplit("/", 1)[1])
+    job.job_name = "mcp_" + name
+    cfg = job.get_configuration()
+    out = cfg.find_or_add_setting_by_class(unreal.MoviePipelineOutputSetting)
+    out.output_directory = unreal.DirectoryPath(od)
+    out.output_resolution = unreal.IntPoint(int(width), int(height))
+    out.file_name_format = "{sequence_name}.{frame_number}"
+    if start is not None and end is not None:
+        out.use_custom_playback_range = True
+        out.custom_start_frame = int(start)
+        out.custom_end_frame = int(end)
+    cfg.find_or_add_setting_by_class(unreal.MoviePipelineDeferredPassBase)
+    cfg.find_or_add_setting_by_class(unreal.MoviePipelineImageSequenceOutput_PNG)
+    hidden = [a.get_actor_label() for a in _eas().get_all_level_actors()
+              if a.is_temporarily_hidden_in_editor() and not a.is_hidden()]
+    subsys.render_queue_with_executor(unreal.MoviePipelinePIEExecutor)
+    fps = seq.get_display_rate()
+    return {"ok": True, "out_dir": od, "prefix": name, "fps": [fps.numerator, fps.denominator],
+            "expected_frames": int((end if end is not None else seq.get_playback_end()) - (start if start is not None else seq.get_playback_start())),
+            "editor_hidden_actors_will_render": hidden}
+
+
+def render_status(out_dir, prefix):
+    import os
+    files = sorted(f for f in os.listdir(out_dir) if f.startswith(prefix + ".") and f.endswith(".png")) if os.path.isdir(out_dir) else []
+    return {"ok": True, "rendering": unreal.get_editor_subsystem(unreal.MoviePipelineQueueSubsystem).is_rendering(),
+            "frames": len(files), "first": files[0] if files else None, "last": files[-1] if files else None}

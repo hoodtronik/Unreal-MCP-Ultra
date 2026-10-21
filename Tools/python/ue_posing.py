@@ -609,7 +609,15 @@ def seq_target(seq_path, spec):
     """[x,y,z] | {binding, bone?, offset?} (a character in this sequence) | {actor, bone?, offset?} (level actor)."""
     if isinstance(spec, dict) and spec.get("binding"):
         seq = load_sequence(seq_path)
-        sk = skel_comp(seq, find_binding(seq, spec["binding"]))
+        b = find_binding(seq, spec["binding"])
+        sk = skel_comp(seq, b)
+        o = spec.get("offset") or [0, 0, 0]
+        if sk is None:   # a camera or prop binding: its actor location (look into the lens = {binding: 'ShotCam'})
+            act = bound_actor(seq, b)
+            if act is None:
+                raise ValueError("binding '%s' has no bound actor" % spec["binding"])
+            p = act.get_actor_location()
+            return [p.x + o[0], p.y + o[1], p.z + o[2]]
         bones = _bone_map(sk)
         bone = spec.get("bone") or "head"
         real = bone if bone in bones else resolve_role(bones, bone)
@@ -686,3 +694,67 @@ def nudge_control_z(seq_path, binding_name, control, dz, frame=0):
     L.set_control_rig_world_transform(seq, rig, control, f, cur, DR, True)
     evaluate(seq, frame)
     return {"ok": True, "control": control, "z": round(cur.translation.z, 3)}
+
+
+# ------------------------------------------------------------------ animation: interpolation + motion readback
+
+_INTERP = {"smooth": ("RCIM_CUBIC", "RCTM_AUTO"), "linear": ("RCIM_LINEAR", None), "constant": ("RCIM_CONSTANT", None)}
+
+
+def set_interpolation(seq_path, binding_name, mode="smooth", controls=None):
+    """Set key interpolation on a character's Control Rig channels (all, or channels of the named controls).
+    CLAUDE-NOTE (2026-10-21): clip bakes (pose_setup_character) write CONSTANT keys so held poses step; keys added
+    later inherit no smoothing, so pose-to-pose animation snaps unless the moving controls are set to smooth.
+    Bool channels (switches) have no interpolation and are skipped."""
+    if mode not in _INTERP:
+        raise ValueError("mode must be one of " + ", ".join(_INTERP))
+    seq = load_sequence(seq_path)
+    _, track = rig_proxy(seq, find_binding(seq, binding_name))
+    interp, tangent = _INTERP[mode]
+    want = set(controls or [])
+    n = 0
+    for sec in track.get_sections():
+        for ch in sec.get_all_channels():
+            name = str(ch.channel_name)
+            if want and name.split(".")[0] not in want:
+                continue
+            for k in (ch.get_keys() if hasattr(ch, "get_keys") else []):
+                if hasattr(k, "set_interpolation_mode"):
+                    k.set_interpolation_mode(getattr(unreal.RichCurveInterpMode, interp))
+                    if tangent and hasattr(k, "set_tangent_mode"):
+                        k.set_tangent_mode(getattr(unreal.RichCurveTangentMode, tangent))
+                    n += 1
+    evaluate(seq)
+    return {"ok": True, "mode": mode, "keys": n}
+
+
+def key_frames(seq_path, binding_name, controls=None):
+    """Frames that hold keys on the character's Control Rig (optionally only these controls)."""
+    seq = load_sequence(seq_path)
+    _, track = rig_proxy(seq, find_binding(seq, binding_name))
+    want = set(controls or [])
+    fr = set()
+    for sec in track.get_sections():
+        for ch in sec.get_all_channels():
+            if want and str(ch.channel_name).split(".")[0] not in want:
+                continue
+            for k in (ch.get_keys() if hasattr(ch, "get_keys") else []):
+                fr.add(int(k.get_time(DR).frame_number.value))
+    return {"ok": True, "frames": sorted(fr)}
+
+
+def scrub(seq_path, frame):
+    seq = load_sequence(seq_path)
+    evaluate(seq, frame)
+    return {"ok": True, "frame": int(frame)}
+
+
+def bones_now(seq_path, binding_name, bones):
+    seq = load_sequence(seq_path)
+    sk = skel_comp(seq, find_binding(seq, binding_name))
+    allb = _bone_map(sk)
+    out = {}
+    for w in bones:
+        real = w if w in allb else resolve_role(allb, w)
+        out[w] = _v(sk.get_socket_location(real)) if real else None
+    return {"ok": True, "frame": current_frame(), "bones": out}
