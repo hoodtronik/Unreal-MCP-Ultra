@@ -43,6 +43,7 @@ tick and `isError` is set from that readback:
 | `pose_mirror` / `pose_library_apply mirror:true` | flip a pose left<->right in place (keys all 148 controls, limbs end in FK); verifies every rendered bone vs the mirror image (0.5 cm) and fails on reflected (negative-scale) bones | 4 library poses mirrored: 82 bones <= 0.04 cm, 0 reflected, foot contact equal |
 | `anim_transition_rule` | WHEN a state-machine transition fires: wires `<var> <op> <value>` (float/int) or `<bool> true/false` into Can Enter Transition, names rule graphs "<From> to <To>", exposes the variable, compiles, reads the wiring back | ABP_Locomotion: 4 rules, Compile OK; refuses to overwrite without `replace` |
 | `anim_bp_drive` | run the ABP (hidden editor preview or `pie:true`), set variables step by step, report the state from the RENDERED pose (bones vs each state's clip, root-relative, 120 fps); `expect` makes it a test; `place` leaves a visible character for captures | PIE: Idle->Jog chain, hysteresis 55/60/40 all as expected; playing state <= 2.6 cm, others >= 18 cm; caught an unwired Walk->Idle |
+| `anim_bake` | bake a Sequencer character's performance (Control Rig keys etc.) into an AnimSequence, then verify every rendered bone vs the clip at sampled frames (1 cm) | SEQ_Wave -> A_Wave_Baked: 89 bones x 9 frames, worst 0.39 cm; empty clip read 12-60 cm |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -204,6 +205,8 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 56 | add_node / connect_pins into a transition rule edit the WRONG transition | Every rule graph was named "Transition" and the C++ takes the first name match. `anim_transition_rule` renames them "<From> to <To>" first (Python `BlueprintEditorLibrary.rename_graph`). |
 | 57 | ABP variable can't be set from Python / a test ("cannot be edited on instances") | Default BP variables are not Instance Editable and Python has no other setter. `anim_transition_rule` ticks Instance Editable on its variable; Python cannot read the active state either - `anim_bp_drive` reads the rendered pose. |
 | 58 | Transition compiles but never fires | "will never be taken" is only a warning; the guards now count it as unwired, and `anim_bp_drive` with `expect` shows the stuck state. `add_state_machine` names are now applied (the C++ ignored them). |
+| 59 | Bake / new AnimSequence refuses 24 fps ("not a multiple or factor of 30 fps") | The project enforces clip rates compatible with its animation default (30). `anim_bake` records at 30 when 24 is refused; timing is kept in seconds. Don't change the project setting. |
+| 60 | anim_bp_drive says AMBIGUOUS | Two states' clips are within 2 cm (a baked wave's rest frame was 4 cm from idle). Read again at another moment (`wait`) or make the clips more distinct; it refuses to guess. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

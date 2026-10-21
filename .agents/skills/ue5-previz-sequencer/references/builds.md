@@ -124,3 +124,16 @@ the test is what showed it. Clip matching first failed by 25-70 cm: the state pl
 walks its root forward - compare root-relative. Placed characters drift forward through the cycle and snap back (root
 motion not consumed by a SkeletalMeshActor); fine for stills, use anim_walk for travel.
 
+## 8. Posed wave -> gameplay state (2026-10-21, `/Game/_MCPLab/Anim/A_Wave_Baked` in ABP_Locomotion)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `anim_bake` SEQ_Wave / Manny -> A_Wave_Baked (Control Rig keyed wave from build 3) | 2.5 s, 75 frames @ 30 fps; 89 bones x 9 frames, worst 0.39 cm |
+| 2 | `add_anim_state` Wave (A_Wave_Baked) in ABP_Locomotion; transitions Idle<->Wave; `add_variable` bWave; `anim_transition_rule` bWave true / false | Compile OK |
+| 3 | `anim_bp_drive pie:true` bWave -> wait -> Speed 200 -> bWave off -> Speed 0 | Wave, Wave, Wave (no Wave->Walk), Walk (via Idle), Idle |
+| 4 | `anim_bp_drive place` Loco_Wave at y -160; close SEQ_Wave; viewport 55 deg from [1000,-490,125], 5 captures | waver hand up, 4 states in one frame |
+
+Eyes vs numbers: the first placement (y -1040) stood past the floor edge over the void and passed every check; the
+open SEQ_Wave's own Manny stood in the shot until the sequence was closed. The baked wave's rest frame is 4 cm from
+idle - the state check now reports AMBIGUOUS below a 2 cm margin.
+

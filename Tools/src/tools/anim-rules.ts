@@ -18,6 +18,7 @@ const LABEL = "MCP_Drive";
 // CLAUDE-NOTE (live, round 9): playing state 0.0-2.6 cm (PIE jog/walk read between frames), nearest OTHER state
 // never under 18 cm over 3 clips - 5 cm keeps a wide margin both ways.
 export const STATE_MATCH_CM = 5;
+export const AMBIGUOUS_CM = 2;
 
 function text(t: string, isError = false) {
   return { content: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) };
@@ -57,7 +58,10 @@ export function decideState(stateClips: Record<string, string>, clips: Record<st
     .map(([state, clip]) => ({ state, cm: clips[clip]?.cm ?? Infinity }))
     .sort((a, b) => a.cm - b.cm);
   const best = ranked[0];
-  return { state: best && best.cm <= STATE_MATCH_CM ? best.state : null, ranked };
+  // CLAUDE-NOTE (live): a baked wave's first frame sat 4.3 cm from the idle clip; with PIE read jitter up to 2.6 cm
+  // two states that close must be reported as ambiguous, not decided by a coin flip.
+  const ambiguous = !!best && ranked.length > 1 && ranked[1].cm - best.cm < AMBIGUOUS_CM;
+  return { state: best && best.cm <= STATE_MATCH_CM && !ambiguous ? best.state : null, ranked, ambiguous };
 }
 
 async function graph(bp: string, name: string): Promise<any> {
@@ -233,7 +237,7 @@ export function registerAnimRuleTools(server: McpServer): void {
         };
         const fmt = (d: ReturnType<typeof decideState>) => d.ranked.map((r) => `${r.state} ${r.cm.toFixed(1)}`).join(", ");
         const d0 = await read();
-        lines.push(`Start: ${d0.state ?? "NO STATE MATCHES"} (cm per state: ${fmt(d0)})`);
+        lines.push(`Start: ${d0.state ?? (d0.ambiguous ? "AMBIGUOUS" : "NO STATE MATCHES")} (cm per state: ${fmt(d0)})`);
         for (const [i, s] of a.steps.entries()) {
           if (s.set && Object.keys(s.set).length) {
             const w = await run("abp_set_vars(P['l'], P['v'], P['p'])", { l: label, v: s.set, p: pie });
@@ -247,7 +251,7 @@ export function registerAnimRuleTools(server: McpServer): void {
           const d = await read();
           const good = s.expect === undefined || d.state === s.expect;
           ok &&= good && d.state !== null;
-          lines.push(`Step ${i + 1} ${s.set ? JSON.stringify(s.set) : "(wait)"} -> ${d.state ?? "NO STATE MATCHES"}${s.expect !== undefined ? (good ? " (expected)" : `  <- EXPECTED ${s.expect}`) : ""} (cm per state: ${fmt(d)})`);
+          lines.push(`Step ${i + 1} ${s.set ? JSON.stringify(s.set) : "(wait)"} -> ${d.state ?? (d.ambiguous ? "AMBIGUOUS (two states' clips match)" : "NO STATE MATCHES")}${s.expect !== undefined ? (good ? " (expected)" : `  <- EXPECTED ${s.expect}`) : ""} (cm per state: ${fmt(d)})`);
         }
       } catch (e: any) {
         lines.push(`Error: ${e?.message ?? e}`);

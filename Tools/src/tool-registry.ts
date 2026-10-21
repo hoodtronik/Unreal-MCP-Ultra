@@ -57,6 +57,7 @@ import { registerWalkTools } from "./tools/walk.js";
 import { registerBlendSpaceTools } from "./tools/anim-guard.js";
 import { registerPoseLibraryTools } from "./tools/poselib.js";
 import { registerAnimRuleTools } from "./tools/anim-rules.js";
+import { registerAnimBakeTools } from "./tools/anim-bake.js";
 
 // CLAUDE-NOTE: single source of truth for "every tool-registration function + a human-friendly
 // category label", consumed by index.ts (real registration), batch-schema-invariant.test.ts
@@ -125,6 +126,7 @@ export const TOOL_REGISTRATIONS: ToolRegistration[] = [
   { register: registerBlendSpaceTools, category: "Blend Spaces (1D/2D, verified)" },
   { register: registerPoseLibraryTools, category: "Pose Library (Control Rig poses)" },
   { register: registerAnimRuleTools, category: "Anim Blueprint rules + runtime check" },
+  { register: registerAnimBakeTools, category: "Bake Sequencer performance to AnimSequence" },
   // CLAUDE-NOTE: actor-state.ts existed with three working tools (set_actor_mobility,
   // set_actor_visibility, set_actor_physics), matching C++ handlers and registered routes — but was
   // never listed here, so none of them were ever exposed to a client. route-parity.test.ts could

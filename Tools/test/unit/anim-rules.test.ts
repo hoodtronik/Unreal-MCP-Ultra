@@ -52,3 +52,23 @@ describe("compileSummary", () => {
     expect(s.lines[0]).toMatch(/UNWIRED/);
   });
 });
+
+import { checkFrames } from "../../src/tools/anim-bake.js";
+describe("checkFrames", () => {
+  it("spreads frames over the range including both ends", () => {
+    expect(checkFrames(0, 60, 5)).toEqual([0, 15, 30, 45, 60]);
+    expect(checkFrames(10, 12, 9)).toEqual([10, 11, 12]);
+    expect(checkFrames(5, 5, 9)).toEqual([5]);
+  });
+});
+
+describe("decideState ambiguity", () => {
+  it("refuses to decide between two clips within 2 cm", () => {
+    const d = decideState({ Idle: "/A/I", Wave: "/A/W" }, { "/A/I": { cm: 1.0 }, "/A/W": { cm: 2.5 } });
+    expect(d.ambiguous).toBe(true);
+    expect(d.state).toBeNull();
+  });
+  it("decides with a clear margin", () => {
+    expect(decideState({ Idle: "/A/I", Wave: "/A/W" }, { "/A/I": { cm: 0.0 }, "/A/W": { cm: 4.3 } }).state).toBe("Idle");
+  });
+});
