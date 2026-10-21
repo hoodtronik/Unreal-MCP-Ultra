@@ -466,7 +466,10 @@ def add_audio(seq, track_name, sound_path, start, end=None):
 #                             the character visually faced +Y)
 # The reliable measure is shoulder GEOMETRY, which is free of both conventions.
 
-MESH_YAW_OFFSET = -90.0   # visual facing = actor yaw + MESH_YAW_OFFSET, for the UE5 mannequins
+# CLAUDE-NOTE (2026-10-21, UE 5.6.1 live): the UE5 mannequin mesh faces +Y at actor yaw 0 (toes foot->ball
+# at 96/137 deg, upperarm_l on +X), so visual facing = actor yaw + 90. The old -90 here and the old facing_yaw
+# formula were BOTH 180 deg wrong, so set_facing -> facing_yaw "round-tripped" while the render showed the back.
+MESH_YAW_OFFSET = 90.0   # visual facing = actor yaw + MESH_YAW_OFFSET, for the UE5 mannequins
 
 
 def bound_actor(seq, name):
@@ -485,13 +488,14 @@ def bound_actor(seq, name):
 
 def facing_yaw(seq, name):
     """TRUE world yaw a humanoid visually faces, from shoulder geometry. Convention-free:
-    left = upperarm_l - upperarm_r, forward = left x up. Use this to verify facing, never the
+    left = upperarm_l - upperarm_r, forward = up x left (left-handed). Use this to verify facing, never the
     actor yaw and never a bone rotation."""
     _, act = bound_actor(seq, name)
     c = act.get_component_by_class(unreal.SkeletalMeshComponent)
     l = c.get_socket_location("upperarm_l"); r = c.get_socket_location("upperarm_r")
     lv = unreal.Vector(l.x - r.x, l.y - r.y, 0.0); lv = lv / lv.length()
-    return math.degrees(math.atan2(-lv.x, lv.y))
+    # UE is left-handed (X fwd, Y right, Z up): facing +X puts the left shoulder on -Y, so yaw = atan2(left.x, -left.y).
+    return math.degrees(math.atan2(lv.x, -lv.y))
 
 
 def _xform_section(binding):

@@ -19,3 +19,6 @@ Thumbs.db
 
 # Local link to .agents/skills for Claude Code (made by scripts/link-agent-skills.*)
 .claude/skills
+
+# Local copy of the Unreal Engine manual (Epic docs, not ours to redistribute)
+docs/ue-docs/

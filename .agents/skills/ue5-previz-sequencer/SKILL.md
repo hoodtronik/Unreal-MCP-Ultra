@@ -118,7 +118,7 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 10 | `set_control` "did nothing" **after** a clip bake, only on the second run | Baking stacks keys: the one-frame bake writes 2 keys per channel (one at a sub-frame tick) and re-baking adds more at the *same ticks*. A setter updates one duplicate while evaluation reads another. `pose_from_clip` now clears the section first and collapses to one key per channel. |
 | 11 | `get_bound_objects` empty for a spawnable created in the same `run_python` call | Spawnables are instantiated on Sequencer's next evaluation. Force one (`refresh_current_level_sequence()` + `set_current_time`) before resolving components — `bound_skeletal_mesh_component` does this. |
 | 12 | Long lens = blurry frame | CineCamera default manual focus + DoF. `add_shot_camera(sharp=True)` (default) sets `focus_settings.focus_method = DISABLE`. |
-| 13 | **A character spawned at yaw 180 renders in profile, not back-to-camera** | The UE5 mannequin *mesh* faces **−Y at actor yaw 0** — a −90° offset a Character BP normally cancels on its mesh component but a bare `SkeletalMeshActor` does not. Aim with `set_facing(seq, name, visual_yaw)` (applies `MESH_YAW_OFFSET`), never the raw spawn yaw. |
+| 13 | **A character spawned at yaw 180 renders in profile, not back-to-camera** | The UE5 mannequin *mesh* faces **+Y at actor yaw 0** (toes foot→ball point +Y, `upperarm_l` on +X) — a +90° offset a Character BP cancels with its mesh component's −90° yaw but a bare `SkeletalMeshActor` does not. (Before 2026-10-21 the lib had this as −90° *and* a 180°-wrong `facing_yaw`; the two errors cancelled in the round-trip and shots came out back-to-camera.) Aim with `set_facing(seq, name, visual_yaw)` (applies `MESH_YAW_OFFSET`), never the raw spawn yaw. |
 | 14 | Two different "measurements" both confirm a facing that is visibly wrong | Actor yaw describes the actor, not the mesh inside it; **bone/socket rotation is not facing** (the head socket read −180 while the character faced +Y). Only shoulder geometry is convention-free — `facing_yaw()`. Always round-trip: set, then re-measure. |
 | 15 | Every captured frame is covered in coloured rig circles | Control Rig gizmos draw in the editor viewport. `presentation_mode(seq)` clears the selection and enables game view — **never** `hide_all_controls` (gotcha 19). |
 | 16 | The captured frame shows the *previous* shot's pose or placement | A spawnable's transform track applies on the NEXT evaluation, so one `set_current_time` is not enough. `show_frame(seq, f)` scrubs twice and invalidates the viewport. |
@@ -132,7 +132,7 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 
 Previz characters are `/MetaHumanBodyTracker/SKM_Body` + `MetaHuman_ControlRig_Simple` (`MH_BODY_MESH` /
 `MH_BODY_RIG`), so markerless-mocap solves (which land on `metahuman_base_skel`) drop straight in with
-`pose_from_clip` — no retarget per solve. Facing offset is the same −90° as the mannequin; `set_facing` works.
+`pose_from_clip` — no retarget per solve. Facing offset is the same +90° as the mannequin; `set_facing` works (re-verify on the MH body after the 2026-10-21 sign fix).
 Two costs: the rig is **FK only** (one control per bone, no IK handles), and the body is **headless**.
 
 Poses authored on Manny/Quinn move across once via `/Game/Previz/Retarget/RTG_UE5Mannequin_To_MetaHuman`
