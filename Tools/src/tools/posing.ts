@@ -36,13 +36,14 @@ const DEFAULT_RIG = "/Game/Characters/Mannequins/Rigs/CR_Mannequin_Body";
 const SENTINEL = "__POSE__";
 
 /** Build a script: posing lib + params (base64 JSON as P) + one call whose dict result is emitted. */
-export function posingScript(call: string, params: Record<string, unknown>, libFile = "ue_posing.py"): string {
+export function posingScript(call: string, params: Record<string, unknown>, libFile: string | string[] = "ue_posing.py"): string {
   const b64 = Buffer.from(JSON.stringify(params), "utf-8").toString("base64");
   // CLAUDE-NOTE (2026-10-21, live): UE's ExecPythonCommand (ExecuteFile mode) treats a command containing ".py"
   // followed by whitespace as "<file> <args>" and tries to load it ("Could not load Python file '.../import
   // unreal<newline># ue_posing.py'"). The lib's comments mention its own file name, so the lib travels
   // base64-encoded and is exec()'d - the command text then contains nothing that heuristic can match.
-  const lib = Buffer.from(pyLib(libFile), "utf-8").toString("base64");
+  const files = Array.isArray(libFile) ? libFile : [libFile];
+  const lib = Buffer.from(files.map(pyLib).join("\n\n"), "utf-8").toString("base64");
   return `import unreal, json as _json, base64 as _b64
 exec(_b64.b64decode("${lib}").decode("utf-8"), globals())
 P = _json.loads(_b64.b64decode("${b64}").decode("utf-8"))
@@ -66,7 +67,7 @@ export function parsePoseOutput(out: string): PoseResult {
   }
 }
 
-export async function runPose(call: string, params: Record<string, unknown>, libFile = "ue_posing.py"): Promise<PoseResult> {
+export async function runPose(call: string, params: Record<string, unknown>, libFile: string | string[] = "ue_posing.py"): Promise<PoseResult> {
   const data = await uePost("/api/run-python", { code: posingScript(call, params, libFile) });
   if (data.error) return { ok: false, error: data.error };
   const out = typeof data.output === "string" ? data.output : "";
