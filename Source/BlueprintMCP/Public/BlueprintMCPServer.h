@@ -453,6 +453,7 @@ private:
 	FString HandleSetMirrorTableRows(const FString& Body);
 	FString HandleRemoveMirrorTableRows(const FString& Body);
 	FString HandleCreateMirrorTable(const FString& Body);
+	FString HandleSetBlendProfile(const FString& Body);
 	FString HandleListAnimSlots(const FString& Body);
 	FString HandleListSyncGroups(const FString& Body);
 	FString HandleCreateBlendSpace(const FString& Body);
