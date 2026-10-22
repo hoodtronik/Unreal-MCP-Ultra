@@ -167,7 +167,7 @@ export function registerPosingTools(server: McpServer): void {
       const err = await ensureUE();
       if (err) return text(err, true);
       const p = {
-        seq_path: a.sequence, name: a.binding, mesh: a.mesh ?? DEFAULT_MESH, rig_bp: a.rig ?? DEFAULT_RIG,
+        seq_path: a.sequence, name: a.binding, mesh: a.mesh ?? DEFAULT_MESH, rig_bp: a.rig ?? DEFAULT_RIG, rig_explicit: a.rig !== undefined,
         location: a.location ?? [0, 0, 0], facing: a.facing ?? null, fps: a.fps ?? 24, end: a.end ?? 48,
         clip: a.clip ?? null, clip_frame: a.clipFrame ?? 0, frame: a.frame ?? 0,
       };
@@ -328,7 +328,7 @@ export function registerPosingTools(server: McpServer): void {
       const ok = miss <= tol;
       const lines = [
         `${ok ? "Reached" : "NOT reached"}: ${a.effector} at ${JSON.stringify(bone)}, target ${JSON.stringify(w.target.map((v: number) => +v.toFixed(3)))}, miss ${miss.toFixed(3)} cm (tolerance ${tol}).`,
-        `Keyed ${w.control} (world) + ${w.switch}=IK at frame ${frame}.`,
+        `Keyed ${w.control} (world)${w.switch ? ` + ${w.switch}=IK` : " (rig has no FK/IK switch)"} at frame ${frame}.`,
       ];
       const root = w.limb_root ? r.bones?.[w.limb_root] : null;
       if (root && w.limb_length) {

@@ -78,6 +78,7 @@ import { registerAnimFbxTools } from "./tools/anim-fbx.js";
 import { registerSeqCurveTools } from "./tools/seq-curve.js";
 import { registerAnimStitchTools } from "./tools/anim-stitch.js";
 import { registerAimOffsetTools } from "./tools/aim-offset.js";
+import { registerCrAuthorTools } from "./tools/cr-author.js";
 
 // CLAUDE-NOTE: single source of truth for "every tool-registration function + a human-friendly
 // category label", consumed by index.ts (real registration), batch-schema-invariant.test.ts
@@ -167,6 +168,7 @@ export const TOOL_REGISTRATIONS: ToolRegistration[] = [
   { register: registerSeqCurveTools, category: "Curve editing (interpolation, tangents, infinity)" },
   { register: registerAnimStitchTools, category: "Stitch root-motion clips without pops" },
   { register: registerAimOffsetTools, category: "Aim Offset verification" },
+  { register: registerCrAuthorTools, category: "Control Rig authoring (FBIK rig, verified)" },
   // CLAUDE-NOTE: actor-state.ts existed with three working tools (set_actor_mobility,
   // set_actor_visibility, set_actor_physics), matching C++ handlers and registered routes — but was
   // never listed here, so none of them were ever exposed to a client. route-parity.test.ts could

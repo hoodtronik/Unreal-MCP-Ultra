@@ -154,7 +154,7 @@ def control_type(rig, name):
 # ------------------------------------------------------------------ setup
 
 def setup_character(seq_path, name, mesh, rig_bp, location=(0, 0, 0), facing=None, fps=24, end=48,
-                    clip=None, clip_frame=0, frame=0):
+                    clip=None, clip_frame=0, frame=0, rig_explicit=True):
     seq = load_sequence(seq_path, open_it=True, create=True, fps=fps, end=end)
     created = False
     try:
@@ -176,6 +176,17 @@ def setup_character(seq_path, name, mesh, rig_bp, location=(0, 0, 0), facing=Non
     except ValueError:
         L.find_or_create_control_rig_track(_world(), seq, rig_cls.get_control_rig_class(), b)
         rig, track = rig_proxy(seq, b)
+    # CLAUDE-NOTE (2026-10-22, live): a NEW spawnable of SKM_Manny_Simple arrives with the mesh's default animating
+    # rig (CR_Mannequin_Body) already on it, and find_or_create_control_rig_track returns that track whatever class is
+    # asked for - so a requested custom rig was silently replaced by Epic's and a pose_reach "verified" the wrong rig.
+    # A new binding gets the auto-added track swapped for the requested rig; a REUSED binding with another rig errors.
+    if created and rig.get_class() != rig_cls.get_control_rig_class():
+        b.remove_track(track)
+        L.find_or_create_control_rig_track(_world(), seq, rig_cls.get_control_rig_class(), b)
+        rig, track = rig_proxy(seq, b)
+    if rig_explicit and rig.get_class() != rig_cls.get_control_rig_class():
+        raise ValueError("binding '%s' already has Control Rig %s, not the requested %s - use a new binding or sequence"
+                         % (name, rig.get_class().get_name(), rig_cls.get_control_rig_class().get_name()))
     if facing is not None:
         set_actor_yaw(seq, b, float(facing) - MESH_YAW_OFFSET, location)
     baked = None
@@ -459,7 +470,9 @@ def reach(seq_path, binding_name, effector, target, frame=0, rotation=None):
     # Reach budget from the reference skeleton (pose-independent): root of the limb -> target vs. limb length.
     side = effector[-1]
     chain = ["upperarm_", "lowerarm_", "hand_"] if effector.startswith("hand") else ["thigh_", "calf_", "foot_"]
-    out = {"ok": True, "control": ctrl, "switch": switch, "target": list(target)}
+    # CLAUDE-NOTE (2026-10-22, live): rigs without an FK/IK switch (a pure FBIK rig from cr_build) reported
+    # "switch=IK" for a control that does not exist - report the switch only when the rig has it.
+    out = {"ok": True, "control": ctrl, "switch": switch if control_type(rig, switch) in ("BOOL", "FLOAT") else None, "target": list(target)}
     sk = skel_comp(seq, b)
     if sk is not None:
         ref = [sk.get_socket_location(c + side) for c in chain]   # current pose; only bone LENGTHS are used
