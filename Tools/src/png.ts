@@ -83,3 +83,35 @@ export function lumaDiff(a: Image, b: Image, step = 2): number {
   }
   return +(s / Math.max(1, n)).toFixed(2);
 }
+
+export type Region = [number, number, number, number];
+export type Colour = { r: number; g: number; b: number; chroma: number; luma: number };
+
+/** Mean RGB, luma and chroma (max - min channel) over a region (fractions of the frame). */
+export function regionColour(img: Image, region: Region = [0, 0, 1, 1], step = 2): Colour {
+  const [x0, y0, x1, y1] = [Math.floor(region[0] * img.width), Math.floor(region[1] * img.height), Math.ceil(region[2] * img.width), Math.ceil(region[3] * img.height)];
+  let n = 0, r = 0, g = 0, b = 0, c = 0;
+  for (let y = Math.max(0, y0); y < Math.min(img.height, y1); y += step) {
+    for (let x = Math.max(0, x0); x < Math.min(img.width, x1); x += step) {
+      const i = (y * img.width + x) * img.channels;
+      const pr = img.data[i], pg = img.channels >= 3 ? img.data[i + 1] : pr, pb = img.channels >= 3 ? img.data[i + 2] : pr;
+      r += pr; g += pg; b += pb; c += Math.max(pr, pg, pb) - Math.min(pr, pg, pb); n++;
+    }
+  }
+  n = Math.max(1, n);
+  const f = (v: number) => +(v / n).toFixed(2);
+  return { r: f(r), g: f(g), b: f(b), chroma: f(c), luma: +((0.2126 * r + 0.7152 * g + 0.0722 * b) / n).toFixed(2) };
+}
+
+/** Focus measure: mean absolute 4-neighbour Laplacian of luma over a region (higher = sharper detail). */
+export function sharpness(img: Image, region: Region = [0, 0, 1, 1]): number {
+  const L = (x: number, y: number) => {
+    const i = (y * img.width + x) * img.channels;
+    return img.channels >= 3 ? 0.2126 * img.data[i] + 0.7152 * img.data[i + 1] + 0.0722 * img.data[i + 2] : img.data[i];
+  };
+  const [x0, y0, x1, y1] = [Math.max(1, Math.floor(region[0] * img.width)), Math.max(1, Math.floor(region[1] * img.height)),
+    Math.min(img.width - 1, Math.ceil(region[2] * img.width)), Math.min(img.height - 1, Math.ceil(region[3] * img.height))];
+  let n = 0, s = 0;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { s += Math.abs(4 * L(x, y) - L(x - 1, y) - L(x + 1, y) - L(x, y - 1) - L(x, y + 1)); n++; }
+  return +(s / Math.max(1, n)).toFixed(3);
+}

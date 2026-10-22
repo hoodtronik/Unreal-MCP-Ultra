@@ -84,6 +84,7 @@ import { registerTakeRecordTools } from "./tools/take-record.js";
 import { registerRtLiveTools } from "./tools/rt-live.js";
 import { registerObjectIdTools } from "./tools/object-ids.js";
 import { registerShotStillsTools } from "./tools/shot-stills.js";
+import { registerShotLookTools } from "./tools/shot-look.js";
 import { registerAnimEditTools } from "./tools/anim-edit.js";
 import { registerRenderGraphTools } from "./tools/render-graph.js";
 import { registerAnimNodeMeasureTools } from "./tools/anim-node-measure.js";
@@ -190,6 +191,7 @@ export const TOOL_REGISTRATIONS: ToolRegistration[] = [
   { register: registerRtLiveTools, category: "Runtime retargeting (verified vs offline)" },
   { register: registerObjectIdTools, category: "Object ID / segmentation pass (MRQ)" },
   { register: registerShotStillsTools, category: "Multi-camera stills + MRQ presets" },
+  { register: registerShotLookTools, category: "Camera look (DoF, grading) verified by renders" },
   { register: registerAnimEditTools, category: "Clip editing (crop, notifies, curves, markers, rate)" },
   { register: registerRenderGraphTools, category: "Movie Render Graph (beauty + clean plate)" },
   { register: registerAnimNodeMeasureTools, category: "Measure AnimGraph node behaviour" },

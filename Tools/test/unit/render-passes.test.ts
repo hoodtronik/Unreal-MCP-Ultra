@@ -56,3 +56,19 @@ describe("exrLayers / wavSpan", () => {
     expect(w.soundTo).toBe(1.5);
   });
 });
+
+import { regionColour, sharpness } from "../../src/png.js";
+import { boxRegion, outsideSharpness } from "../../src/tools/shot-look.js";
+
+describe("shot_look metrics", () => {
+  it("measures chroma, sharpness and maps screen boxes", () => {
+    const flat = { width: 4, height: 4, channels: 3, data: new Uint8Array(48).fill(100) };
+    expect(sharpness(flat)).toBe(0);
+    const chk = { width: 4, height: 4, channels: 3, data: new Uint8Array(48).map((_, i) => ((Math.floor(i / 3) % 4) + Math.floor(i / 12)) % 2 ? 200 : 0) };
+    expect(sharpness(chk)).toBeGreaterThan(500);
+    const red = { width: 2, height: 2, channels: 3, data: new Uint8Array([200, 0, 0, 200, 0, 0, 200, 0, 0, 200, 0, 0]) };
+    expect(regionColour(red, [0, 0, 1, 1], 1)).toMatchObject({ r: 200, g: 0, b: 0, chroma: 200 });
+    expect(boxRegion([-0.5, 0.5], [-1, 0.5])).toEqual([0.25, 0.25, 0.75, 1]);
+    expect(outsideSharpness(2, 4, [0, 0, 0.5, 1])).toBe(0);
+  });
+});
