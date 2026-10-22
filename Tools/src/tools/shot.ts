@@ -56,6 +56,7 @@ export function registerShotTools(server: McpServer): void {
         distance: z.number().optional().describe("cm from the bone (default 300)."),
         azimuth: z.number().optional().describe("deg around the subject's facing (default 0 = straight on)."),
         rise: z.number().optional().describe("cm above the bone (default 0)."),
+        frame: z.number().int().optional().describe("Frame whose bone position to aim at (default the cut's first frame)."),
       }).strict().optional(),
       depthOfField: z.boolean().optional().describe("Keep the camera's focus/DoF (default false = sharp)."),
     },
@@ -72,12 +73,18 @@ export function registerShotTools(server: McpServer): void {
       if (c.overlapping_cuts?.length) lines.push(`WARNING: this cut overlaps other camera cuts ${JSON.stringify(c.overlapping_cuts)} - the later section wins; trim them with shot_camera cut.`);
       let subject = a.aim?.subject;
       if (a.aim) {
+        // CLAUDE-NOTE (2026-10-21, live): aim read the bone wherever the editor happened to be - camera() resets to
+        // the playback start - so a camera "aimed at the hand" for frame 24 framed where the hand was at frame 0
+        // (17 cm lower: hips filled the shot). Scrub to the aim frame first (two calls: bones refresh between calls).
+        const af = a.aim.frame ?? c.cut[0];
+        await run("scrub(P['seq'], P['f'])", { seq: a.sequence, f: af });
+        await run("scrub(P['seq'], P['f'])", { seq: a.sequence, f: af });
         const m = await run("aim(P['seq'], P['cam'], P['subj'], P['bone'], P['d'], P['az'], P['rise'])", {
           seq: a.sequence, cam: a.name, subj: a.aim.subject, bone: a.aim.bone ?? "head",
           d: a.aim.distance ?? 300, az: a.aim.azimuth ?? 0, rise: a.aim.rise ?? 0,
         });
         if (!m.ok) return text([...lines, `Aim failed: ${m.error}`].join("\n"), true);
-        lines.push(`Aimed at ${a.aim.subject}.${m.bone} ${JSON.stringify(m.bone_location)} from ${JSON.stringify(m.location)}, rot ${JSON.stringify(m.rotation)} (subject faces ${m.subject_facing} deg).`);
+        lines.push(`Aimed at ${a.aim.subject}.${m.bone} at frame ${m.frame} ${JSON.stringify(m.bone_location)} from ${JSON.stringify(m.location)}, rot ${JSON.stringify(m.rotation)} (subject faces ${m.subject_facing} deg).`);
       }
       if (subject) {
         const f = await run("framing(P['seq'], P['cam'], P['subj'])", { seq: a.sequence, cam: a.name, subj: subject });

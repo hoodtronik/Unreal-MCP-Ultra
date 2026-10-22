@@ -168,8 +168,10 @@ def aim(seq_path, cam_name, subject, bone="head", distance=300.0, azimuth=0.0, r
     pt = pitch if pitch is not None else math.degrees(math.atan2(p.z - loc[2], horiz))
     cb = find_binding(seq, cam_name)
     _set_cam_transform(seq, cb, loc, [pt, yaw, 0.0])
-    evaluate(seq)
-    return {"ok": True, "camera": cam_name, "location": [round(x, 2) for x in loc], "rotation": [round(pt, 2), round(yaw, 2), 0.0],
+    # CLAUDE-NOTE (2026-10-21, live): stay on the frame the bone was read at - evaluate(seq) jumped to the playback
+    # start, and the caller aims at the bone on a chosen frame (shot_camera aim.frame).
+    evaluate(seq, current_frame())
+    return {"ok": True, "camera": cam_name, "frame": current_frame(), "location": [round(x, 2) for x in loc], "rotation": [round(pt, 2), round(yaw, 2), 0.0],
             "subject_facing": face, "bone": real, "bone_location": _v(p)}
 
 
