@@ -121,3 +121,40 @@ def look_render(seq_path, frame, width, height, tag):
     seq = load_sequence(seq_path, open_it=False)
     od = os.path.abspath(unreal.Paths.project_saved_dir() + "MovieRenders/%s_look_%s" % (seq.get_name(), tag)).replace("\\", "/")
     return stills_start(seq_path, [int(frame)], int(width), int(height), od, None, None, False)
+
+
+FOG_LABEL = "MCP_Fog"
+
+
+def look_fog(settings):
+    """Level height fog (spawned as MCP_Fog when the level has none): density, falloff, start (cm), color [r,g,b]
+    linear, volumetric bool; remove=True deletes MCP_Fog. Level-wide, not per camera."""
+    fogs = [a for a in _eas().get_all_level_actors() if isinstance(a, unreal.ExponentialHeightFog)]
+    if settings.get("remove"):
+        gone = [a.get_actor_label() for a in fogs if a.get_actor_label() == FOG_LABEL]
+        for a in fogs:
+            if a.get_actor_label() == FOG_LABEL:
+                _eas().destroy_actor(a)
+        return {"ok": True, "removed": gone}
+    a = fogs[0] if fogs else None
+    if a is None:
+        a = _eas().spawn_actor_from_class(unreal.ExponentialHeightFog, unreal.Vector(0, 0, 0))
+        a.set_actor_label(FOG_LABEL)
+    c = a.component
+    if "density" in settings:
+        c.set_fog_density(float(settings["density"]))
+    if "falloff" in settings:
+        c.set_fog_height_falloff(float(settings["falloff"]))
+    if "start" in settings:
+        c.set_start_distance(float(settings["start"]))
+    if "color" in settings:
+        r, g, b = settings["color"]
+        c.set_fog_inscattering_color(unreal.LinearColor(r, g, b, 1.0))
+        # CLAUDE-NOTE (live): with a SkyAtmosphere in the level the fog takes the SKY's colour (a dark blue-grey fog
+        # rendered sky-blue); an explicit colour turns the sky's ambient contribution off so the colour asked is used.
+        c.set_sky_atmosphere_ambient_contribution_color_scale(unreal.LinearColor(0, 0, 0, 1))
+    if "volumetric" in settings:
+        c.set_volumetric_fog(bool(settings["volumetric"]))
+    return {"ok": True, "fog": a.get_actor_label(), "density": round(c.get_editor_property("fog_density"), 4),
+            "falloff": round(c.get_editor_property("fog_height_falloff"), 4), "start": round(c.get_editor_property("start_distance"), 1),
+            "volumetric": bool(c.get_editor_property("enable_volumetric_fog"))}

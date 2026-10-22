@@ -86,6 +86,9 @@ export function registerShotLookTools(server: McpServer): void {
       vignette: z.number().min(0).max(1).optional(),
       bloom: z.number().min(0).max(8).optional(),
       grain: z.number().min(0).max(1).optional(),
+      fog: z.object({ density: z.number().min(0).max(1).optional(), falloff: z.number().min(0).optional(), start: z.number().min(0).optional(),
+        color: z.array(z.number().min(0)).length(3).optional(), volumetric: z.boolean().optional(), remove: z.boolean().optional() }).optional()
+        .describe("LEVEL height fog (spawns MCP_Fog if the level has none; remove deletes it) - level-wide, not per camera."),
       subject: z.string().optional().describe("Actor whose screen box is 'the subject' for the sharpness check (default focus.subject)."),
       width: z.number().int().optional(),
       height: z.number().int().optional(),
@@ -102,7 +105,7 @@ export function registerShotLookTools(server: McpServer): void {
       const map: [keyof typeof a, string][] = [["whiteTemp", "white_temp"], ["whiteTint", "white_tint"], ["saturation", "saturation"],
         ["contrast", "contrast"], ["gain", "gain"], ["vignette", "vignette"], ["bloom", "bloom"], ["grain", "grain"]];
       for (const [k, p] of map) if (a[k] !== undefined) settings[p] = a[k];
-      if (!Object.keys(settings).length) return text("Nothing to set.", true);
+      if (!Object.keys(settings).length && !a.fog) return text("Nothing to set.", true);
       for (let i = 0; i < 2; i++) await run("scrub(P['s'], P['f'])", { s: a.sequence, f: a.frame });   // bones refresh between calls
       const before = await run("look_read(P['s'], P['c'])", { s: a.sequence, c: a.camera });
       if (!before.ok) return text(`Error: ${before.error}`, true);
@@ -121,6 +124,12 @@ export function registerShotLookTools(server: McpServer): void {
       if (!ap.ok) return text(`Error: ${ap.error}`, true);
       const look = ap.look as Record<string, number | string>;
       const lines = [`Look on '${a.camera}': ${Object.entries(look).map(([k, v]) => `${k} ${v}`).join(", ")}.`];
+      let fog: PoseResult | null = null;
+      if (a.fog) {
+        fog = await run("look_fog(P['f'])", { f: a.fog });
+        if (!fog.ok) return text(`Error (fog): ${fog.error}`, true);
+        lines.push(a.fog.remove ? `Fog removed: ${JSON.stringify(fog.removed)}.` : `Fog '${fog.fog}': density ${fog.density}, falloff ${fog.falloff}, start ${fog.start} cm, volumetric ${fog.volumetric}.`);
+      }
       if (!verify || !imgA) return text(lines.join("\n"));
       const imgB = await still(a.sequence, a.frame, w, h, "after", tmo);
       if (typeof imgB === "string") return text(`Error: ${imgB}`, true);
@@ -170,6 +179,13 @@ export function registerShotLookTools(server: McpServer): void {
         const fa = rr(A.corners, A.centre), fb = rr(B.corners, B.centre);
         if (A.centre < 5) lines.push(`  vignette ${p} -> ${v}: centre too dark to measure falloff`);
         else check(v > p ? fb < fa - 0.02 : v < p ? fb > fa + 0.02 : true, `vignette ${p} -> ${v}: corner/centre ${fa.toFixed(3)} -> ${fb.toFixed(3)}`);
+      }
+      if (a.fog && !a.fog.remove && a.fog.density !== undefined && subj) {
+        // CLAUDE-NOTE (live): fog is distance-based, so the far background must change more than the near subject.
+        const dS = regionColour(imgB, subj).luma - regionColour(imgA, subj).luma;
+        const bgL = (img: Image) => { const f = regionColour(img).luma, s = regionColour(img, subj!).luma, ar = (subj![2] - subj![0]) * (subj![3] - subj![1]); return ar >= 0.98 ? f : (f - s * ar) / (1 - ar); };
+        const dB = bgL(imgB) - bgL(imgA);
+        check(Math.abs(dB) >= 3 && Math.abs(dB) > Math.abs(dS), `fog: background luma ${dB >= 0 ? "+" : ""}${dB.toFixed(1)}, subject ${dS >= 0 ? "+" : ""}${dS.toFixed(1)} (background must change more)`);
       }
       for (const k of ["bloom", "grain", "white_tint"]) if (settings[k] !== undefined) lines.push(`  ${k} ${settings[k]}: set (read back ${look[k]}); not measured`);
       lines.push(`  frames: ${w}x${h}, f${a.frame}, mean luma ${A.colour.luma} -> ${B.colour.luma}`);
