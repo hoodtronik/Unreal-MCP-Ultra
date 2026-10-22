@@ -69,6 +69,9 @@ def load_sequence(path, open_it=True, create=False, fps=24, end=48):
         pkg, name = path.rsplit("/", 1)
         seq = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
             name, pkg, unreal.LevelSequence, unreal.LevelSequenceFactoryNew())
+        if seq is None:
+            # CLAUDE-NOTE (live): create_asset returns None for a path whose asset was just deleted (still loaded).
+            raise ValueError("Could not create %s - a deleted asset of that name may still be loaded; use another name" % path)
         seq.set_display_rate(unreal.FrameRate(int(fps), 1))
         seq.set_playback_start(0)
         seq.set_playback_end(int(end))

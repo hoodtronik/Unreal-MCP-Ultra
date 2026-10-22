@@ -340,3 +340,69 @@ def grip_curl(seq_path, binding_name, side, scales, frame=0):
             n += 1
     evaluate(seq, frame)
     return {"ok": True, "controls": n}
+
+
+# CLAUDE-NOTE (2026-10-21): a FREE prop (tray, door, cart) keyed in world space, as the moving parent for
+# pose_constrain or set dressing. Spawnable like prop_attach props, but no Attach track: its Transform keys are world.
+def prop_key(seq_path, name, keys, mesh=None, size=None, color=None):
+    seq = load_sequence(seq_path)
+    pb = _binding_or_none(seq, name)
+    created = False
+    mesh_path = mesh or "/Engine/BasicShapes/Cube"
+    if pb is None:
+        m = unreal.load_asset(mesh_path)
+        if not isinstance(m, unreal.StaticMesh):
+            raise ValueError("Not a StaticMesh: " + mesh_path)
+        eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+        tmp = eas.spawn_actor_from_object(m, unreal.Vector(0, 0, 0), unreal.Rotator())
+        pb = unreal.get_editor_subsystem(unreal.LevelSequenceEditorSubsystem).add_spawnable_from_instance(seq, tmp)
+        pb.set_display_name(name)
+        eas.destroy_actor(tmp)
+        created = True
+    if any(isinstance(t, unreal.MovieScene3DAttachTrack) for t in pb.get_tracks()):
+        raise ValueError("'%s' is attached to a character (prop_attach) - its transform is bone-relative" % name)
+    sec = None
+    for t in pb.get_tracks():
+        if isinstance(t, unreal.MovieScene3DTransformTrack) and t.get_sections():
+            sec = t.get_sections()[0]
+    if sec is None:
+        sec = pb.add_track(unreal.MovieScene3DTransformTrack).add_section()
+        sec.set_range(-100000, 100000)
+    chans = {str(c.channel_name): c for c in sec.get_all_channels()}
+    if size:
+        a = bound_actor(seq, pb)
+        smc = getattr(a, "static_mesh_component", None) if a else None
+        lo, hi = _local_box(smc.static_mesh if smc else unreal.load_asset(mesh_path))
+        ext = hi - lo
+        for ax, s, e in zip("XYZ", size, (ext.x, ext.y, ext.z)):
+            ch = chans["Scale." + ax]
+            for k in list(ch.get_keys()):
+                ch.remove_key(k)
+            ch.set_default(float(s) / max(e, 1e-6))
+    written = []
+    for k in keys:
+        f = int(k["frame"])
+        for prefix, vals in (("Location.", k.get("location")), ("Rotation.", k.get("rotation"))):
+            if vals is None:
+                continue
+            for ax, v in zip("XYZ", vals):
+                ch = chans[prefix + ax]
+                for old in list(ch.get_keys()):
+                    if old.get_time().frame_number.value == f:
+                        ch.remove_key(old)
+                ch.add_key(FN(f), float(v))
+        written.append(f)
+    if color:
+        mi = _color_material(seq_path, name, color)
+        for obj in (pb.get_object_template(), bound_actor(seq, pb)):
+            c = getattr(obj, "static_mesh_component", None) if obj else None
+            if c:
+                c.set_material(0, mi)
+    evaluate(seq, current_frame())
+    return {"ok": True, "prop": name, "created": created, "frames": written}
+
+
+def prop_where(seq_path, name):
+    seq = load_sequence(seq_path)
+    _, a = _prop_actor(seq, name)
+    return {"ok": True, "frame": current_frame(), "location": _v(a.get_actor_location())}

@@ -199,4 +199,42 @@ export function registerPropTools(server: McpServer): void {
       return text(lines.join("\n"), !ok);
     },
   );
+
+  server.tool(
+    "prop_key",
+    "Add (or update) a FREE prop in a LevelSequence and key its WORLD location/rotation at frames - a sliding tray, " +
+      "an opening door, a cart. Not attached to anyone (use prop_attach for held props); it is the moving parent for " +
+      "pose_constrain. Verified: the rendered actor sits at every keyed location.",
+    {
+      sequence: z.string(),
+      name: z.string().describe("Binding name of the prop (created if missing)."),
+      keys: z.array(z.object({ frame: z.number().int(), location: vec3.optional(), rotation: vec3.optional().describe("[roll, pitch, yaw] deg") })).min(1),
+      mesh: z.string().optional().describe("StaticMesh for a new prop (default /Engine/BasicShapes/Cube)."),
+      size: vec3.optional().describe("Bounding box in cm (scales the mesh)."),
+      color: vec3.optional().describe("[r,g,b] 0-1 tint."),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const r = await run("prop_key(P['s'], P['n'], P['k'], P['m'], P['z'], P['c'])", {
+        s: a.sequence, n: a.name, k: a.keys, m: a.mesh ?? null, z: a.size ?? null, c: a.color ?? null,
+      });
+      if (!r.ok) return text(`Error: ${r.error}`, true);
+      // CLAUDE-NOTE: read the rendered actor back at each keyed frame (scrub twice: actors refresh between calls).
+      let worst = 0;
+      const lines = [`${r.created ? "Created" : "Updated"} prop ${a.name}, keyed frames ${r.frames.join(",")}.`];
+      for (const k of a.keys.filter((k) => k.location)) {
+        await run("scrub(P['s'], P['f'])", { s: a.sequence, f: k.frame });
+        await run("scrub(P['s'], P['f'])", { s: a.sequence, f: k.frame });
+        const w = await run("prop_where(P['s'], P['n'])", { s: a.sequence, n: a.name });
+        if (!w.ok) return text([...lines, `Readback failed at ${k.frame}: ${w.error}`].join("\n"), true);
+        const d = Math.hypot(...w.location.map((v: number, i: number) => v - (k.location as number[])[i]));
+        worst = Math.max(worst, d);
+        lines.push(`  frame ${k.frame}: at [${w.location.join(", ")}]`);
+      }
+      const ok = worst <= 0.1;
+      lines.push(`${ok ? "Verified" : "MISMATCH"}: worst ${Math.round(worst * 1000) / 1000} cm from the keyed locations.`);
+      return text(lines.join("\n"), !ok);
+    },
+  );
 }

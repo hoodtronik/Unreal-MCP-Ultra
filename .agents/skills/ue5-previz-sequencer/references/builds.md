@@ -137,3 +137,20 @@ Eyes vs numbers: the first placement (y -1040) stood past the floor edge over th
 open SEQ_Wave's own Manny stood in the shot until the sequence was closed. The baked wave's rest frame is 4 cm from
 idle - the state check now reports AMBIGUOUS below a 2 cm margin.
 
+## 9. Hand on a sliding tray, hand on hip (2026-10-21, `/Game/_MCPLab/Seq/SEQ_HandPlant`, space switch + constraint)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Manny facing 0, MM_Idle f10, end 48 | facing 0.0 |
+| 2 | `prop_key` Counter [50,60,92] at [30,32,46]; Tray [24,24,3] keyed f0 [25,24,93.5] -> f48 [20,40,93.5] | 0 cm at every key |
+| 3 | `pose_reach` hand_r [25,24,99]; `pose_palm` r down, fingers +X; hand_l [-3,-24,100], palm to hip | miss 0; palms 0.04 deg |
+| 4 | `pose_set_controls` body_ctrl f0 / f48 (-12 z, +8 y); `pose_set_interpolation` smooth | verified |
+| 5 | `pose_constrain` hand_r_ik_ctrl -> Tray (parent) | tray moved 16.8 cm, offset drift 0 cm |
+| 6 | `pose_space_switch` hand_l_ik_ctrl -> body_ctrl f0 | pop 0, body moved 14.4 cm, drift 0 |
+| 7 | `pose_constrain replace bake` | keys 0-48, constraint keys gone, worst 0 cm |
+| 8 | `shot_camera` 35 mm, azimuth -8, rise 70, cut [0,49]; captures 0/24/48 | all in frame |
+
+Eyes vs numbers: the first camera sat behind the counter and cut the head; the second had a Manny from build 7/8 in
+the foreground. The first constraint was added before the palm was set and the palm call silently could not turn
+the hand (reported 35 deg) - pose first, constrain last. The first tray path ran past arm's reach: the control
+followed perfectly while the hand bone stopped 3-4 cm short, which is why the bone gap is its own line.

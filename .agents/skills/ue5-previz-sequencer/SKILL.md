@@ -44,6 +44,9 @@ tick and `isError` is set from that readback:
 | `anim_transition_rule` | WHEN a state-machine transition fires: wires `<var> <op> <value>` (float/int) or `<bool> true/false` into Can Enter Transition, names rule graphs "<From> to <To>", exposes the variable, compiles, reads the wiring back | ABP_Locomotion: 4 rules, Compile OK; refuses to overwrite without `replace` |
 | `anim_bp_drive` | run the ABP (hidden editor preview or `pie:true`), set variables step by step, report the state from the RENDERED pose (bones vs each state's clip, root-relative, 120 fps); `expect` makes it a test; `place` leaves a visible character for captures | PIE: Idle->Jog chain, hysteresis 55/60/40 all as expected; playing state <= 2.6 cm, others >= 18 cm; caught an unwired Walk->Idle |
 | `anim_bake` | bake a Sequencer character's performance (Control Rig keys etc.) into an AnimSequence, then verify every rendered bone vs the clip at sampled frames (1 cm) | SEQ_Wave -> A_Wave_Baked: 89 bones x 9 frames, worst 0.39 cm; empty clip read 12-60 cm |
+| `pose_space_switch` | key a Control Rig space switch (control follows another control/null, e.g. body_ctrl, or 'world') at a frame; verifies no pop + the offset held in the new space on sampled frames; reports the effector bone gap | hand_l_ik_ctrl -> body_ctrl: pop 0 cm, body moved 14.4 cm, drift 0 cm |
+| `pose_constrain` | Sequencer animation constraint (parent/translation/rotation) of a control to a prop, binding, another rig's control or a bone; verifies follow; `bake` turns it into keys; `remove` | hand_r_ik_ctrl -> sliding Tray: moved 16.8 cm, drift 0; bake keyed 0-48, worst 0 cm |
+| `prop_key` | free (unattached) prop keyed in WORLD space - a moving parent for constraints, set dressing | Tray keys 0/48 read back 0 cm |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -207,6 +210,10 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 58 | Transition compiles but never fires | "will never be taken" is only a warning; the guards now count it as unwired, and `anim_bp_drive` with `expect` shows the stuck state. `add_state_machine` names are now applied (the C++ ignored them). |
 | 59 | Bake / new AnimSequence refuses 24 fps ("not a multiple or factor of 30 fps") | The project enforces clip rates compatible with its animation default (30). `anim_bake` records at 30 when 24 is refused; timing is kept in seconds. Don't change the project setting. |
 | 60 | anim_bp_drive says AMBIGUOUS | Two states' clips are within 2 cm (a baked wave's rest frame was 4 cm from idle). Read again at another moment (`wait`) or make the clips more distinct; it refuses to guess. |
+| 61 | Space switch to 'world' keys nothing | CR_Mannequin_Body's hand/foot IK controls already hold still in the world when body_ctrl moves; Unreal skips a same-space key (`pose_space_switch` says so). Switch to body_ctrl / chest_space to make a hand ride the body. |
+| 62 | Reach / palm on a constrained control misses (palm 35 deg off) | The constraint overrides later edits. Pose first, then `pose_constrain`; to re-pose: `remove`, edit, constrain again. |
+| 63 | Constraint added twice / 'remove' removed nothing | `get_constraints_for_handle` with a new handle returns [] (identity compare). `pose_constrain` matches the constraints' child handles by rig + control name instead. |
+| 64 | Constrained control follows but the hand bone doesn't | Out of reach (arm at full stretch: bone 3-4 cm short) or limb in FK. The tools report the bone gap separately - move the parent's path closer or crouch the body. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 
