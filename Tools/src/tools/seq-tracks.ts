@@ -10,7 +10,7 @@ import { runPose, type PoseResult } from "./posing.js";
 // - but the multi-camera stills path (render_all_cameras) ignores fades. Muting = section inactive (tracks have no
 // scriptable mute): the cup's muted transform stopped it moving (262 cm -> 0). Marked frames read back.
 
-const LIBS = ["ue_posing.py", "ue_shot.py", "ue_seqtracks.py"];
+const LIBS = ["ue_posing.py", "ue_shot.py", "ue_props_track.py", "ue_seqtracks.py"];
 
 function text(t: string, isError = false) {
   return { content: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) };
@@ -42,6 +42,10 @@ export function registerSeqTracksTools(server: McpServer): void {
       clearMarks: z.boolean().optional(),
       track: z.object({ binding: z.string(), kind: z.string(), mute: z.boolean().optional(), lock: z.boolean().optional(),
         name: z.string().optional(), color: z.array(z.number()).length(3).optional() }).strict().optional(),
+      material: z.object({ binding: z.string(), component: z.string().describe("e.g. StaticMeshComponent0"), param: z.string(),
+        kind: z.enum(["color", "scalar"]), keys: z.array(z.tuple([z.number().int(), z.union([z.number(), z.array(z.number())])])).min(1),
+        index: z.number().int().optional() }).strict().optional()
+        .describe("Material parameter keys on a binding's mesh component; checked on the live material at keys and midpoints."),
     },
     async (a) => {
       const err = await ensureUE();
@@ -103,6 +107,31 @@ export function registerSeqTracksTools(server: McpServer): void {
           if (d > 0.5) bad++;
           lines.push(`Muted transform: '${t.binding}' moved ${d.toFixed(2)} cm between f10 and f30${d > 0.5 ? "  <- STILL MOVING" : " (stopped)"}`);
         }
+      }
+      if (a.material) {
+        const m = a.material;
+        const r = await run("material_keys(P['s'], P['b'], P['c'], P['p'], P['k'], P['keys'], P['i'])", { s: a.sequence, b: m.binding, c: m.component, p: m.param, k: m.kind, keys: m.keys, i: m.index ?? 0 });
+        if (!r.ok) return text(`Material track failed: ${r.error}`, true);
+        const ks = [...m.keys].sort((x, y) => x[0] - y[0]);
+        const vec = (v: number | number[]) => (Array.isArray(v) ? v.slice(0, 3) : [v]);
+        const checks: [number, number[]][] = [];
+        ks.forEach((k, i) => {
+          checks.push([k[0], vec(k[1])]);
+          if (i) { const a0 = vec(ks[i - 1][1]), a1 = vec(k[1]); checks.push([Math.round((ks[i - 1][0] + k[0]) / 2), a0.map((x, j) => (x + a1[j]) / 2)]); }
+        });
+        let worst = 0;
+        const got: string[] = [];
+        for (const [f, want] of checks.sort((x, y) => x[0] - y[0])) {
+          await run("scrub(P['s'], P['f'])", { s: a.sequence, f }); await run("scrub(P['s'], P['f'])", { s: a.sequence, f });
+          const lv = await run("material_live(P['s'], P['b'], P['c'], P['p'], P['k'], P['i'])", { s: a.sequence, b: m.binding, c: m.component, p: m.param, k: m.kind, i: m.index ?? 0 });
+          if (!lv.ok) return text(`Material readback failed: ${lv.error}`, true);
+          const v = vec(lv.value as number | number[]);
+          worst = Math.max(worst, ...want.map((x, j) => Math.abs(x - v[j])));
+          got.push(`f${f} ${JSON.stringify(v)}`);
+        }
+        // CLAUDE-NOTE (live): midpoints assume linear keys - measured exactly linear for colour parameter keys
+        if (worst > 0.02) bad++;
+        lines.push(`Material ${m.param} on ${m.binding}.${m.component} (${r.track}): ${got.join(", ")}; worst error ${worst.toFixed(3)}${worst > 0.02 ? "  <- MATERIAL NOT FOLLOWING THE KEYS" : ""}`);
       }
       return text([bad ? "TRACK CHECK FAILED:" : "Tracks set and verified:", ...lines].join("\n"), bad > 0);
     },

@@ -1,5 +1,5 @@
 # ue_seqtracks.py - Sequencer utility tracks: fade, marked frames, mute (section active) / lock / rename / colour of a
-# binding's tracks. Behind seq_tracks (Tools/src/tools/seq-tracks.ts). Exec'd after ue_posing.py.
+# binding's tracks, material parameter keys. Behind seq_tracks (Tools/src/tools/seq-tracks.ts). Exec'd after ue_posing.py and ue_props_track.py (_target).
 import unreal
 
 
@@ -65,6 +65,54 @@ def actor_pos(seq_path, binding, next_frame=None):
     a = bound_actor(seq, find_binding(seq, binding))
     l = a.get_actor_location()
     out = {"ok": True, "frame": unreal.LevelSequenceEditorBlueprintLibrary.get_current_time(), "p": [round(l.x, 3), round(l.y, 3), round(l.z, 3)]}
+    if next_frame is not None:
+        evaluate(seq, int(next_frame))
+    return out
+
+
+def material_keys(seq_path, binding, component, param, kind, keys, index=0):
+    """Material parameter track on a binding's mesh component (element `index`): kind 'color' keys [[frame,[r,g,b,a?]]]
+    or 'scalar' keys [[frame, v]]. Sequencer drives a dynamic material instance on the live component."""
+    seq = load_sequence(seq_path, open_it=True)
+    cb, comp = _target(seq, binding, component)
+    t = next((x for x in cb.get_tracks() if isinstance(x, unreal.MovieSceneComponentMaterialTrack)), None)
+    if t is None:
+        t = cb.add_track(unreal.MovieSceneComponentMaterialTrack)
+    t.set_material_index(int(index))
+    sec = t.get_sections()[0] if t.get_sections() else t.add_section()
+    sec.set_range(-100000, 100000)
+    # CLAUDE-NOTE (live 5.6): the component material section takes a MaterialParameterInfo + layer/asset names (the
+    # base parameter-section signature (name, time, value) is rejected).
+    pinfo = unreal.MaterialParameterInfo()
+    pinfo.set_editor_property("name", param)
+    # this section API takes TICK-resolution frame numbers (scripting channels take display frames): keys at "40" landed
+    # 40 ticks in and every frame after f0 read the last key (live)
+    tr, dr = seq.get_tick_resolution(), seq.get_display_rate()
+    tick = lambda f: unreal.FrameNumber(int(round(f * tr.numerator * dr.denominator / float(tr.denominator * dr.numerator))))
+    for ch in list(sec.get_all_channels()):
+        for k in list(ch.get_keys()):
+            ch.remove_key(k)
+    for f, v in keys:
+        if kind == "color":
+            c = list(v) + [1.0] * (4 - len(v))
+            sec.add_color_parameter_key(pinfo, tick(f), unreal.LinearColor(*[float(x) for x in c[:4]]), "", "")
+        else:
+            sec.add_scalar_parameter_key(pinfo, tick(f), float(v), "", "")
+    evaluate(seq, unreal.LevelSequenceEditorBlueprintLibrary.get_current_time())
+    return {"ok": True, "track": type(t).__name__, "channels": [str(c.channel_name) for c in sec.get_all_channels()][:8]}
+
+
+def material_live(seq_path, binding, component, param, kind, index=0, next_frame=None):
+    """CURRENT value of the parameter on the live component's material (the one the renderer uses)."""
+    seq = load_sequence(seq_path)
+    _, comp = _target(seq, binding, component)
+    m = comp.get_material(int(index))
+    if kind == "color":
+        v = m.get_vector_parameter_value(param) if hasattr(m, "get_vector_parameter_value") else None
+        val = [round(v.r, 4), round(v.g, 4), round(v.b, 4)] if v is not None else None
+    else:
+        val = round(m.get_scalar_parameter_value(param), 4) if hasattr(m, "get_scalar_parameter_value") else None
+    out = {"ok": True, "frame": unreal.LevelSequenceEditorBlueprintLibrary.get_current_time(), "material": type(m).__name__, "value": val}
     if next_frame is not None:
         evaluate(seq, int(next_frame))
     return out
