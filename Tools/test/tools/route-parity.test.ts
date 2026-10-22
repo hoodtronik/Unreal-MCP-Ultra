@@ -26,6 +26,17 @@ const RIOT_REGISTRATION_CPP = path.resolve(
   "RiotCrowdRegistration.cpp",
 );
 
+// CLAUDE-NOTE (2026-10-22): the optional Pose Search sibling plugin registers its routes the same way (external
+// endpoints, PoseSearchExt/ in this repo).
+const POSESEARCH_REGISTRATION_CPP = path.resolve(
+  PLUGIN_ROOT,
+  "PoseSearchExt",
+  "Source",
+  "BlueprintMCPPoseSearch",
+  "Private",
+  "BlueprintMCPPoseSearchModule.cpp",
+);
+
 const ROUTE_RE = /\/api\/[a-zA-Z0-9-]+/g;
 
 // CLAUDE-NOTE: /api/test-save is an intentional diagnostic-only endpoint with no MCP tool wrapper
@@ -63,9 +74,10 @@ describe("TS/C++ route parity", () => {
   );
 
   // External endpoints: Add(TEXT("/api/riot-spawn"), TEXT("riot-spawn"), ...)
-  const riotSource = fs.existsSync(RIOT_REGISTRATION_CPP)
-    ? fs.readFileSync(RIOT_REGISTRATION_CPP, "utf-8")
-    : "";
+  const riotSource = [RIOT_REGISTRATION_CPP, POSESEARCH_REGISTRATION_CPP]
+    .filter((f) => fs.existsSync(f))
+    .map((f) => fs.readFileSync(f, "utf-8"))
+    .join("\n");
   for (const m of riotSource.matchAll(/TEXT\("(\/api\/[a-zA-Z0-9-]+)"\)/g)) {
     cppRoutes.add(m[1]);
   }

@@ -5,7 +5,7 @@ import { ensureUE, uePost } from "../ue-bridge.js";
 // CLAUDE-NOTE (2026-10-22): Pose Search / Motion Matching through the optional sibling plugin BlueprintMCPPoseSearch
 // (PoseSearchExt/ in this repo; install as <Project>/Plugins/BlueprintMCPPoseSearch with the PoseSearch plugin on).
 // Python cannot author these assets (factories need a modal picker; the schema skeleton and database clip list are
-// invisible to Python; the index is built in C++), so both tools call /api/posesearch-*. The check is an offline
+// invisible to Python; the index is built in C++), so both tools call the plugin's posesearch-build / posesearch-query endpoints. The check is an offline
 // nearest-pose search over the built index: a pose must find itself at cost ~0, and excluding its own clip shows what
 // a character in that pose would switch to.
 
