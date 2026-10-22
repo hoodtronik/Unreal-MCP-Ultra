@@ -263,3 +263,16 @@ The montage editor (sections, segments) has no Python access - added /api/montag
 Eyes vs numbers: the camera check passed, but the first render had the three montage-check mannequins (round 19,
 placed in the level) standing behind the toast and the walk - level actors appear in every sequence. Deleted and
 re-rendered. The trim was checked with the walker's position (master 60 = local 18, y -75 cm).
+
+## 17. Follow a walker: pan, then truck (2026-10-22, `/Game/_MCPLab/Seq/SEQ_Follow`, keyed tracking camera + focus)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `anim_walk` Walker [600,-300,0] -> [600,300,0] | 300 cm/s |
+| 2 | `shot_camera` Pan 24 mm cut 0-24; Truck 28 mm cut 24-48 | created |
+| 3 | `shot_camera_follow` Pan pan [250,0,150] f0-24 every 4, aperture 2.8, screen [-0.2,-0.15] | 7 keys; 6 in-between frames within 0.05 of target, focus <= 0.8% |
+| 4 | `shot_camera_follow` Truck truck offset [-300,60,20] f24-47, aperture 4, same screen | within 0.06, focus <= 0.3% |
+| 5 | `shot_render` | 48/48 + MP4 |
+
+Eyes vs numbers: the first pass verified (bone centred, focus exact) but the render cut his head off - centring the
+chest at 50 mm/4 m - and the truck camera bobbed with his walk. Added `screen` and the height lock; 24/28 mm lenses.
