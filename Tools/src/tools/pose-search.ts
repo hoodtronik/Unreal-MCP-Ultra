@@ -72,7 +72,10 @@ export function registerPoseSearchTools(server: McpServer): void {
     async (a) => {
       const err = await ensureUE();
       if (err) return text(err, true);
-      const lines: string[] = [];
+      const st = await post("/api/posesearch-status", { database: a.database });
+      if (st.error) return text(`Error: ${st.error}`, true);
+      if (!st.indexReady) return text(`Error: ${short(a.database)} index is not built (${st.build}) - run pose_search_build.`, true);
+      const lines: string[] = [`  index: ${st.poses} poses, ${(st.assets ?? []).length} clips, ${st.sampleRate} Hz`];
       let bad = 0;
       for (const q of a.queries) {
         const r = await post("/api/posesearch-query", { database: a.database, sequence: q.sequence, time: q.time, excludeSameAsset: !!a.excludeSameAsset });
