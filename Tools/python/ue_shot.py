@@ -423,14 +423,17 @@ def render_passes_start(seq_path, passes, out_dir=None, width=960, height=540, s
                 e.set_editor_property("material", unreal.load_asset(PP_MATERIALS[m]))
                 mats.append(e)
             s.set_editor_property("additional_post_process_materials", mats)
-    if spatial or temporal or warmup is not None:
-        aa = cfg.find_or_add_setting_by_class(unreal.MoviePipelineAntiAliasingSetting)
-        if spatial:
-            aa.spatial_sample_count = int(spatial)
-        if temporal:
-            aa.temporal_sample_count = int(temporal)
-        if warmup is not None:
-            aa.engine_warm_up_count = int(warmup)
+    # CLAUDE-NOTE (2026-10-22, live): a render starting mid-sequence (start=36) had no motion history and came out as
+    # a long motion-blur smear (the look-at camera "arrived" in one frame). Warm-up frames are always on now (8 engine
+    # + 8 render frames, as shot_stills does) unless warmup is given.
+    aa = cfg.find_or_add_setting_by_class(unreal.MoviePipelineAntiAliasingSetting)
+    if spatial:
+        aa.spatial_sample_count = int(spatial)
+    if temporal:
+        aa.temporal_sample_count = int(temporal)
+    aa.engine_warm_up_count = int(warmup) if warmup is not None else 8
+    aa.set_editor_property("render_warm_up_frames", True)
+    aa.set_editor_property("render_warm_up_count", int(warmup) if warmup is not None else 8)
     cls = {"png": unreal.MoviePipelineImageSequenceOutput_PNG, "exr": unreal.MoviePipelineImageSequenceOutput_EXR,
            "jpg": unreal.MoviePipelineImageSequenceOutput_JPG}[fmt]
     cfg.find_or_add_setting_by_class(cls)
