@@ -19,7 +19,7 @@ export function pinDefaultFromText(v: string): string {
   return t;
 }
 
-async function syncPins(blueprint: string, nodeId: string, props: Record<string, string> | undefined, pins: any[] | undefined): Promise<string[]> {
+export async function syncPins(blueprint: string, nodeId: string, props: Record<string, string> | undefined, pins: any[] | undefined): Promise<string[]> {
   if (!props || !pins) return [];
   const inPins = new Set(pins.filter((p) => p.dir === "in").map((p) => p.name));
   const out: string[] = [];

@@ -225,14 +225,16 @@ export function registerBlendSpaceTools(server: McpServer): void {
       name: z.string().describe("Blend Space name (e.g. 'BS_Locomotion')"),
       packagePath: z.string().default("/Game").describe("Package path (e.g. '/Game/Animations')"),
       skeleton: z.string().describe("Skeleton asset name or path"),
-      dimensions: z.union([z.literal(1), z.literal(2)]).optional().describe("1 = BlendSpace1D, 2 = 2D (default)."),
+      dimensions: z.union([z.literal(1), z.literal(2), z.literal("aim1d"), z.literal("aim2d")]).optional()
+        .describe("1 = BlendSpace1D, 2 = 2D (default), 'aim2d' / 'aim1d' = Aim Offset (additive yaw/pitch; set_blend_space_samples makes its samples mesh-space rotation-offset additives)."),
     },
     async (a) => {
       const err = await ensureUE();
       if (err) return text(err, true);
       const r = await run("bs_create(P['n'], P['pp'], P['sk'], P['d'])", { n: a.name, pp: a.packagePath, sk: a.skeleton, d: a.dimensions ?? 2 });
       if (!r.ok) return text(`Error: ${r.error}`, true);
-      return text(`${r.created ? "Created" : "Reused"} ${r.dimensions}D Blend Space ${r.path}.\nNext: set_blend_space_samples (it resamples and verifies).`);
+      const kind = String(r.class ?? "").startsWith("AimOffset") ? "Aim Offset" : "Blend Space";
+      return text(`${r.created ? "Created" : "Reused"} ${r.dimensions}D ${kind} ${r.path}.\nNext: set_blend_space_samples (it resamples and verifies).`);
     },
   );
 
@@ -273,6 +275,13 @@ export function registerBlendSpaceTools(server: McpServer): void {
         `${w.path} (${w.dimensions}D): ${w.samples.length} sample(s) after ${a.mode ?? "replace"}; axes ${w.axes.map((x: any) => `${x.name || "?"} [${x.min}, ${x.max}] grid ${x.grid}`).join(", ")}.`,
       ];
       if (a.verify === false) return text(lines.join("\n"));
+      if (w.aim) {
+        // CLAUDE-NOTE (2026-10-22, live): aim offset samples are additive, so "pose == clip" does not apply. Verified
+        // instead by driving an AimOffset node (add_anim_node AnimGraphNode_RotationOffsetBlendSpace, anim_node_set /
+        // anim_bp_drive on its X/Y): then aim_offset_check (gaze per axis + body vs the base pose).
+        lines.push("Aim offset: samples are mesh-space rotation-offset additives (converted if needed). The per-sample clip check does not apply to additives - verify by driving an AimOffset node in an ABP and measuring the head.");
+        return text(lines.join("\n"));
+      }
       const v = await verifyBlendSpace(w.path);
       lines.push(v.ok ? "Verified - every sample point evaluates to its clip:" : "BLEND SPACE CHECK FAILED:", ...v.lines);
       return text(lines.join("\n"), !v.ok);

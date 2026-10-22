@@ -60,7 +60,7 @@ def bs_create(name, package_path, skeleton, dimensions=2):
         bs = unreal.load_asset(path)
         if not isinstance(bs, unreal.BlendSpace):
             raise ValueError(path + " exists and is not a BlendSpace")
-        return {"ok": True, "path": path, "created": False, "dimensions": _bs_kind(bs)}
+        return {"ok": True, "path": path, "created": False, "dimensions": _bs_kind(bs), "class": bs.get_class().get_name()}
     sk = unreal.load_asset(skeleton) if str(skeleton).startswith("/") else None
     if sk is None:
         ar = unreal.AssetRegistryHelpers.get_asset_registry()
@@ -69,7 +69,13 @@ def bs_create(name, package_path, skeleton, dimensions=2):
         sk = unreal.load_asset(str(hits[0].package_name)) if hits else None
     if not isinstance(sk, unreal.Skeleton):
         raise ValueError("skeleton not found: " + str(skeleton))
-    if int(dimensions) == 1:
+    # CLAUDE-NOTE (2026-10-22): 'aim2d' / 'aim1d' make an Aim Offset (additive mesh-space rotation offsets driven by
+    # yaw / pitch); its samples must be AAT_ROTATION_OFFSET_MESH_SPACE clips.
+    if str(dimensions) == "aim2d":
+        f, cls = unreal.AimOffsetBlendSpaceFactoryNew(), unreal.AimOffsetBlendSpace
+    elif str(dimensions) == "aim1d":
+        f, cls = unreal.AimOffsetBlendSpaceFactory1D(), unreal.AimOffsetBlendSpace1D
+    elif int(dimensions) == 1:
         f, cls = unreal.BlendSpaceFactory1D(), unreal.BlendSpace1D
     else:
         f, cls = unreal.BlendSpaceFactoryNew(), unreal.BlendSpace
@@ -78,7 +84,7 @@ def bs_create(name, package_path, skeleton, dimensions=2):
     if bs is None:
         raise RuntimeError("could not create " + path)
     unreal.EditorAssetLibrary.save_loaded_asset(bs)
-    return {"ok": True, "path": path, "created": True, "dimensions": int(dimensions)}
+    return {"ok": True, "path": path, "created": True, "dimensions": _bs_kind(bs), "class": cls.__name__}
 
 
 def bs_read(path):
@@ -98,6 +104,7 @@ def bs_read(path):
         samples.append({"anim": a.get_path_name().split(".")[0] if a else None, "x": round(v.x, 4), "y": round(v.y, 4),
                         "rate": s.get_editor_property("rate_scale")})
     return {"ok": True, "path": bs.get_path_name().split(".")[0], "dimensions": _bs_kind(bs), "axes": axes,
+            "aim": isinstance(bs, (unreal.AimOffsetBlendSpace, unreal.AimOffsetBlendSpace1D)),
             "samples": samples, "skeleton": bs.get_editor_property("skeleton").get_path_name().split(".")[0]}
 
 
@@ -121,6 +128,7 @@ def bs_write(path, samples, axes=None, mode="replace"):
             params[i] = p
     lims = [(params[i].get_editor_property("min"), params[i].get_editor_property("max")) for i in range(dims)]
     new = []
+    aim = isinstance(bs, (unreal.AimOffsetBlendSpace, unreal.AimOffsetBlendSpace1D))
     for s in samples:
         a = resolve_anim(s["anim"], ("AnimSequence",), sk)
         x, y = float(s.get("x", 0.0)), float(s.get("y", 0.0)) if dims == 2 else 0.0
@@ -147,6 +155,27 @@ def bs_write(path, samples, axes=None, mode="replace"):
         b.set_editor_property("sample_value", unreal.Vector(x, y, 0.0))
         b.set_editor_property("rate_scale", r)
         out.append(b)
+    if aim:
+        # CLAUDE-NOTE (2026-10-22, live 5.6.1): aim offset samples must be mesh-space rotation-offset additives. Base =
+        # the center sample's frame 0 (Epic's AO convention). Written with modify + set_editor_property so the editor's
+        # PostEditChange rebuilds the compressed data: the first AO_Look clips (made additive earlier through the
+        # AnimationLibrary setters) evaluated COMPRESSED as the full pose (root scale 2, pelvis 191.8 vs 95.9 raw) and the
+        # AimOffset node stretched Manny ~4x (pelvis z 379) while the head still turned the right way. Re-writing the
+        # properties fixed it; a fresh-clip repro of the setter path did NOT reproduce it, so the trigger is unknown -
+        # aim_offset_check measures the body vs the base pose to catch it.
+        center = next((a for a, x, y, _ in new if abs(x) < 1e-6 and abs(y) < 1e-6), None)
+        if center is None:
+            raise ValueError("an aim offset needs a sample at (0, 0): it is the additive base pose of every sample")
+        for a, _, _, _ in new:
+            if (a.get_editor_property("additive_anim_type") != unreal.AdditiveAnimationType.AAT_ROTATION_OFFSET_MESH_SPACE
+                    or a.get_editor_property("ref_pose_type") != unreal.AdditiveBasePoseType.ABPT_ANIM_FRAME
+                    or a.get_editor_property("ref_pose_seq") != center or a.get_editor_property("ref_frame_index") != 0):
+                a.modify()
+                a.set_editor_property("ref_pose_type", unreal.AdditiveBasePoseType.ABPT_ANIM_FRAME)
+                a.set_editor_property("ref_pose_seq", center)
+                a.set_editor_property("ref_frame_index", 0)
+                a.set_editor_property("additive_anim_type", unreal.AdditiveAnimationType.AAT_ROTATION_OFFSET_MESH_SPACE)
+                unreal.EditorAssetLibrary.save_loaded_asset(a, False)
     bs.modify()
     bs.set_editor_property("blend_parameters", params)
     bs.set_editor_property("sample_data", out)
