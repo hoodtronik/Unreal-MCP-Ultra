@@ -40,7 +40,9 @@ export function registerAnimNodeMeasureTools(server: McpServer): void {
       bones: z.array(z.string()).min(1).max(10),
       mesh: z.string().optional(),
       expect: z.array(z.object({ step: z.number().int(), bone: z.string(), minCm: z.number().optional(), maxCm: z.number().optional(),
-        minDeg: z.number().optional(), maxDeg: z.number().optional() }).strict()).optional(),
+        minDeg: z.number().optional(), maxDeg: z.number().optional(),
+        at: z.array(z.number()).length(3).optional().describe("Expected WORLD position of the bone (preview mannequin stands at 0,0,-5000, yaw 0)."),
+        tolCm: z.number().optional() }).strict()).optional(),
       rest: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe("Properties to leave on the node afterwards (default: the first step)."),
       aim: z.object({ bone: z.string(), axis: z.enum(["x", "y"]), targetProperty: z.string(), maxDeg: z.number().optional() }).strict().optional()
         .describe("Aim check for look-at style nodes: angle between the bone's axis and the direction to the WORLD point in targetProperty ('(X=..,Y=..,Z=..)', carried over between steps)."),
@@ -87,9 +89,11 @@ export function registerAnimNodeMeasureTools(server: McpServer): void {
           const r = Math.max(angleDeg(states[i][b].x, states[0][b].x), angleDeg(states[i][b].y, states[0][b].y));
           let flag = "";
           for (const e of (a.expect ?? []).filter((x) => x.step === i && x.bone === b)) {
+            const miss = e.at ? len(sub(states[i][b].p, e.at)) : 0;
             const fail = (e.minCm !== undefined && d < e.minCm) || (e.maxCm !== undefined && d > e.maxCm) ||
-              (e.minDeg !== undefined && r < e.minDeg) || (e.maxDeg !== undefined && r > e.maxDeg);
+              (e.minDeg !== undefined && r < e.minDeg) || (e.maxDeg !== undefined && r > e.maxDeg) || (e.at !== undefined && miss > (e.tolCm ?? 1));
             if (fail) { bad++; flag = "  <- UNEXPECTED"; } else flag = "  (as expected)";
+            if (e.at) flag = ` ${miss.toFixed(2)} cm from target${flag}`;
           }
           return `${b} moved ${d.toFixed(2)} cm, turned ${r.toFixed(1)} deg${flag}`;
         });
