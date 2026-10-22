@@ -194,4 +194,55 @@ export function registerPoseSpaceTools(server: McpServer): void {
       return text(lines.join("\n"), !ok);
     },
   );
+
+  server.tool(
+    "pose_snap",
+    "SNAP (Control Rig Snapper) controls onto an actor or a bone over a frame range: keys the controls on every frame " +
+      "so they follow it (hand on a lifted tray, foot on a moving platform) - plain keys, no live constraint left. " +
+      "keepOffset keeps today's offset at `start`. VERIFIED: offset held on sampled frames, no jump at `start`, bone gap.",
+    {
+      sequence: z.string(),
+      binding: z.string(),
+      controls: z.array(z.string()).min(1),
+      parent: z.object({ actor: z.string().optional(), binding: z.string().optional(), bone: z.string().optional() })
+        .refine((p) => !!p.actor !== !!p.binding, { message: "Give exactly one of actor or binding" }),
+      start: z.number().int(),
+      end: z.number().int(),
+      keepOffset: z.boolean().optional().describe("Default true; false snaps the control onto the parent's pivot."),
+      rotation: z.boolean().optional().describe("Also follow rotation (default true)."),
+      everyFrame: z.boolean().optional().describe("Key every frame (default true); false keys only the parent's key frames."),
+      check: z.number().int().min(2).max(30).optional(),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      if (a.end <= a.start) return text("Error: end must be after start", true);
+      const keep = a.keepOffset ?? true;
+      const c0 = a.controls[0];
+      // CLAUDE-NOTE (live): keep_offset reads the control's CURRENT evaluated transform - after a scrub to frame 48 it
+      // used the frame-48 hand against the frame-0 tray and lifted the hand 30 cm. Scrub to start (separate calls) first.
+      const pre = await probeAt(a.sequence, a.start, "constraint_probe(P['s'], P['b'], P['c'], P['p'])", { b: a.binding, c: c0, p: a.parent });
+      if (!pre.ok) return text(`Error: ${pre.error}`, true);
+      const r = await run("snap(P['s'], P['b'], P['cs'], P['p'], P['a'], P['e'], P['k'], P['r'], P['ef'])", {
+        s: a.sequence, b: a.binding, cs: a.controls, p: a.parent, a: a.start, e: a.end, k: keep, r: a.rotation ?? true, ef: a.everyFrame ?? true,
+      });
+      if (!r.ok) return text(`Error: ${r.error ?? "snap_control_rig returned False"}`, true);
+      const samples: Sample[] = [];
+      for (const f of checkFrames(a.start, a.end, a.check ?? 7)) {
+        const q = await probeAt(a.sequence, f, "constraint_probe(P['s'], P['b'], P['c'], P['p'])", { b: a.binding, c: c0, p: a.parent });
+        if (!q.ok) return text(`Error at frame ${f}: ${q.error}`, true);
+        samples.push(q as unknown as Sample);
+      }
+      const fr = followReport(samples);
+      const jump = keep ? dist(samples[0].rel, pre.rel) : 0;
+      const ok = fr.drift <= FOLLOW_TOL_CM && jump <= POP_TOL_CM;
+      const lines = [
+        `Snapped ${a.controls.join(", ")} -> ${a.parent.actor ?? a.parent.binding}${a.parent.bone ? "." + a.parent.bone : ""} over ${a.start}-${a.end} (${a.everyFrame === false ? "parent's key frames" : "every frame"}).`,
+        `${ok ? "Follows" : "DOES NOT FOLLOW"} (${c0}): parent moved ${r2(fr.moved)} cm, offset drift ${r2(fr.drift)} cm` + (keep ? `, jump at start ${r2(jump)} cm` : "") + ` (tol ${FOLLOW_TOL_CM}).`,
+      ];
+      const g = gapLine(fr, c0);
+      if (g) lines.push(g);
+      return text(lines.join("\n"), !ok);
+    },
+  );
 }

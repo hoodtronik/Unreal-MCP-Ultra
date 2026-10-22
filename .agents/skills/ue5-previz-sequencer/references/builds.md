@@ -169,3 +169,19 @@ Eyes vs numbers: the first layout put the shelf at head height (looked like it s
 frame and the hand apparently touching his forehead; a camera from +Y had Loco_Wave (build 8) standing behind the
 shelf. The tween numbers were exact every time - only the captures showed the scene was wrong. The first tween call
 reported failure because Unreal keys only controls whose neighbours differ; the check now counts changing controls.
+
+## 11. Carry a lifted tray (2026-10-21, `/Game/_MCPLab/Seq/SEQ_SnapTray`, Snapper)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Manny facing 0, MM_Idle f10, end 48 | facing 0.0 |
+| 2 | `prop_key` Tray [24,24,3] f0 [27,24,100.5], f24 [31,22,117], f48 [25,30,128] | 0 cm |
+| 3 | `pose_reach` hand_r [27,24,96]; `pose_palm` r up, fingers +X; `pose_reach` again; `pose_hand` r open | miss 0; palm 0.02 deg |
+| 4 | `pose_snap` hand_r_ik_ctrl -> Tray 0-48 (keepOffset, rotation, every frame) | tray moved 28.2 cm, drift 0, jump 0 |
+| 5 | `shot_camera` Cam 35 mm spine_03 420 cm azimuth -10; captures 0/24/48 | clean |
+
+Eyes vs numbers: the first layout put the palm ON a floating tray (read as the tray lifting the hand); palm-up under
+the tray at the old height was 4.3 cm out of reach (bone inside the tray - flagged by the gap line); the idle hand's
+curled fingers poked through until `pose_hand open`. A re-snap after re-posing jumped the hand 42 cm (Snapper took the
+offset from old later keys) - caught by the tool's jump check. A side check camera (left in the sequence) stole the
+cut; `shot_camera` now cleans orphan cuts.

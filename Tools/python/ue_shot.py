@@ -99,6 +99,12 @@ def camera(seq_path, name, location=None, rotation=None, focal_length=None, film
     cut_track = next((t for t in seq.get_tracks() if isinstance(t, unreal.MovieSceneCameraCutTrack)), None) \
         or seq.add_track(unreal.MovieSceneCameraCutTrack)
     bid = unreal.MovieSceneSequenceExtensions.get_binding_id(seq, b)
+    # CLAUDE-NOTE (2026-10-21, live): a cut section whose camera binding was removed kept winning its range (the
+    # viewport showed no camera); drop such orphans. Overlapping cuts are reported - the later section wins.
+    live = [unreal.MovieSceneSequenceExtensions.get_binding_id(seq, x) for x in seq.get_bindings()]
+    orphans = [s for s in cut_track.get_sections() if not any(_same_id(s.get_camera_binding_id(), x) for x in live)]
+    for s in orphans:
+        cut_track.remove_section(s)
     sec = None
     for s in cut_track.get_sections():
         if _same_id(s.get_camera_binding_id(), bid):
@@ -115,11 +121,16 @@ def camera(seq_path, name, location=None, rotation=None, focal_length=None, film
         # CLAUDE-NOTE (2026-10-21): an update without `cut` keeps the existing range - re-ranging to the full playback
         # range made a re-aimed camera overlap the next shot's cut (TwoShot 0-36 became 0-72 over CU_Quinn 36-72).
         r = [sec.get_start_frame(), sec.get_end_frame()]
+    overlaps = []
+    for s in cut_track.get_sections():
+        if s is not sec and s.get_start_frame() < int(r[1]) and int(r[0]) < s.get_end_frame():
+            overlaps.append([s.get_start_frame(), s.get_end_frame()])
     evaluate(seq)
     fb = cc.get_editor_property("filmback")
     return {"ok": True, "camera": name, "created": created, "focal_length": round(cc.get_editor_property("current_focal_length"), 3),
             "sensor": [round(fb.sensor_width, 3), round(fb.sensor_height, 3)], "cut": [int(r[0]), int(r[1])],
-            "focus": str(cc.get_editor_property("focus_settings").focus_method).split(".")[-1].split(":")[0]}
+            "focus": str(cc.get_editor_property("focus_settings").focus_method).split(".")[-1].split(":")[0],
+            "orphan_cuts_removed": len(orphans), "overlapping_cuts": overlaps}
 
 
 def camera_pose(seq, binding):

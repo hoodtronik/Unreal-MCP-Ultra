@@ -68,6 +68,8 @@ export function registerShotTools(server: McpServer): void {
       });
       if (!c.ok) return text(`Error: ${c.error}`, true);
       const lines = [`${c.created ? "Created" : "Updated"} '${a.name}': ${c.focal_length} mm, sensor ${c.sensor.join("x")} mm, focus ${c.focus}, cut ${c.cut[0]}-${c.cut[1]}.`];
+      if (c.orphan_cuts_removed) lines.push(`Removed ${c.orphan_cuts_removed} camera cut(s) whose camera no longer exists.`);
+      if (c.overlapping_cuts?.length) lines.push(`WARNING: this cut overlaps other camera cuts ${JSON.stringify(c.overlapping_cuts)} - the later section wins; trim them with shot_camera cut.`);
       let subject = a.aim?.subject;
       if (a.aim) {
         const m = await run("aim(P['seq'], P['cam'], P['subj'], P['bone'], P['d'], P['az'], P['rise'])", {

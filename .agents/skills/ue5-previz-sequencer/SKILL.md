@@ -49,6 +49,7 @@ tick and `isError` is set from that readback:
 | `prop_key` | free (unattached) prop keyed in WORLD space - a moving parent for constraints, set dressing | Tray keys 0/48 read back 0 cm |
 | `pose_tween` | breakdown / in-between pose with the Control Rig Tween tool (-1 prev .. 1 next) for every control keyed on both sides (or a list); verifies each control vs prev + (next-prev)*(v+1)/2 and its key | SEQ_ShelfReach f8 -0.4 / f16 0.5: worst 0.0006, hand at 30% / 75% exactly |
 | `retarget_align_pose` | auto-aligned retarget pose (A vs T pose etc.) on an IK Retargeter, A/B-checked on a clip (absolute limb angle + feet); kept only if better, else restored | Manny->Fab girl walk: 7.8 -> 0.82 deg, feet 3.6 -> 2 cm (kept); mesh_to_mesh 14.2 deg / 13 cm (restored) |
+| `pose_snap` | Control Rig Snapper: key controls onto an actor/bone on every frame of a range (plain keys, no live constraint); keepOffset keeps the start offset; verifies drift, start jump, bone gap | SEQ_SnapTray: hand under a lifted tray, tray moved 28 cm, drift 0, jump 0 |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -222,6 +223,9 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 68 | Retargeted custom-skeleton character's feet don't match the source | Name-mapped IK Rigs (Fab/custom skeletons) get chains but no goals or solver, so the IK ops do nothing: legs are FK only. `retarget_animations` now prints 'Leg IK OFF' and the feet error (Manny -> Fab girl: 3.6 cm). Copying Manny's goals + FBIK onto the girl made it worse (spine 18-26 deg, legs 11-27 deg) - don't. Epic skeletons (Manny -> Quinn) get IK: feet 1.55 -> 1.01 cm. |
 | 69 | Viewport capture shows only sky after a Sequencer build | The viewport is still locked to the sequence's camera cut. Close the sequence (`LevelSequenceEditorBlueprintLibrary.close_level_sequence()`) before `set_viewport_camera`. |
 | 70 | Retargeted arms held ~14 deg off the source all clip long | Different rest poses (A vs T). Run `retarget_align_pose` (chain_to_chain); mesh_to_mesh was far worse here. After aligning, judge by ABSOLUTE limb angle - 'motion error' is measured from each skeleton's own rest pose and rises (the verdict takes the better of the two). |
+| 71 | Snapped hand jumps 30-42 cm at the start frame | The Snapper's keep_offset took the child from LATER keys in the range (old frame-48 keys) against the parent at start. `pose_snap` clears the controls' keys in (start, end] first and reports the jump. |
+| 72 | Snapped control drifts between the parent's keys | The Snapper default keys only the parent's key frames (KEYS_ONLY); `pose_snap` keys every frame by default. |
+| 73 | Viewport shows no camera / the wrong camera after removing or adding one | Camera cut sections of removed cameras kept their range, and overlapping cuts let the later one win. `shot_camera` now drops orphan cuts and warns about overlaps. Open: `shot_camera` aimed at a bone that moves can frame where the bone was on another frame - check the capture. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

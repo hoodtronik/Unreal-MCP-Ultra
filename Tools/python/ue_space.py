@@ -181,7 +181,9 @@ def constraint_probe(seq_path, binding_name, control, parent, bone=None):
     out = space_probe(seq_path, binding_name, control, None, bone)
     px = parent_xform(seq, parent)
     out["space_pos"] = _v(px.translation)
-    out["rel"] = _v(px.inverse_transform_location(unreal.Vector(*out["ctrl"])))
+    # CLAUDE-NOTE (live): offset in the parent's frame WITHOUT its scale - inverse_transform_location divided by a
+    # 0.03-thick tray's scale and inflated vertical offsets ~33x.
+    out["rel"] = _v(px.rotation.unrotate_vector(unreal.Vector(*out["ctrl"]) - px.translation))
     out["constraints"] = len(_constraints_on(seq, _world(), binding_name, control))
     return out
 
@@ -211,3 +213,61 @@ def unconstrain(seq_path, binding_name, control):
         CSL.remove_this_constraint(w, c)
     evaluate(seq, current_frame())
     return {"ok": True, "removed": len(cs), "left": len(_constraints_on(seq, w, binding_name, control))}
+
+
+# CLAUDE-NOTE (2026-10-21, live 5.6.1): the Snapper (ControlRigSequencerLibrary.snap_control_rig) keys the children
+# (ControlRigForWorldTransforms: rig + control names) onto the parent (ActorForWorldTransforms: actor, or a skeletal
+# component + socket) on every frame of [start, end]; ControlRigSnapSettings is a UObject (new_object), defaults
+# keep_offset False, position only, KEYS_ONLY (parent's key frames). Unlike a constraint nothing stays live afterwards - the keys ARE the result.
+def _clear_keys_after(seq, binding_name, controls, start, end):
+    _, rig, track = _rig(seq, binding_name)
+    want, n = set(controls), 0
+    for sec in track.get_sections():
+        for ch in sec.get_all_channels():
+            if str(ch.channel_name).split(".")[0] not in want or not hasattr(ch, "get_keys"):
+                continue
+            for k in list(ch.get_keys()):
+                f = int(k.get_time(DR).frame_number.value)
+                if start < f <= end:
+                    ch.remove_key(k)
+                    n += 1
+    return n
+
+
+def snap(seq_path, binding_name, controls, parent, start, end, keep_offset=True, rotation=False, every_frame=True):
+    seq = load_sequence(seq_path)
+    _, rig, _ = _rig(seq, binding_name)
+    missing = [c for c in controls if control_type(rig, c) is None]
+    if missing:
+        raise ValueError("No control named: " + ", ".join(missing))
+    b, a = _actor_by(seq, parent)
+    if parent.get("control"):
+        raise ValueError("The Snapper takes an actor or a bone/socket as parent, not a control")
+    child = unreal.ControlRigSnapperSelection()
+    cr = unreal.ControlRigForWorldTransforms()
+    cr.set_editor_property("control_rig", rig)
+    cr.set_editor_property("control_names", list(controls))
+    child.set_editor_property("control_rigs", [cr])
+    par = unreal.ControlRigSnapperSelection()
+    af = unreal.ActorForWorldTransforms()
+    af.set_editor_property("actor", a)
+    if parent.get("bone"):
+        af.set_editor_property("component", a.get_component_by_class(unreal.SkeletalMeshComponent))
+        af.set_editor_property("socket_name", parent["bone"])
+    par.set_editor_property("actors", [af])
+    st = unreal.new_object(unreal.ControlRigSnapSettings)
+    st.set_editor_property("keep_offset", bool(keep_offset))
+    st.set_editor_property("snap_position", True)
+    st.set_editor_property("snap_rotation", bool(rotation))
+    # CLAUDE-NOTE (live): the default KEYS_ONLY keyed only the parent's key frames (0/24/48) and the hand drifted up
+    # to 7 cm off a cubic-moving tray in between; ALL_FRAMES keys every frame.
+    st.set_editor_property("baking_key_settings", unreal.BakingKeySettings.ALL_FRAMES if every_frame else unreal.BakingKeySettings.KEYS_ONLY)
+    # CLAUDE-NOTE (live): with keep_offset the Snapper took the child's transform from LATER in the range (old keys at
+    # frame 48) against the parent at `start`: a re-snap after re-posing frame 0 lifted the hand 42 cm (the old frame-48
+    # offset). Clearing the controls' keys in (start, end] first makes the start pose the one that is kept; every-frame
+    # snapping rewrites those frames anyway.
+    cleared = _clear_keys_after(seq, binding_name, controls, int(start), int(end))
+    evaluate(seq, start)
+    ok = L.snap_control_rig(seq, FN(int(start)), FN(int(end)), child, par, st, DR)
+    evaluate(seq, start)
+    return {"ok": bool(ok), "cleared": cleared}
