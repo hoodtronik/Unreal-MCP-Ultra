@@ -92,6 +92,7 @@ import { registerSkelFbxTools } from "./tools/skel-fbx.js";
 import { registerPoseStatueTools } from "./tools/pose-statue.js";
 import { registerSeqTracksTools } from "./tools/seq-tracks.js";
 import { registerSeqSubsequenceTools } from "./tools/seq-subsequence.js";
+import { registerShotSightlineTools } from "./tools/shot-sightlines.js";
 
 // CLAUDE-NOTE: single source of truth for "every tool-registration function + a human-friendly
 // category label", consumed by index.ts (real registration), batch-schema-invariant.test.ts
@@ -195,6 +196,7 @@ export const TOOL_REGISTRATIONS: ToolRegistration[] = [
   { register: registerPoseStatueTools, category: "Pose statues (PoseableMesh)" },
   { register: registerSeqTracksTools, category: "Sequencer fade / marks / track mute-lock-rename" },
   { register: registerSeqSubsequenceTools, category: "Subsequences (verified time mapping)" },
+  { register: registerShotSightlineTools, category: "Shot sightlines / overlaps" },
   // CLAUDE-NOTE: actor-state.ts existed with three working tools (set_actor_mobility,
   // set_actor_visibility, set_actor_physics), matching C++ handlers and registered routes — but was
   // never listed here, so none of them were ever exposed to a client. route-parity.test.ts could

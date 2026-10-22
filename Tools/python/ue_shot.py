@@ -459,3 +459,54 @@ def render_passes_status(out_dir, prefix):
             groups.setdefault(parts[-1], []).append(f)
     return {"ok": True, "rendering": unreal.get_editor_subsystem(unreal.MoviePipelineQueueSubsystem).is_rendering(),
             "groups": {k: {"count": len(v), "first": v[0], "last": v[-1]} for k, v in groups.items()}, "files": len(files)}
+
+
+def screen_boxes(seq_path, cam_name, names):
+    """Screen rectangles (u,v in [-1,1] = frame) and distance of actors seen through a sequence camera at the CURRENT
+    frame: skeletal actors from their main bones, others from bounds corners. Names: bindings or level actor labels.
+    Uses the camera actor's LIVE transform (constraints such as look_at are not in its keys)."""
+    seq = load_sequence(seq_path)
+    cb = find_binding(seq, cam_name)
+    cam = bound_actor(seq, cb)
+    cc = cam.get_cine_camera_component()
+    fl = cc.get_editor_property("current_focal_length")
+    fb = cc.get_editor_property("filmback")
+    hh, vh = math.atan(fb.sensor_width / 2.0 / fl), math.atan(fb.sensor_height / 2.0 / fl)
+    rot = cam.get_actor_rotation()
+    fwd, right, up = rot.get_forward_vector(), rot.get_right_vector(), rot.get_up_vector()
+    c = cam.get_actor_location()
+    out = {}
+    for n in names:
+        try:
+            a = bound_actor(seq, find_binding(seq, n))
+        except ValueError:
+            a = next((x for x in _eas().get_all_level_actors() if x.get_actor_label() == n), None)
+        if a is None:
+            out[n] = {"missing": True}
+            continue
+        sk = a.get_component_by_class(unreal.SkinnedMeshComponent)
+        pts = []
+        if sk is not None and sk.get_num_bones() > 0:
+            for i in range(sk.get_num_bones()):
+                pts.append(sk.get_socket_location(sk.get_bone_name(i)))
+        else:
+            o, e = a.get_actor_bounds(False)
+            for sx in (-1, 1):
+                for sy in (-1, 1):
+                    for sz in (-1, 1):
+                        pts.append(unreal.Vector(o.x + sx * e.x, o.y + sy * e.y, o.z + sz * e.z))
+        us, vs, ds = [], [], []
+        for p in pts:
+            d = p - c
+            z = d.dot(fwd)
+            if z <= 1:
+                continue
+            us.append(math.atan2(d.dot(right), z) / hh)
+            vs.append(math.atan2(d.dot(up), z) / vh)
+            ds.append(d.length())
+        if not us:
+            out[n] = {"behind_camera": True}
+            continue
+        out[n] = {"u": [round(min(us), 3), round(max(us), 3)], "v": [round(min(vs), 3), round(max(vs), 3)],
+                  "dist": round(sorted(ds)[len(ds) // 2], 1)}
+    return {"ok": True, "frame": unreal.LevelSequenceEditorBlueprintLibrary.get_current_time(), "boxes": out}
