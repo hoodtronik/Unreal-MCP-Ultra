@@ -207,3 +207,19 @@ hand -> knuckle-line axis horizontal) and the fists overlapping like a handshake
 cups sat on the palm side, i.e. toward the other person, and crossed through each other (centres 3.8 cm apart) -
 `prop_check near` caught it, re-spacing the hands along x fixed it. The two-shot hides the cups inside the fists; the
 close-up cut shows the grips.
+
+## 13. Walk, glance and wave over a clip (2026-10-22, `/Game/_MCPLab/Seq/SEQ_WalkWave`, layered Control Rig)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `anim_walk` Walker [600,-300,0] -> [600,300,0] | 300 cm/s, slide max 1.16 cm/frame |
+| 2 | `pose_layer add` | legs FK keyed; whole body <= 0.007 cm off the clip on 5 frames |
+| 3 | `shot_camera` Cam 24 mm [200,520,160] rot [-5.2,-44,0] | walker in frame 0-47 |
+| 4 | `pose_look_at` Cam f10/20/30/40; `pose_layer zero` head_ctrl f0 | gaze <= 0.24 deg, head 31-48 deg off the body |
+| 5 | `pose_reach` hand_r + `pose_palm` to Cam at f16-36 (wave points ride the walker, +-7 cm side to side) | miss 0.000 cm, palm <= 0.044 deg |
+| 6 | `pose_layer zero` hand_r_ik_ctrl f8/f44; `pose_set_interpolation` smooth | - |
+| 7 | `pose_layer check` 8 frames | legs 0.000 cm all frames; arm_r edited f16-36, <= 0.42 cm at the bounds |
+
+Eyes vs numbers: the first `add` reported the knees 1.4 cm off the clip (pass-through keys dropped in the creating call -
+fixed by keying in a second call); a side camera put the glance at 90 deg (camera moved ahead of him); the 28 mm lens
+lost him off the edge at the end (24 mm).
