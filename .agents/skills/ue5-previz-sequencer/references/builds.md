@@ -187,3 +187,23 @@ offset from old later keys) - caught by the tool's jump check. A side check came
 cut; `shot_camera` now cleans orphan cuts. The side camera, once it aimed at the right frame (`aim.frame`), showed the
 fingers poking UP through the tray from below - invisible from the front: Manny's palm slopes ~29 deg up to the
 knuckles when its normal points straight up, so the palm target was tilted 15 deg forward.
+
+## 12. A toast with a shared grip socket (2026-10-22, `/Game/_MCPLab/Seq/SEQ_Toast`, sockets)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Manny [300,-42,0] facing 90 MM_Idle f10; Quinn SKM_Quinn_Simple [300,42,0] facing -90 f60 | facing 90.0 / -90.1 |
+| 2 | `pose_reach` hand_r f24 Manny [287.7,-5,120], Quinn [312.3,5,120]; f0 [284,-24,98] / [316,24,98] | miss 0 |
+| 3 | `pose_palm` r, palm to the midline (target 100 cm beside the hand), fingers = facing, f0 and f24 | 0.03 deg |
+| 4 | `prop_attach` CupM grip r [8,8,11] on Manny | 5/5 digits within 1 cm, deepest -0.19 cm |
+| 5 | `prop_socket` CupM -> Cup_Grip_R (SK_Mannequin) | stored 0.000 cm / 0.000 deg; moved 0, turned 0 |
+| 6 | `prop_attach` CupQ bone Cup_Grip_R grip r on Quinn | offset 0 (socket); 5/5 digits, palm gap 0.85 cm, curls 30-36 deg (Manny 25-27) |
+| 7 | `pose_look_at` each other's head f0/f24; `pose_set_interpolation` smooth | 0.03 deg |
+| 8 | `prop_check` both cups 0-48, near CupQ | drift 0; cup centres 9.08 cm apart at f24 (1 cm gap) |
+| 9 | `shot_camera` Cam 35 mm spine_03 330 cm az -75 rise 35 cut 0-30; CU 50 mm hand_r 90 cm az -60 rise 35 cut 30-49 | heads and hands in frame |
+
+Eyes vs numbers: every number passed on the first pose, but the capture showed the cups lying on their side (palm-down
+hand -> knuckle-line axis horizontal) and the fists overlapping like a handshake. After turning the palms inward the
+cups sat on the palm side, i.e. toward the other person, and crossed through each other (centres 3.8 cm apart) -
+`prop_check near` caught it, re-spacing the hands along x fixed it. The two-shot hides the cups inside the fists; the
+close-up cut shows the grips.

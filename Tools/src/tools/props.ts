@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ensureUE } from "../ue-bridge.js";
+import { ensureUE, uePost } from "../ue-bridge.js";
 import { runPose, type PoseResult } from "./posing.js";
 
 // CLAUDE-NOTE (2026-10-21): PROPS held by characters in a LevelSequence (Tools/python/ue_props.py). The prop is a
@@ -56,6 +56,33 @@ export function bisect(lo: number, hi: number, mid: number, gap: number): [numbe
   return gap >= -PRESS_CM ? [mid, hi] : [lo, mid];
 }
 
+// CLAUDE-NOTE (2026-10-22, live 5.6.1): prop_socket turns a solved grip into a SKELETON socket so the same hold is
+// reusable (any prop / any character on that skeleton: Manny and Quinn share SK_Mannequin). Python cannot write
+// sockets (SkeletalMeshSocket.socket_name read-only, Skeleton.sockets protected), so the socket is written by the
+// plugin's /api/add-skeleton-socket and everything around it (offset, readback, switch, check) is ue_socket.py.
+export const SOCKET_TOL_CM = 0.05;
+export const SOCKET_TOL_DEG = 0.05;
+const SOCKET_LIBS = ["ue_posing.py", "ue_props.py", "ue_socket.py"];
+
+/** Largest per-component difference between two vectors (stored vs measured socket values). Exported for tests. */
+export function maxDiff(a: number[], b: number[]): number {
+  return Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+}
+
+/** Rotator components compared modulo 360. Exported for tests. */
+export function maxAngleDiff(a: number[], b: number[]): number {
+  return Math.max(...a.map((v, i) => {
+    const d = Math.abs(((v - b[i]) % 360 + 540) % 360 - 180);
+    return d;
+  }));
+}
+
+/** Angle in degrees between two unit quaternions [x,y,z,w]. Exported for tests. */
+export function quatAngleDeg(a: number[], b: number[]): number {
+  const d = Math.min(1, Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]));
+  return (2 * Math.acos(d) * 180) / Math.PI;
+}
+
 export function registerPropTools(server: McpServer): void {
   server.tool(
     "prop_attach",
@@ -70,7 +97,7 @@ export function registerPropTools(server: McpServer): void {
       sequence: z.string(),
       name: z.string().describe("Prop binding name, e.g. 'Cup'."),
       character: z.string().describe("Character binding that holds it."),
-      bone: z.string().optional().describe("Bone/socket to attach to. Default hand_<grip side>, else hand_r."),
+      bone: z.string().optional().describe("Bone/socket to attach to. Default hand_<grip side>, else hand_r. With grip on a SOCKET (saved by prop_socket) the prop sits on it at zero offset and only the fingers are solved."),
       mesh: z.string().optional().describe("StaticMesh path. Default /Engine/BasicShapes/Cylinder."),
       size: vec3.optional().describe("Bounding-box size [x,y,z] cm; scales the mesh. Default: mesh size."),
       color: vec3.optional().describe("Tint [r,g,b] 0-1 (BasicShapeMaterial instance saved beside the sequence)."),
@@ -234,6 +261,71 @@ export function registerPropTools(server: McpServer): void {
       }
       const ok = worst <= 0.1;
       lines.push(`${ok ? "Verified" : "MISMATCH"}: worst ${Math.round(worst * 1000) / 1000} cm from the keyed locations.`);
+      return text(lines.join("\n"), !ok);
+    },
+  );
+
+  server.tool(
+    "prop_socket",
+    "Save where a prop sits in the hand (e.g. after prop_attach grip) as a SOCKET on the character's skeleton, so " +
+      "the same hold can be reused: prop_attach with bone=<socket> puts any prop there at zero offset (with grip it " +
+      "then only curls the fingers), on every character that shares the skeleton. Measures the prop's offset from " +
+      "its bone at `frame`, writes the socket (saved to disk; overwrites a socket of the same name), reads it back, " +
+      "and with switch (default) re-attaches the prop to the socket and VERIFIES it did not move.",
+    {
+      sequence: z.string(),
+      prop: z.string().describe("Prop binding (from prop_attach)."),
+      character: z.string().describe("Character binding the prop is attached to."),
+      socket: z.string().describe("Socket name to create/update, e.g. 'Cup_Grip_R'."),
+      frame: z.number().int().optional().describe("Frame to measure at. Default 0."),
+      switch: z.boolean().optional().describe("Re-attach the prop to the new socket at zero offset. Default true."),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const sr = (call: string, p: Record<string, unknown>) => runPose(call, p, SOCKET_LIBS);
+      const base = { s: a.sequence, n: a.prop, c: a.character, k: a.socket };
+      const f = a.frame ?? 0;
+      await sr("scrub(P['s'], P['f'])", { s: a.sequence, f });
+      await sr("scrub(P['s'], P['f'])", { s: a.sequence, f });
+      const off = await sr("socket_offset(P['s'], P['n'], P['c'])", base);
+      if (!off.ok) return text(`Error: ${off.error}`, true);
+      const [lx, ly, lz] = off.location as number[];
+      const [roll, pitch, yaw] = off.rotation as number[];
+      const w = await uePost("/api/add-skeleton-socket", {
+        path: off.skeleton, socketName: a.socket, bone: off.bone, locX: lx, locY: ly, locZ: lz,
+        rotRoll: roll, rotPitch: pitch, rotYaw: yaw, overwrite: true,
+      });
+      if (w.error || !w.success) return text(`Error writing the socket: ${w.error ?? "not saved"}`, true);
+      const got = await sr("socket_get(P['s'], P['c'], P['k'])", base);
+      const sock = got.ok ? got.socket : null;
+      if (!sock) return text(`Socket write reported success but ${a.character}'s mesh has no socket '${a.socket}'.`, true);
+      const dl = maxDiff(sock.location, off.location as number[]);
+      const da = maxAngleDiff(sock.rotation, off.rotation as number[]);
+      const stored = dl <= 0.01 && da <= 0.01 && sock.bone === off.bone && sock.owner === "skeleton";
+      const lines = [
+        `${w.created ? "Created" : "Updated"} socket '${a.socket}' on ${off.skeleton} (bone ${off.bone}): ` +
+          `loc ${JSON.stringify(sock.location)} rot ${JSON.stringify(sock.rotation)} (saved).`,
+        `${stored ? "Stored values verified" : "STORED VALUES DIFFER:"} (max ${dl.toFixed(3)} cm / ${da.toFixed(3)} deg vs the measured offset).`,
+      ];
+      if (a.switch === false) return text(lines.join("\n"), !stored);
+      const sw = await sr("socket_switch(P['s'], P['n'], P['k'])", base);
+      if (!sw.ok) return text(`${lines.join("\n")}\nError switching the prop: ${sw.error}`, true);
+      await sr("scrub(P['s'], P['f'])", { s: a.sequence, f });
+      await sr("scrub(P['s'], P['f'])", { s: a.sequence, f });
+      const ck = await sr("socket_check(P['s'], P['n'], P['c'], P['k'])", base);
+      if (!ck.ok) return text(`${lines.join("\n")}\nCheck failed: ${ck.error}`, true);
+      const moved = maxDiff(ck.prop_world, off.prop_world as number[]);
+      // CLAUDE-NOTE: the prop sits ON the socket after the switch, so prop-vs-socket is ~0 by construction; a wrong
+      // socket ROTATION would only show as the prop turning in place - compare its world rotation before/after too.
+      const turned = quatAngleDeg(ck.prop_quat, off.prop_quat as number[]);
+      const ok = stored && ck.attached_to === a.socket && moved <= SOCKET_TOL_CM && turned <= SOCKET_TOL_DEG &&
+        ck.dist_cm <= SOCKET_TOL_CM && ck.angle_deg <= SOCKET_TOL_DEG;
+      lines.push(
+        `${ok ? "Verified" : "SWITCH CHECK FAILED:"} '${a.prop}' now on '${ck.attached_to}' at zero offset: moved ${moved.toFixed(3)} cm, turned ${turned.toFixed(3)} deg; ` +
+          `prop vs socket ${ck.dist_cm} cm / ${ck.angle_deg} deg.`,
+        `Reuse: prop_attach bone='${a.socket}' (with grip: fingers only) on any character with this skeleton.`,
+      );
       return text(lines.join("\n"), !ok);
     },
   );

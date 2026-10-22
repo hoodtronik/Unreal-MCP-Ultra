@@ -261,7 +261,13 @@ def prop_attach(seq_path, name, character, bone="hand_r", mesh=None, size=None, 
     else:
         scale = unreal.Vector(1, 1, 1)
     info = {}
-    if grip:
+    on_socket = sk.get_bone_index(bone) < 0
+    if grip and on_socket:
+        # CLAUDE-NOTE (2026-10-22): a SOCKET already stores where the prop sits in the hand (prop_socket saved it from
+        # a solved grip), so the prop goes on it at zero offset and only the fingers are solved (curl onto it).
+        loc, rot = unreal.Vector(0, 0, 0), unreal.Rotator()
+        info = {"on_socket": True, "radius": round(0.5 * min(ext.x * scale.x, ext.y * scale.y), 2)}
+    elif grip:
         radius = 0.5 * min(ext.x * scale.x, ext.y * scale.y)
         gw, info = grip_world(sk, grip, radius)
         bone_w = sk.get_socket_transform(bone, unreal.RelativeTransformSpace.RTS_WORLD)

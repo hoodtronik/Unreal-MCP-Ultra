@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bisect, fingerGap, gapFrom, PRESS_CM, WRAP, wrapCurl } from "../../src/tools/props.js";
+import { bisect, fingerGap, gapFrom, maxAngleDiff, maxDiff, PRESS_CM, quatAngleDeg, WRAP, wrapCurl } from "../../src/tools/props.js";
 
 describe("grip solve helpers", () => {
   const seg = { index_01: 1.2, index_02: -0.5, index_03: 0.3, thumb_01: 2 };
@@ -32,5 +32,22 @@ describe("grip solve helpers", () => {
 
   it("wrapCurl spreads the curl as an even arc", () => {
     expect(wrapCurl(30)).toEqual(WRAP.map((r) => 30 * r));
+  });
+});
+
+describe("prop_socket checks", () => {
+  it("quatAngleDeg measures the turn between two rotations (sign-insensitive)", () => {
+    const id = [0, 0, 0, 1];
+    const yaw30 = [0, 0, Math.sin(Math.PI / 12), Math.cos(Math.PI / 12)];
+    expect(quatAngleDeg(id, id)).toBeCloseTo(0, 6);
+    expect(quatAngleDeg(id, yaw30)).toBeCloseTo(30, 6); // live: socket yaw +30 -> turned 30.00, moved 0.001 cm
+    expect(quatAngleDeg(id, yaw30.map((v) => -v))).toBeCloseTo(30, 6);
+  });
+  it("maxAngleDiff compares rotator components modulo 360", () => {
+    expect(maxAngleDiff([179.99, 0, -90], [-179.99, 0, 270])).toBeCloseTo(0.02, 6);
+    expect(maxAngleDiff([10, 0, 0], [0, 0, 0])).toBe(10);
+  });
+  it("maxDiff is the largest per-component difference", () => {
+    expect(maxDiff([1, 2, 3], [1, 2.5, 2])).toBe(1);
   });
 });
