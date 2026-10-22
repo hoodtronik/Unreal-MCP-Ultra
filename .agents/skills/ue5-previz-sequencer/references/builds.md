@@ -303,3 +303,15 @@ to shot_camera and calibrated by measuring clipped pixels (+11 EV 99%, +4 52%, 0
 Eyes vs numbers: the first rail move verified (camera exactly on the spline) but Manny was out of frame at both ends
 (fixed heading) - aim added. The crane opened on bare floor (pitch -5, camera tilted down). A second shot_rig call to
 read back wiped the aim keys (mount re-run reset rotation) - fixed: rotation only rewritten when given.
+
+## 20. Walk into a jog (2026-10-22, `/Game/_MCPLab/Seq/SEQ_Stitch`, stitched root motion + trucking camera)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `anim_stitch` Walker at [1800,-400,0]: walk, walk, jog, jog, blend 6 | offsets 0 / 375 / 750 / 1634 cm; cut steps 14.5 / 25.4 / 28.1 cm (speeds 11-28 cm/frame), no pops |
+| 2 | `shot_camera` Track 28 mm cut 0-138; `shot_camera_follow` truck offset [-320,-40,30], every 6, screen [0.1,-0.15] | 23 in-between frames within tolerance |
+| 3 | `shot_render` | 138 frames + MP4 |
+
+Eyes vs numbers: the first stitch (no offsets) popped 438 cm back at every cut; with offsets the position was seamless
+but the walk -> jog cut snapped the pose in one frame (seen in the render) - added the cross-fade. A jog -> jog cut
+measured 38.6 cm (section shorter than the clip) - offsets now taken at the section end.
