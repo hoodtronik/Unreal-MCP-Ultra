@@ -48,6 +48,7 @@ export function registerRenderGraphTools(server: McpServer): void {
       width: z.number().int().optional(),
       height: z.number().int().optional(),
       cleanPlate: z.boolean().optional().describe("Add the clean-plate layer (default true)."),
+      keep: z.array(z.string()).optional().describe("Bindings to KEEP in the clean plate (set dressing owned by the sequence, e.g. a table)."),
       samples: z.number().int().min(1).max(20).optional().describe("Frames compared (default 4)."),
       timeoutSec: z.number().optional(),
     },
@@ -55,6 +56,8 @@ export function registerRenderGraphTools(server: McpServer): void {
       const err = await ensureUE();
       if (err) return text(err, true);
       const name = a.sequence.split("/").pop()!;
+      const kp = await run("keep_in_plate(P['s'], P['k'])", { s: a.sequence, k: a.keep ?? [] });
+      if (!kp.ok) return text(`Error: ${kp.error}`, true);
       const b = await run("mrg_build(P['g'], P['w'], P['h'], default_out(P['n']), P['c'])", { g: a.graph, n: name, w: a.width ?? 960, h: a.height ?? 540, c: a.cleanPlate ?? true });
       if (!b.ok) return text(`Error building the graph: ${b.error}`, true);
       const st = await run("mrg_render_start(P['s'], P['g'])", { s: a.sequence, g: a.graph });

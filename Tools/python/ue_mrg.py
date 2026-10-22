@@ -28,6 +28,11 @@ def _layer_chain(g, inp, outp, branch, layer_name, hide_spawnables=False):
         coll.set_collection_name("Spawnables")
         grp = coll.add_condition_group()
         grp.add_query(unreal.MovieGraphConditionGroupQuery_IsSpawnable)
+        # CLAUDE-NOTE (2026-10-22, live): build 21's plate also removed the sequence-owned table. Bindings to KEEP carry
+        # the actor tag MCPKeep (keep_in_plate) and are subtracted here; tags_to_match exists though dir() hides it.
+        qk = grp.add_query(unreal.MovieGraphConditionGroupQuery_ActorTagName)
+        qk.set_editor_property("tags_to_match", KEEP_TAG)
+        qk.set_operation_type(unreal.MovieGraphConditionGroupQueryOpType.SUBTRACT)
         mn = g.create_node_by_class(unreal.MovieGraphModifierNode)
         # a new modifier node already holds a RenderPropertyModifier (add_modifier then returns None - live)
         mod = mn.add_modifier(unreal.MovieGraphRenderPropertyModifier) or mn.get_modifier(unreal.MovieGraphRenderPropertyModifier)
@@ -45,6 +50,29 @@ def _layer_chain(g, inp, outp, branch, layer_name, hide_spawnables=False):
         _edge(g, a, "", b, "None")
     _edge(g, nodes[-1], "None", outp, branch)
     return [type(n).__name__ for n in nodes]
+
+
+KEEP_TAG = "MCPKeep"
+
+
+def keep_in_plate(seq_path, names):
+    """Tag bindings (template + live actor) so the clean plate keeps them; untag every other binding."""
+    seq = load_sequence(seq_path, open_it=True)
+    out = []
+    for b in seq.get_bindings():
+        n = str(b.get_display_name())
+        objs = [o for o in (b.get_object_template(), bound_actor(seq, b)) if isinstance(o, unreal.Actor)]
+        for o in objs:
+            tags = [t for t in o.get_editor_property("tags") if str(t) != KEEP_TAG]
+            if n in names:
+                tags.append(KEEP_TAG)
+            o.set_editor_property("tags", tags)
+        if n in names:
+            out.append(n)
+    missing = [n for n in names if n not in out]
+    if missing:
+        raise ValueError("no binding(s) %s" % ", ".join(missing))
+    return {"ok": True, "kept": out}
 
 
 def default_out(seq_name):
