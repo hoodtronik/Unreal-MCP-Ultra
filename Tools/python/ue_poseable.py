@@ -5,7 +5,7 @@ import math
 
 import unreal
 
-STATUE_BP = "/Game/_MCPLab/Poseable/BP_MCPPoseable"   # Actor + PoseableMeshComponent "Pose" (created with the MCP)
+STATUE_BP = "/Game/MCP/BP_MCPPoseable"   # Actor + PoseableMeshComponent "Pose" (pose_statue creates it on first use)
 
 
 def _source_comp(seq_path, name):
