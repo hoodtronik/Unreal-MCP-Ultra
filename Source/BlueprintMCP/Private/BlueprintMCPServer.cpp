@@ -672,6 +672,10 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 		QueuedHandler(TEXT("skeleton")));
 	Router->BindRoute(FHttpPath(TEXT("/api/add-skeleton-socket")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("addSkeletonSocket")));
+	Router->BindRoute(FHttpPath(TEXT("/api/montage-read")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("montageRead")));
+	Router->BindRoute(FHttpPath(TEXT("/api/montage-edit")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("montageEdit")));
 	Router->BindRoute(FHttpPath(TEXT("/api/remove-skeleton-socket")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("removeSkeletonSocket")));
 	Router->BindRoute(FHttpPath(TEXT("/api/copy-skeleton-sockets")), EHttpServerRequestVerbs::VERB_POST,
@@ -1483,6 +1487,7 @@ void FBlueprintMCPServer::RegisterHandlers()
 		TEXT("duplicateGroomBinding"),
 		TEXT("setGroomBindingTargetMesh"),
 		TEXT("addSkeletonSocket"),
+		TEXT("montageEdit"),
 		TEXT("removeSkeletonSocket"),
 		TEXT("copySkeletonSockets"),
 		TEXT("rebuildGroomBindings"),
@@ -1569,6 +1574,8 @@ void FBlueprintMCPServer::RegisterHandlers()
 	HandlerMap.Add(TEXT("searchByType"),      [this](const TMap<FString, FString>& P, const FString&) { return HandleSearchByType(P); });
 	HandlerMap.Add(TEXT("skeleton"),          [this](const TMap<FString, FString>& P, const FString&) { return HandleGetSkeleton(P); });
 	HandlerMap.Add(TEXT("addSkeletonSocket"),    [this](const TMap<FString, FString>&, const FString& B) { return HandleAddSkeletonSocket(B); });
+	HandlerMap.Add(TEXT("montageRead"),          [this](const TMap<FString, FString>&, const FString& B) { return HandleMontageRead(B); });
+	HandlerMap.Add(TEXT("montageEdit"),          [this](const TMap<FString, FString>&, const FString& B) { return HandleMontageEdit(B); });
 	HandlerMap.Add(TEXT("removeSkeletonSocket"), [this](const TMap<FString, FString>&, const FString& B) { return HandleRemoveSkeletonSocket(B); });
 	HandlerMap.Add(TEXT("copySkeletonSockets"),  [this](const TMap<FString, FString>&, const FString& B) { return HandleCopySkeletonSockets(B); });
 	HandlerMap.Add(TEXT("rebuildGroomBindings"), [this](const TMap<FString, FString>&, const FString& B) { return HandleRebuildGroomBindings(B); });

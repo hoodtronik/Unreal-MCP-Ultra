@@ -237,3 +237,16 @@ lost him off the edge at the end (24 mm).
 Eyes vs numbers: raw rotation offsets twisted the arm instead of raising it (-> `aim`); the background had the Loco
 mannequins (character moved to x 900); the first wave went straight up out of frame (read as hailing) and the first
 smile (jaw 4 deg) bared the teeth like a snarl - jaw 1.5, corners wider.
+
+## 15. One montage, three moments (2026-10-22, `/Game/_MCPLab/Anim/AM_WaveTwice` + `ABP_Montage`, montages)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `create_anim_blueprint` ABP_Montage (SK_Mannequin); `add_anim_node` Slot (-> Output), SequencePlayer MM_Idle; `connect_pins` Pose -> Source | compile OK, 0 warnings |
+| 2 | `anim_montage create` clips wave [0-2.5], MM_Idle [0-1], wave [0.5-2.0] x1.5; sections Wave@0 -> Rest@2.5 -> QuickWave@3.5 (end); blend 0.2/0.3 | 4.5 s, verified from the saved asset |
+| 3 | `anim_montage_play` positions 0.6/2.0/2.9/3.8/4.3, jumps Rest/QuickWave/Wave, base MM_Idle | <= 0.043 cm, jumps on the section starts, idle 0.03 cm after stop |
+| 4 | `anim_montage_play place` Mont_Wave/Rest/Quick at [1500,-120..120,0] facing 180, held 0.6/2.9/3.8 | each verified; captured side by side |
+
+Eyes vs numbers: the first playback check failed at 0.6 s with the hand 42 cm off - the montage was still blending in
+(slot weight 0.36); the tool now waits for full weight. Negative control: ABP_Locomotion (no Slot) -> 80 cm, weight 0.
+The montage editor (sections, segments) has no Python access - added /api/montage-read|edit to the plugin.

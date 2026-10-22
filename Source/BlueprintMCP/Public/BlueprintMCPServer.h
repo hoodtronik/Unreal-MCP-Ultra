@@ -341,6 +341,8 @@ private:
 	FString HandleAddSkeletonSocket(const FString& Body);
 	FString HandleRemoveSkeletonSocket(const FString& Body);
 	FString HandleCopySkeletonSockets(const FString& Body);
+	FString HandleMontageRead(const FString& Body);
+	FString HandleMontageEdit(const FString& Body);
 
 	// ----- Groom binding rebuild -----
 	FString HandleRebuildGroomBindings(const FString& Body);
