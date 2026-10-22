@@ -362,3 +362,95 @@ def camera_exposure(seq_path, cam_name, bias):
     back = comps[-1].get_editor_property("post_process_settings")
     return {"ok": True, "method": str(back.auto_exposure_method).split(".")[-1].split(":")[0],
             "bias": round(back.auto_exposure_bias, 3), "components": len(comps)}
+
+
+PASS_CLASSES = {"lit": "MoviePipelineDeferredPassBase", "unlit": "MoviePipelineDeferredPass_Unlit",
+                "detail_lighting": "MoviePipelineDeferredPass_DetailLighting", "lighting_only": "MoviePipelineDeferredPass_LightingOnly",
+                "reflections": "MoviePipelineDeferredPass_ReflectionsOnly", "path_tracer": "MoviePipelineDeferredPass_PathTracer"}
+PP_MATERIALS = {"depth": "/MovieRenderPipeline/Materials/MovieRenderQueue_WorldDepth",
+                "normal": "/MovieRenderPipeline/Materials/MovieRenderQueue_WorldNormal",
+                "motion": "/MovieRenderPipeline/Materials/MovieRenderQueue_MotionVectors"}
+
+
+def render_passes_start(seq_path, passes, out_dir=None, width=960, height=540, start=None, end=None, fmt="png",
+                        spatial=None, temporal=None, warmup=None, audio=False):
+    """One MRQ job with several passes (lit/unlit/detail_lighting/lighting_only/reflections/path_tracer + post-process
+    material passes depth/normal/motion on the lit pass), optional AA sample counts and WAV audio. File names
+    {sequence_name}.{render_pass}.{frame_number}.{ext}."""
+    import os
+    seq = load_sequence(seq_path, open_it=False)
+    subsys = unreal.get_editor_subsystem(unreal.MoviePipelineQueueSubsystem)
+    if subsys.is_rendering():
+        raise RuntimeError("a Movie Render Queue render is already running")
+    world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+    mp = world.get_path_name().split(".")[0]
+    name = seq.get_name()
+    od = out_dir or os.path.abspath(unreal.Paths.project_saved_dir() + "MovieRenders/" + name + "_passes").replace("\\", "/")
+    os.makedirs(od, exist_ok=True)
+    for f in os.listdir(od):
+        if f.startswith(name + "."):
+            os.remove(os.path.join(od, f))
+    q = subsys.get_queue()
+    for j in list(q.get_jobs()):
+        q.delete_job(j)
+    job = q.allocate_new_job(unreal.MoviePipelineExecutorJob)
+    job.sequence = unreal.SoftObjectPath(seq.get_path_name())
+    job.map = unreal.SoftObjectPath(mp + "." + mp.rsplit("/", 1)[1])
+    job.job_name = "mcp_passes_" + name
+    cfg = job.get_configuration()
+    out = cfg.find_or_add_setting_by_class(unreal.MoviePipelineOutputSetting)
+    out.output_directory = unreal.DirectoryPath(od)
+    out.output_resolution = unreal.IntPoint(int(width), int(height))
+    out.file_name_format = "{sequence_name}.{render_pass}.{frame_number}"
+    if start is not None and end is not None:
+        out.use_custom_playback_range = True
+        out.custom_start_frame = int(start)
+        out.custom_end_frame = int(end)
+    unknown = [p for p in passes if p not in PASS_CLASSES and p not in PP_MATERIALS]
+    if unknown:
+        raise ValueError("unknown pass(es): %s (valid: %s)" % (", ".join(unknown), ", ".join(list(PASS_CLASSES) + list(PP_MATERIALS))))
+    pp = [p for p in passes if p in PP_MATERIALS]
+    base_passes = [p for p in passes if p in PASS_CLASSES] or (["lit"] if pp else [])
+    if pp and "lit" not in base_passes:
+        base_passes.insert(0, "lit")
+    for p in base_passes:
+        s = cfg.find_or_add_setting_by_class(getattr(unreal, PASS_CLASSES[p]))
+        if p == "lit" and pp:
+            mats = []
+            for m in pp:
+                e = unreal.MoviePipelinePostProcessPass()
+                e.set_editor_property("enabled", True)
+                e.set_editor_property("material", unreal.load_asset(PP_MATERIALS[m]))
+                mats.append(e)
+            s.set_editor_property("additional_post_process_materials", mats)
+    if spatial or temporal or warmup is not None:
+        aa = cfg.find_or_add_setting_by_class(unreal.MoviePipelineAntiAliasingSetting)
+        if spatial:
+            aa.spatial_sample_count = int(spatial)
+        if temporal:
+            aa.temporal_sample_count = int(temporal)
+        if warmup is not None:
+            aa.engine_warm_up_count = int(warmup)
+    cls = {"png": unreal.MoviePipelineImageSequenceOutput_PNG, "exr": unreal.MoviePipelineImageSequenceOutput_EXR,
+           "jpg": unreal.MoviePipelineImageSequenceOutput_JPG}[fmt]
+    cfg.find_or_add_setting_by_class(cls)
+    if audio:
+        cfg.find_or_add_setting_by_class(unreal.MoviePipelineWaveOutput)
+    subsys.render_queue_with_executor(unreal.MoviePipelinePIEExecutor)
+    fps = seq.get_display_rate()
+    return {"ok": True, "out_dir": od, "prefix": name, "fps": [fps.numerator, fps.denominator], "passes": base_passes + pp,
+            "expected_frames": int((end if end is not None else seq.get_playback_end()) - (start if start is not None else seq.get_playback_start()))}
+
+
+def render_passes_status(out_dir, prefix):
+    import os
+    files = sorted(f for f in os.listdir(out_dir) if f.startswith(prefix + ".")) if os.path.isdir(out_dir) else []
+    groups = {}
+    for f in files:
+        parts = f.split(".")
+        if len(parts) >= 4:
+            groups.setdefault(parts[1], []).append(f)
+        else:
+            groups.setdefault(parts[-1], []).append(f)
+    return {"ok": True, "rendering": unreal.get_editor_subsystem(unreal.MoviePipelineQueueSubsystem).is_rendering(),
+            "groups": {k: {"count": len(v), "first": v[0], "last": v[-1]} for k, v in groups.items()}, "files": len(files)}

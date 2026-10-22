@@ -69,6 +69,7 @@ import { registerMasterTools } from "./tools/master.js";
 import { registerShotFollowTools } from "./tools/shot-follow.js";
 import { registerSeqPropertyTools } from "./tools/seq-property.js";
 import { registerShotRigTools } from "./tools/shot-rig.js";
+import { registerRenderPassTools } from "./tools/render-passes.js";
 
 // CLAUDE-NOTE: single source of truth for "every tool-registration function + a human-friendly
 // category label", consumed by index.ts (real registration), batch-schema-invariant.test.ts
@@ -149,6 +150,7 @@ export const TOOL_REGISTRATIONS: ToolRegistration[] = [
   { register: registerShotFollowTools, category: "Keyed follow camera (pan / truck + focus pull)" },
   { register: registerSeqPropertyTools, category: "Keyed property tracks + sequence lights" },
   { register: registerShotRigTools, category: "Camera rigs (rail dolly, crane)" },
+  { register: registerRenderPassTools, category: "Movie Render Queue passes, AA, EXR, audio" },
   // CLAUDE-NOTE: actor-state.ts existed with three working tools (set_actor_mobility,
   // set_actor_visibility, set_actor_physics), matching C++ handlers and registered routes — but was
   // never listed here, so none of them were ever exposed to a client. route-parity.test.ts could
