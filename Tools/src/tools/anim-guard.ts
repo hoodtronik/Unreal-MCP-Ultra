@@ -75,6 +75,9 @@ function expectedFor(name: string, a: any, body: string): RegExp[] {
     return m ? [new RegExp(`no entry state connection in\\s+${esc(m)}`, "i"), new RegExp(`Entry node\\s+${esc(m)}\\s+is not connected`, "i")] : [];
   }
   if (name === "add_anim_state" && !a.animationAsset) return [new RegExp(`^\\[${esc(a.stateName)}\\] Output Animation Pose`, "i")];
+  // CLAUDE-NOTE (2026-10-22, live): a new Slot / Pose Blender node has a Source input that the next step wires
+  // (a state machine or pose into it) - reported as pending, not an error.
+  if (name === "add_anim_node" && (a.nodeType === "Slot" || a.nodeType === "PoseBlender")) return [/Source\s+was\s+visible\s+but\s+ignored/i];
   return [];
 }
 

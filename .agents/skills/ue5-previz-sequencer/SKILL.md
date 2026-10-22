@@ -238,6 +238,7 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 80 | A layered offset (wave, head turn) shows on every frame | One key holds its offset across the whole clip (zero = the clip). Bound it with `pose_layer zero` before and after. The IK arm at zero offset sits up to 0.4 cm off the clip (elbow re-solve). |
 | 81 | FK rotation offsets twist the limb instead of raising it | Each bone has its own axes (girl upperarm roll = twist). Use `pose_fk aim` (point the bone's child at a world point) for limbs; raw `rotations` for face/jaw. Girl jaw: roll + opens the mouth, yaw slides it, pitch twists it. |
 | 82 | Face bone moves 100x too far / not at all | Custom skeletons can carry a root scale (Fab girl 0.0093: 1 cm ~ 107 bone units). `pose_fk locations` takes world cm and converts per bone; the readback reports the cm moved. Girl lip corners: +Y = up (smile), +X = world +x for both sides (mirror by hand), +Z = back. |
+| 83 | `add_anim_node` Slot/PoseBlender reports the graph "incomplete" | Expected: the new node's Source input is wired by the next step (a state machine or pose into it). Missing / wrong-skeleton / ambiguous assets now fail in the plugin itself with nothing changed. Slot names cannot be removed from Python - test with a scratch skeleton or accept the name. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 
