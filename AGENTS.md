@@ -36,6 +36,37 @@ per clone to link that folder to `.agents/skills/`. Other agents can read the fi
 The MCP server also ships condensed workflow skills of its own, independent of any agent: call the
 `list_skills` tool and read `skill://unreal/{name}`. Sources are in `Tools/src/skills/`.
 
+## Previz / animation: job -> tool map (for every agent)
+
+<!-- CLAUDE-NOTE (2026-10-22): kept in sync with Tools/src/skills/previz-sequencer.ts (served as
+     skill://unreal/previz-sequencer) and the tool table in .agents/skills/ue5-previz-sequencer/SKILL.md, which has
+     each tool's verified measurement and the numbered gotchas. -->
+
+Every tool below sets its result from a MEASURED readback (bones, renders, files) - read its report; a line marked
+"<-" is a failure even if the call returned. Save the project (save_all) before mutating; serialise calls.
+- Character + rig: pose_setup_character (rig honoured) · cr_build / cr_build_modular (author a Control Rig) · pose_list_controls
+- Pose: pose_set_controls · pose_read · pose_reach (hand/foot to a point) · pose_look_at · pose_hand / pose_palm ·
+  pose_fk · pose_layer (additive over a clip) · pose_tween (breakdowns) · pose_mirror · pose_snap · pose_space_switch ·
+  pose_constrain · pose_library_save / _apply · pose_asset / pose_asset_create · pose_statue (freeze a pose as a
+  background figure) · pose_ground_check / pose_ground_fix · pose_set_interpolation (held keys)
+- Props: prop_attach · prop_key · prop_socket · prop_check · seq_constrain (parent/look-at constraints, bake on remove)
+- Animation clips: anim_walk · anim_stitch (join clips, root motion) · anim_edit · anim_bake · anim_fbx / skel_fbx ·
+  anim_clip_info · anim_foot_report · pose_motion_report · take_record
+- Anim Blueprints / blending: anim_bp_check · anim_bp_drive · add_anim_node · anim_node_measure · anim_transition_rule ·
+  create_blend_space · blend_space_check · aim_offset_check · anim_montage · anim_dynamic_montage · set_blend_profile ·
+  create_mirror_table · pose_search_build · rt_live
+- Retarget / IK: ikrig_create · retarget_setup · retarget_align_pose · retarget_animations
+- Sequencer: seq_bind · seq_tracks (fade, marks, mute/lock, material keys) · seq_property · seq_curve ·
+  seq_subsequence · seq_master (shots track + audio) · seq_light
+- Camera / shot: shot_camera · shot_camera_follow · shot_rig (dolly/crane) · shot_camera_shake · shot_frame_check ·
+  shot_sightlines (staging/occlusion) · shot_look (DoF on a subject, white balance, grading, vignette, bloom, fog) ·
+  shot_light (key/fill/rim relative to the camera) · viewport_pilot · shot_capture
+- Render: shot_render (MP4) · shot_stills (every camera at chosen frames) · shot_render_passes (lit/unlit/
+  path_tracer/depth/normal/motion) · shot_object_ids · shot_render_graph (Movie Render Graph, clean plates)
+Habits that the tools encode: scrub twice before reading bones (they refresh between calls); look at a render, not
+only numbers; a camera added by Sequencer has focus/aperture TRACKS that override component edits; spawnable
+templates ignore setter functions (write properties); keep test content in /Game/_MCPLab.
+
 ## Using the MCP server
 
 - **Connecting a client:** see `docs/mcp-clients.md` (Claude Code, Claude Desktop, Cursor,

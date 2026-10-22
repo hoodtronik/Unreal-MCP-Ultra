@@ -1,7 +1,8 @@
 import type { Skill } from "./types.js";
 
-// CLAUDE-NOTE: Added 2026-09-22. Storyboard / audio-visual first-draft previz in Sequencer via run_python
-// (there is no MCP sequencer or control-rig tool). Every call below was executed against a live UE 5.6.1
+// CLAUDE-NOTE: Added 2026-09-22. Storyboard / audio-visual first-draft previz in Sequencer via run_python.
+// CLAUDE-NOTE (2026-10-22): since then ~80 verified pose_/anim_/seq_/shot_ tools exist; the tool map at the top tells
+// agents to use them and keep raw run_python for gaps (lesser agents otherwise re-derive these by hand). Every call below was executed against a live UE 5.6.1
 // editor; the same library functions are what Epic's shipped 5.8 AnimationAssistantToolset calls, so the
 // surface exists on 5.8 too (not yet run there). The long-form version with the raw probes and a Python
 // helper library lives in .agents/skills/ue5-previz-sequencer/ — this is the condensed hub copy.
@@ -11,6 +12,33 @@ export const previzSequencerSkill: Skill = {
   description: "Storyboard/previz in Sequencer via run_python: pose Control Rig characters or borrow a pose from a clip, per-shot CineCameras with real lenses, master shot track, constant (held) keys, scratch audio",
   content: `# Previz / Storyboard in Sequencer (run_python)
 
+## Use the verified tools first (raw run_python only for gaps)
+Every tool below sets its result from a MEASURED readback (bones, renders, files) - read its report; a line marked
+"<-" is a failure even if the call returned. Save the project (save_all) before mutating; serialise calls.
+- Character + rig: pose_setup_character (rig honoured) · cr_build / cr_build_modular (author a Control Rig) · pose_list_controls
+- Pose: pose_set_controls · pose_read · pose_reach (hand/foot to a point) · pose_look_at · pose_hand / pose_palm ·
+  pose_fk · pose_layer (additive over a clip) · pose_tween (breakdowns) · pose_mirror · pose_snap · pose_space_switch ·
+  pose_constrain · pose_library_save / _apply · pose_asset / pose_asset_create · pose_statue (freeze a pose as a
+  background figure) · pose_ground_check / pose_ground_fix · pose_set_interpolation (held keys)
+- Props: prop_attach · prop_key · prop_socket · prop_check · seq_constrain (parent/look-at constraints, bake on remove)
+- Animation clips: anim_walk · anim_stitch (join clips, root motion) · anim_edit · anim_bake · anim_fbx / skel_fbx ·
+  anim_clip_info · anim_foot_report · pose_motion_report · take_record
+- Anim Blueprints / blending: anim_bp_check · anim_bp_drive · add_anim_node · anim_node_measure · anim_transition_rule ·
+  create_blend_space · blend_space_check · aim_offset_check · anim_montage · anim_dynamic_montage · set_blend_profile ·
+  create_mirror_table · pose_search_build · rt_live
+- Retarget / IK: ikrig_create · retarget_setup · retarget_align_pose · retarget_animations
+- Sequencer: seq_bind · seq_tracks (fade, marks, mute/lock, material keys) · seq_property · seq_curve ·
+  seq_subsequence · seq_master (shots track + audio) · seq_light
+- Camera / shot: shot_camera · shot_camera_follow · shot_rig (dolly/crane) · shot_camera_shake · shot_frame_check ·
+  shot_sightlines (staging/occlusion) · shot_look (DoF on a subject, white balance, grading, vignette, bloom, fog) ·
+  shot_light (key/fill/rim relative to the camera) · viewport_pilot · shot_capture
+- Render: shot_render (MP4) · shot_stills (every camera at chosen frames) · shot_render_passes (lit/unlit/
+  path_tracer/depth/normal/motion) · shot_object_ids · shot_render_graph (Movie Render Graph, clean plates)
+Habits that the tools encode: scrub twice before reading bones (they refresh between calls); look at a render, not
+only numbers; a camera added by Sequencer has focus/aperture TRACKS that override component edits; spawnable
+templates ignore setter functions (write properties); keep test content in /Game/_MCPLab.
+
+## Raw API notes (for gaps the tools don't cover)
 Workflow ("first draft" method): 1 pose characters -> 2 cameras -> 3 shots on a master -> 4 hold poses -> 5 audio.
 Turn on vision_mode first: every run_python then returns a viewport frame. Lock the viewport to the shot camera
 with LevelSequenceEditorBlueprintLibrary.set_lock_camera_cut_to_viewport(True) so the frames show the shot.
