@@ -108,7 +108,8 @@ export function registerCrAuthorTools(server: McpServer): void {
   // CLAUDE-NOTE (2026-10-22, live 5.6.1): MODULAR Control Rig from Epic's Control Rig Modules (Root, Spine, Neck,
   // Shoulder/Arm/Leg left + mirrored right) for the UE5 mannequin skeleton - 56 controls, rest pose 0 cm from the
   // reference (spine_03 0.14), FK arm keyed through the section channels moved the hand 44 cm with the other hand
-  // still. Modules come up in FK; IK switching (module config) is not mapped yet.
+  // still; thigh_l_fk yaw 40 lifted the foot 55 cm, head_ctrl yaw 40 turned the gaze 40.0 deg. Modules come up in FK;
+  // IK switching (module config) is not mapped yet.
   server.tool(
     "cr_build_modular",
     "Build a MODULAR Control Rig (Epic's Control Rig Modules: Root, Spine, Neck, shoulders, arms, legs; right side " +
