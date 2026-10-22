@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ensureUE, uePost } from "../ue-bridge.js";
 import { withAnimGuards } from "./anim-guard.js";
+import { runPose } from "./posing.js";
 
 
 // CLAUDE-NOTE (2026-10-22, live): a node property that is ALSO an exposed input pin (TwoBoneIK EffectorLocation, Alpha...)
@@ -11,6 +12,22 @@ import { withAnimGuards } from "./anim-guard.js";
 export function pinDefaultFromText(v: string): string {
   const t = v.trim();
   if (/^true$/i.test(t) || /^false$/i.test(t)) return t.toLowerCase();
+  // CLAUDE-NOTE (2026-10-22, live): an FTransform value (FABRIK EffectorTransform) has nested structs and was passed
+  // through unchanged - the pin kept (0,0,0) and the hand reached for the origin. Transform pins take
+  // "tx,ty,tz|pitch,yaw,roll|sx,sy,sz"; the quaternion is converted to a rotator.
+  if (/Translation=\(/.test(t)) {
+    const g = (k: string) => { const m = new RegExp(`${k}=\\(([^)]*)\\)`).exec(t); return m ? Object.fromEntries(m[1].split(",").map((kv) => kv.split("=").map((x) => x.trim()))) : null; };
+    const tr = g("Translation"), q = g("Rotation"), sc = g("Scale3D");
+    const n = (o: any, k: string, d: number) => (o && o[k] !== undefined ? Number(o[k]) : d);
+    const [x, y, z, w] = [n(q, "X", 0), n(q, "Y", 0), n(q, "Z", 0), n(q, "W", 1)];
+    const deg = 180 / Math.PI;
+    const sp = 2 * (w * y - z * x);
+    const pitch = Math.abs(sp) >= 1 ? Math.sign(sp) * 90 : Math.asin(sp) * deg;
+    const yaw = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)) * deg;
+    const roll = Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y)) * deg;
+    const r = (a: number) => String(Math.round(a * 1e6) / 1e6);
+    return `${r(n(tr, "X", 0))},${r(n(tr, "Y", 0))},${r(n(tr, "Z", 0))}|${r(pitch)},${r(yaw)},${r(roll)}|${r(n(sc, "X", 1))},${r(n(sc, "Y", 1))},${r(n(sc, "Z", 1))}`;
+  }
   const m = /^\((.*)\)$/.exec(t);
   if (m && /^[A-Za-z]+=/.test(m[1])) {
     const vals = m[1].split(",").map((kv) => kv.split("=")[1]);
@@ -309,6 +326,22 @@ export function registerAnimationTools(baseServer: McpServer): void {
       const data = await uePost("/api/set-anim-node-properties", { blueprint, nodeId, properties });
       if (data.error && !data.properties) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }], isError: true };
       const lines = [`${data.nodeClass}: ${Object.entries(data.properties ?? {}).map(([k, v]) => `${k} = ${v}`).join("; ")}`];
+      // CLAUDE-NOTE (2026-10-22, live): CCDIK indexes RotationLimitPerJoints per chain joint; with the bones set by
+      // property path the array stayed EMPTY (the details panel normally sizes it) and the first evaluation at alpha > 0
+      // crashed the editor (AnimationCore: index 1 into an array of size 0). Size it to the chain here.
+      if (data.nodeClass === "AnimGraphNode_CCDIK") {
+        const tip = properties["Node.TipBone.BoneName"], root = properties["Node.RootBone.BoneName"];
+        if ((tip === undefined) !== (root === undefined))
+          return { content: [{ type: "text" as const, text: "CCDIK: set Node.TipBone.BoneName and Node.RootBone.BoneName together (the per-joint limits are sized from the chain)" }], isError: true };
+        if (tip !== undefined) {
+          const c = await runPose("chain_len(P['b'], P['r'], P['t'])", { b: blueprint, r: String(root), t: String(tip) }, ["ue_posing.py", "ue_anim.py"]);
+          if (!c.ok) return { content: [{ type: "text" as const, text: `CCDIK chain: ${c.error}` }], isError: true };
+          const lim = await uePost("/api/set-anim-node-properties", { blueprint, nodeId, properties: { "Node.RotationLimitPerJoints": `(${Array(c.n as number).fill("30.000000").join(",")})` } });
+          if (lim.error && !lim.properties) return { content: [{ type: "text" as const, text: `CCDIK limits: ${lim.error}` }], isError: true };
+          data.properties = { ...data.properties, ...lim.properties };
+          lines.push(`CCDIK per-joint rotation limits sized to the ${c.n}-bone chain: ${JSON.stringify(lim.properties)}`);
+        }
+      }
       const synced = await syncPins(blueprint, nodeId, data.properties, data.pins);
       if (synced.length) lines.push(`Exposed pins set to match: ${synced.join("; ")}`);
       if (data.pins) lines.push(`Pins: ${data.pins.map((p: any) => p.name).join(", ")}`);

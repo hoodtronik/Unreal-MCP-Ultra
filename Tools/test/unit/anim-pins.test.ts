@@ -10,3 +10,11 @@ describe("pinDefaultFromText", () => {
     expect(pinDefaultFromText('((BranchFilters=((BoneName="spine_01"))))')).toBe('((BranchFilters=((BoneName="spine_01"))))');
   });
 });
+
+import { pinDefaultFromText as pdt } from "../../src/tools/animation-mutation.js";
+describe("pinDefaultFromText transforms", () => {
+  it("turns an FTransform text into the pin's t|r|s form (FABRIK EffectorTransform)", () => {
+    expect(pdt("(Rotation=(X=0,Y=0,Z=0,W=1),Translation=(X=40,Y=40,Z=150),Scale3D=(X=1,Y=1,Z=1))")).toBe("40,40,150|0,0,0|1,1,1");
+    expect(pdt("(Translation=(X=1,Y=2,Z=3))")).toBe("1,2,3|0,0,0|1,1,1");
+  });
+});

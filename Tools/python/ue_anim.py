@@ -298,3 +298,31 @@ def ref_preview(label, mesh, location=(0, 300, -5000)):
     c.set_animation_mode(unreal.AnimationMode.ANIMATION_SINGLE_NODE)
     c.set_animation(None)
     return {"ok": True, "actor": label}
+
+
+def chain_len(abp_path, root, tip):
+    """Number of bones from root to tip (inclusive) in an Anim Blueprint's skeleton; raises if tip is not under root.
+    Parents come from a transient SkeletalMeshComponent on the skeleton's preview mesh (no parent query on AnimPose)."""
+    abp = unreal.load_asset(abp_path)
+    sk = abp.get_editor_property("target_skeleton")
+    mesh = sk.get_preview_mesh() if hasattr(sk, "get_preview_mesh") else None
+    if mesh is None:
+        hits = [a for a in unreal.AssetRegistryHelpers.get_asset_registry().get_assets_by_class(unreal.TopLevelAssetPath("/Script/Engine", "SkeletalMesh"))]
+        for h in hits:
+            m = unreal.load_asset(str(h.package_name))
+            if m and m.skeleton == sk:
+                mesh = m
+                break
+    if mesh is None:
+        raise ValueError("no mesh found for skeleton " + sk.get_name())
+    c = unreal.new_object(unreal.SkeletalMeshComponent)
+    c.set_skeletal_mesh_asset(mesh)
+    if c.get_bone_index(root) < 0 or c.get_bone_index(tip) < 0:
+        raise ValueError("bone not in %s: %s" % (mesh.get_name(), root if c.get_bone_index(root) < 0 else tip))
+    n, cur = 1, tip
+    while cur != root:
+        cur = str(c.get_parent_bone(cur))
+        if not cur or cur == "None":
+            raise ValueError("%s is not under %s" % (tip, root))
+        n += 1
+    return {"ok": True, "n": n}
