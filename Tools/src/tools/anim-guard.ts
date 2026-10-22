@@ -45,6 +45,11 @@ const COMPILE_AFTER = new Set(["add_anim_state", "remove_anim_state", "add_anim_
 // reference pose. Those warnings mean an unwired graph, so they count as errors here - and so does a transition
 // whose Can Enter Transition is unconnected ("will never be taken"; live, round 9).
 export const UNWIRED = /visible but ignored|is not connected to state|no entry state connection|will never be taken/i;
+// CLAUDE-NOTE (2026-10-22, live): "visible but ignored" also fires for NON-pose pins that a node legitimately leaves
+// unconnected - RetargetPoseFromMesh's Source (mesh component) when bUseAttachedParent is on. That ABP animated
+// (live == offline retarget within 0.041 cm) while anim_bp_check called it an unwired graph. Mesh-component pins
+// are excluded; pose pins still count.
+export const NOT_POSE_PIN = /:\s*(Source|Source Mesh Component)\s+was visible but ignored/i;
 
 function msg(e: any): string {
   return typeof e === "string" ? e : `${e.source === "log" ? "[log] " : ""}${e.graph ? `[${e.graph}] ` : ""}${e.nodeTitle ? `${e.nodeTitle}: ` : ""}${e.message}`;
@@ -55,7 +60,7 @@ export function compileSummary(data: any, expected: RegExp[] = []): { ok: boolea
   if (data?.error) return { ok: false, lines: [`Compile check failed: ${data.error}`] };
   const errs: string[] = (data?.errors ?? []).map(msg);
   // node-level warnings only; the same text repeats as [log] lines
-  const all: string[] = (data?.warnings ?? []).map(msg).filter((w: string) => UNWIRED.test(w) && !w.startsWith("[log]"));
+  const all: string[] = (data?.warnings ?? []).map(msg).filter((w: string) => UNWIRED.test(w) && !NOT_POSE_PIN.test(w) && !w.startsWith("[log]"));
   // what the step just created cannot be wired yet (empty machine / empty state): reported, not an error
   const pending = all.filter((w) => expected.some((r) => r.test(w)));
   const unwired = all.filter((w) => !pending.includes(w));
