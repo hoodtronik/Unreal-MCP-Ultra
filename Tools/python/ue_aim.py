@@ -24,3 +24,23 @@ def head_gaze(label, bone="head"):
     return {"ok": True, "yaw": round(yaw, 3), "pitch": round(pitch, 3), "bone": real,
             "pelvis_z": round(pel.z - act.get_actor_location().z, 3),
             "spine_len": round(math.dist((pel.x, pel.y, pel.z), (hd.x, hd.y, hd.z)), 3)}
+
+
+def bones_state(label, bones):
+    """World position and +X / +Y axes of bones on a level actor (posed on the previous tick)."""
+    act = next((a for a in _eas().get_all_level_actors() if a.get_actor_label() == label), None)
+    if act is None:
+        raise ValueError("No level actor labelled '%s'" % label)
+    sk = act.skeletal_mesh_component
+    allb = _bone_map(sk)
+    out = {}
+    for b in bones:
+        real = b if b in allb else resolve_role(allb, b)
+        if not real:
+            raise ValueError("bone '%s' not found" % b)
+        t = sk.get_socket_transform(real, unreal.RelativeTransformSpace.RTS_WORLD)
+        x = t.rotation.rotate_vector(unreal.Vector(1, 0, 0))
+        y = t.rotation.rotate_vector(unreal.Vector(0, 1, 0))
+        out[b] = {"p": [round(t.translation.x, 3), round(t.translation.y, 3), round(t.translation.z, 3)],
+                  "x": [round(x.x, 4), round(x.y, 4), round(x.z, 4)], "y": [round(y.x, 4), round(y.y, 4), round(y.z, 4)]}
+    return {"ok": True, "bones": out}
