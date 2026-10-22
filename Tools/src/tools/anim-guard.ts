@@ -32,7 +32,10 @@ const ASSET_ARGS: Record<string, { arg: string; kinds: (a: any) => string[] }> =
   add_anim_state: { arg: "animationAsset", kinds: () => ["AnimSequence"] },
   set_state_animation: { arg: "animationAsset", kinds: () => ["AnimSequence"] },
   set_state_blend_space: { arg: "blendSpace", kinds: () => ["BlendSpace"] },
-  add_anim_node: { arg: "animationAsset", kinds: (a) => (a.nodeType === "BlendSpacePlayer" ? ["BlendSpace"] : ["AnimSequence"]) },
+  add_anim_node: {
+    arg: "animationAsset",
+    kinds: (a) => (a.nodeType === "BlendSpacePlayer" ? ["BlendSpace"] : a.nodeType === "PoseBlender" ? ["PoseAsset"] : ["AnimSequence"]),
+  },
 };
 const COMPILE_AFTER = new Set(["add_anim_state", "remove_anim_state", "add_anim_transition", "set_transition_rule", "add_anim_node",
   "add_state_machine", "set_state_animation", "set_state_blend_space"]);

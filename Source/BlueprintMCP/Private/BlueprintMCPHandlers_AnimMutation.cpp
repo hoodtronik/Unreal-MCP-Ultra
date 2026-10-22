@@ -33,6 +33,110 @@
 #include "Animation/AnimSequence.h"
 #include "Animation/BlendSpace.h"
 #include "K2Node_VariableGet.h"
+#include "AnimGraphNode_Slot.h"
+#include "AnimGraphNode_PoseBlendNode.h"
+#include "Animation/PoseAsset.h"
+#include "Kismet2/CompilerResultsLog.h"
+#include "Misc/PackageName.h"
+
+// CLAUDE-NOTE (2026-10-22): MCP audit item 8 (targets/unreal/work/mcp_audit.md in ReverseEngineerMCP). The handlers
+// below used to (a) silently skip an animation asset that did not resolve and still report success, (b) never check
+// that the asset's skeleton matched the ABP's, and (c) compile without looking at the result. ResolveAnimAsset fails
+// loudly BEFORE anything is created (object path, package path or unique asset name), and every compile site goes
+// through CompileAnimBPChecked so a compile error comes back as success:false with the compiler's messages.
+namespace
+{
+	template <typename T>
+	T* ResolveAnimAsset(const FString& Name, const USkeleton* TargetSkeleton, FString& OutError)
+	{
+		T* Asset = nullptr;
+		if (Name.StartsWith(TEXT("/")))
+		{
+			FString Path = Name;
+			if (!Path.Contains(TEXT(".")))
+			{
+				Path = Path + TEXT(".") + FPackageName::GetShortName(Path);
+			}
+			Asset = LoadObject<T>(nullptr, *Path);
+		}
+		if (!Asset)
+		{
+			FAssetRegistryModule& ARM = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+			TArray<FAssetData> Assets;
+			ARM.Get().GetAssetsByClass(T::StaticClass()->GetClassPathName(), Assets, true);
+			TArray<FAssetData> Hits;
+			for (const FAssetData& A : Assets)
+			{
+				if (A.AssetName.ToString() == Name || A.PackageName.ToString() == Name)
+				{
+					Hits.Add(A);
+				}
+			}
+			if (Hits.Num() > 1)
+			{
+				FString List;
+				for (const FAssetData& H : Hits)
+				{
+					List += (List.IsEmpty() ? TEXT("") : TEXT(", ")) + H.PackageName.ToString();
+				}
+				OutError = FString::Printf(TEXT("%s name '%s' is ambiguous (%s) - pass the object path"),
+					*T::StaticClass()->GetName(), *Name, *List);
+				return nullptr;
+			}
+			if (Hits.Num() == 1)
+			{
+				Asset = Cast<T>(Hits[0].GetAsset());
+			}
+		}
+		if (!Asset)
+		{
+			OutError = FString::Printf(TEXT("%s '%s' not found (nothing was changed; pass the object path, e.g. /Game/Anims/MM_Idle)"),
+				*T::StaticClass()->GetName(), *Name);
+			return nullptr;
+		}
+		const USkeleton* AssetSkeleton = Asset->GetSkeleton();
+		if (TargetSkeleton && AssetSkeleton && AssetSkeleton != TargetSkeleton && !TargetSkeleton->IsCompatibleForEditor(AssetSkeleton))
+		{
+			OutError = FString::Printf(TEXT("'%s' uses skeleton '%s' but the Animation Blueprint targets '%s' (nothing was changed)"),
+				*Asset->GetPathName(), *AssetSkeleton->GetPathName(), *TargetSkeleton->GetPathName());
+			return nullptr;
+		}
+		return Asset;
+	}
+
+	bool CompileAnimBPChecked(UBlueprint* BP, TArray<FString>& OutErrors)
+	{
+		FCompilerResultsLog Log;
+		Log.bSilentMode = true;
+		FKismetEditorUtilities::CompileBlueprint(BP, EBlueprintCompileOptions::None, &Log);
+		for (const TSharedRef<FTokenizedMessage>& Msg : Log.Messages)
+		{
+			if (Msg->GetSeverity() == EMessageSeverity::Error)
+			{
+				OutErrors.Add(Msg->ToText().ToString());
+			}
+		}
+		return BP->Status != BS_Error && OutErrors.Num() == 0;
+	}
+
+	void SetCompileResult(const TSharedRef<FJsonObject>& Result, bool bOk, const TArray<FString>& Errors)
+	{
+		Result->SetBoolField(TEXT("success"), bOk);
+		Result->SetBoolField(TEXT("compiled"), bOk);
+		if (!bOk)
+		{
+			TArray<TSharedPtr<FJsonValue>> Arr;
+			for (const FString& E : Errors)
+			{
+				Arr.Add(MakeShared<FJsonValueString>(E));
+			}
+			Result->SetArrayField(TEXT("compileErrors"), Arr);
+			Result->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("Animation Blueprint compiled with errors (the change was saved): %s"),
+				Errors.Num() ? *Errors[0] : TEXT("status BS_Error")));
+		}
+	}
+}
 
 // ============================================================
 // HandleCreateAnimBlueprint — create a new Animation Blueprint
@@ -170,7 +274,8 @@ FString FBlueprintMCPServer::HandleCreateAnimBlueprint(const FString& Body)
 	NewAnimBP->TargetSkeleton = Skeleton;
 
 	// Compile
-	FKismetEditorUtilities::CompileBlueprint(NewAnimBP);
+	TArray<FString> CompileErrors;
+	const bool bCompiledOk = CompileAnimBPChecked(NewAnimBP, CompileErrors);
 
 	// Save
 	bool bSaved = SaveBlueprintPackage(NewAnimBP);
@@ -196,7 +301,7 @@ FString FBlueprintMCPServer::HandleCreateAnimBlueprint(const FString& Body)
 		*Name, GraphNames.Num(), bSaved ? TEXT("true") : TEXT("false"));
 
 	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetBoolField(TEXT("success"), true);
+	SetCompileResult(Result, bCompiledOk, CompileErrors);
 	Result->SetStringField(TEXT("blueprintName"), Name);
 	Result->SetStringField(TEXT("packagePath"), PackagePath);
 	Result->SetStringField(TEXT("assetPath"), FullAssetPath);
@@ -306,6 +411,17 @@ FString FBlueprintMCPServer::HandleAddAnimState(const FString& Body)
 		return MakeErrorJson(FString::Printf(TEXT("State '%s' already exists in graph '%s'"), *StateName, *GraphName));
 	}
 
+	// Resolve the optional animation asset BEFORE creating anything (audit item 8: it used to be skipped silently)
+	UAnimSequence* AnimSeq = nullptr;
+	FString AnimAssetName;
+	Json->TryGetStringField(TEXT("animationAsset"), AnimAssetName);
+	if (!AnimAssetName.IsEmpty())
+	{
+		FString AssetError;
+		AnimSeq = ResolveAnimAsset<UAnimSequence>(AnimAssetName, AnimBP->TargetSkeleton, AssetError);
+		if (!AnimSeq) return MakeErrorJson(AssetError);
+	}
+
 	// Get position
 	int32 PosX = Json->HasField(TEXT("posX")) ? (int32)Json->GetNumberField(TEXT("posX")) : 200;
 	int32 PosY = Json->HasField(TEXT("posY")) ? (int32)Json->GetNumberField(TEXT("posY")) : 0;
@@ -329,26 +445,9 @@ FString FBlueprintMCPServer::HandleAddAnimState(const FString& Body)
 	SMGraph->AddNode(NewState, false, false);
 	NewState->SetFlags(RF_Transactional);
 
-	// Optionally set animation asset
-	FString AnimAssetName = Json->GetStringField(TEXT("animationAsset"));
-	if (!AnimAssetName.IsEmpty() && NewState->GetBoundGraph())
+	// Optionally set animation asset (resolved above)
+	if (AnimSeq && NewState->GetBoundGraph())
 	{
-		// Try to find the animation asset and create a sequence player in the state's inner graph
-		UAnimSequence* AnimSeq = nullptr;
-		FAssetRegistryModule& ARM2 = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
-		TArray<FAssetData> AnimAssets;
-		ARM2.Get().GetAssetsByClass(UAnimSequence::StaticClass()->GetClassPathName(), AnimAssets, false);
-		for (const FAssetData& Asset : AnimAssets)
-		{
-			if (Asset.AssetName.ToString() == AnimAssetName ||
-				Asset.PackageName.ToString() == AnimAssetName)
-			{
-				AnimSeq = Cast<UAnimSequence>(Asset.GetAsset());
-				break;
-			}
-		}
-
-		if (AnimSeq)
 		{
 			UAnimGraphNode_SequencePlayer* SeqNode = NewObject<UAnimGraphNode_SequencePlayer>(NewState->GetBoundGraph());
 			SeqNode->CreateNewGuid();
@@ -362,11 +461,12 @@ FString FBlueprintMCPServer::HandleAddAnimState(const FString& Body)
 	}
 
 	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(AnimBP);
+	TArray<FString> CompileErrors;
+	const bool bCompiledOk = CompileAnimBPChecked(AnimBP, CompileErrors);
 	bool bSaved = SaveBlueprintPackage(AnimBP);
 
 	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetBoolField(TEXT("success"), true);
+	SetCompileResult(Result, bCompiledOk, CompileErrors);
 	Result->SetStringField(TEXT("stateName"), StateName);
 	Result->SetStringField(TEXT("graph"), GraphName);
 	Result->SetStringField(TEXT("nodeId"), NewState->NodeGuid.ToString());
@@ -438,11 +538,12 @@ FString FBlueprintMCPServer::HandleRemoveAnimState(const FString& Body)
 	SMGraph->RemoveNode(StateNode);
 
 	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(AnimBP);
+	TArray<FString> CompileErrors;
+	const bool bCompiledOk = CompileAnimBPChecked(AnimBP, CompileErrors);
 	bool bSaved = SaveBlueprintPackage(AnimBP);
 
 	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetBoolField(TEXT("success"), true);
+	SetCompileResult(Result, bCompiledOk, CompileErrors);
 	Result->SetStringField(TEXT("removedState"), StateName);
 	Result->SetNumberField(TEXT("removedTransitions"), RemovedTransitions);
 	Result->SetBoolField(TEXT("saved"), bSaved);
@@ -526,11 +627,12 @@ FString FBlueprintMCPServer::HandleAddAnimTransition(const FString& Body)
 	}
 
 	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(AnimBP);
+	TArray<FString> CompileErrors;
+	const bool bCompiledOk = CompileAnimBPChecked(AnimBP, CompileErrors);
 	bool bSaved = SaveBlueprintPackage(AnimBP);
 
 	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetBoolField(TEXT("success"), true);
+	SetCompileResult(Result, bCompiledOk, CompileErrors);
 	Result->SetStringField(TEXT("fromState"), FromStateName);
 	Result->SetStringField(TEXT("toState"), ToStateName);
 	Result->SetStringField(TEXT("nodeId"), TransNode->NodeGuid.ToString());
@@ -618,11 +720,12 @@ FString FBlueprintMCPServer::HandleSetTransitionRule(const FString& Body)
 	}
 
 	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(AnimBP);
+	TArray<FString> CompileErrors;
+	const bool bCompiledOk = CompileAnimBPChecked(AnimBP, CompileErrors);
 	bool bSaved = SaveBlueprintPackage(AnimBP);
 
 	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetBoolField(TEXT("success"), true);
+	SetCompileResult(Result, bCompiledOk, CompileErrors);
 	Result->SetStringField(TEXT("fromState"), FromStateName);
 	Result->SetStringField(TEXT("toState"), ToStateName);
 	Result->SetNumberField(TEXT("propertiesChanged"), ChangedCount);
@@ -694,35 +797,40 @@ FString FBlueprintMCPServer::HandleAddAnimNode(const FString& Body)
 
 	UAnimGraphNode_Base* NewNode = nullptr;
 
+	// Resolve the asset first: a name that does not resolve (or a wrong skeleton) is an error and nothing is created.
+	FString AssetName;
+	Json->TryGetStringField(TEXT("animationAsset"), AssetName);
+	UAnimSequence* AnimSeq = nullptr;
+	UBlendSpace* BlendSpace = nullptr;
+	UPoseAsset* PoseAsset = nullptr;
+	if (!AssetName.IsEmpty())
+	{
+		FString AssetError;
+		if (NodeType == TEXT("SequencePlayer"))
+		{
+			AnimSeq = ResolveAnimAsset<UAnimSequence>(AssetName, AnimBP->TargetSkeleton, AssetError);
+		}
+		else if (NodeType == TEXT("BlendSpacePlayer"))
+		{
+			BlendSpace = ResolveAnimAsset<UBlendSpace>(AssetName, AnimBP->TargetSkeleton, AssetError);
+		}
+		else if (NodeType == TEXT("PoseBlender"))
+		{
+			PoseAsset = ResolveAnimAsset<UPoseAsset>(AssetName, AnimBP->TargetSkeleton, AssetError);
+		}
+		if (!AssetError.IsEmpty()) return MakeErrorJson(AssetError);
+	}
+
 	if (NodeType == TEXT("SequencePlayer"))
 	{
 		UAnimGraphNode_SequencePlayer* SeqNode = NewObject<UAnimGraphNode_SequencePlayer>(TargetGraph);
 		SeqNode->CreateNewGuid();
 		SeqNode->PostPlacedNewNode();
 		SeqNode->AllocateDefaultPins();
-
-		// Optionally set animation asset
-		FString AnimAssetName = Json->GetStringField(TEXT("animationAsset"));
-		if (!AnimAssetName.IsEmpty())
+		if (AnimSeq)
 		{
-			FAssetRegistryModule& ARM = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
-			TArray<FAssetData> AnimAssets;
-			ARM.Get().GetAssetsByClass(UAnimSequence::StaticClass()->GetClassPathName(), AnimAssets, false);
-			for (const FAssetData& Asset : AnimAssets)
-			{
-				if (Asset.AssetName.ToString() == AnimAssetName ||
-					Asset.PackageName.ToString() == AnimAssetName)
-				{
-					UAnimSequence* AnimSeq = Cast<UAnimSequence>(Asset.GetAsset());
-					if (AnimSeq)
-					{
-						SeqNode->SetAnimationAsset(AnimSeq);
-					}
-					break;
-				}
-			}
+			SeqNode->SetAnimationAsset(AnimSeq);
 		}
-
 		NewNode = SeqNode;
 	}
 	else if (NodeType == TEXT("BlendSpacePlayer"))
@@ -731,30 +839,47 @@ FString FBlueprintMCPServer::HandleAddAnimNode(const FString& Body)
 		BSNode->CreateNewGuid();
 		BSNode->PostPlacedNewNode();
 		BSNode->AllocateDefaultPins();
-
-		// Optionally set blend space asset
-		FString BSAssetName = Json->GetStringField(TEXT("animationAsset"));
-		if (!BSAssetName.IsEmpty())
+		if (BlendSpace)
 		{
-			FAssetRegistryModule& ARM = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
-			TArray<FAssetData> BSAssets;
-			ARM.Get().GetAssetsByClass(UBlendSpace::StaticClass()->GetClassPathName(), BSAssets, true);
-			for (const FAssetData& Asset : BSAssets)
-			{
-				if (Asset.AssetName.ToString() == BSAssetName ||
-					Asset.PackageName.ToString() == BSAssetName)
-				{
-					UBlendSpace* BS = Cast<UBlendSpace>(Asset.GetAsset());
-					if (BS)
-					{
-						BSNode->SetAnimationAsset(BS);
-					}
-					break;
-				}
-			}
+			BSNode->SetAnimationAsset(BlendSpace);
 		}
-
 		NewNode = BSNode;
+	}
+	else if (NodeType == TEXT("Slot"))
+	{
+		// CLAUDE-NOTE (2026-10-22): montages only play through a Slot node in the AnimGraph (restart batch item).
+		// The slot name must exist on the target skeleton; a missing one is registered (default group).
+		FString SlotName = TEXT("DefaultSlot");
+		Json->TryGetStringField(TEXT("slotName"), SlotName);
+		USkeleton* Skeleton = AnimBP->TargetSkeleton;
+		bool bRegistered = false;
+		if (Skeleton && !Skeleton->ContainsSlotName(FName(*SlotName)))
+		{
+			Skeleton->Modify();
+			Skeleton->RegisterSlotNode(FName(*SlotName));
+			Skeleton->MarkPackageDirty();
+			bRegistered = true;
+		}
+		UAnimGraphNode_Slot* SlotNode = NewObject<UAnimGraphNode_Slot>(TargetGraph);
+		SlotNode->CreateNewGuid();
+		SlotNode->PostPlacedNewNode();
+		SlotNode->Node.SlotName = FName(*SlotName);
+		SlotNode->AllocateDefaultPins();
+		NewNode = SlotNode;
+		Json->SetBoolField(TEXT("_slotRegistered"), bRegistered);
+	}
+	else if (NodeType == TEXT("PoseBlender"))
+	{
+		// Pose Blender: outputs the PoseAsset's poses weighted by the curves of its source pose (audit item 12).
+		UAnimGraphNode_PoseBlendNode* PoseNode = NewObject<UAnimGraphNode_PoseBlendNode>(TargetGraph);
+		PoseNode->CreateNewGuid();
+		PoseNode->PostPlacedNewNode();
+		PoseNode->AllocateDefaultPins();
+		if (PoseAsset)
+		{
+			PoseNode->SetAnimationAsset(PoseAsset);
+		}
+		NewNode = PoseNode;
 	}
 	else if (NodeType == TEXT("StateMachine"))
 	{
@@ -767,7 +892,7 @@ FString FBlueprintMCPServer::HandleAddAnimNode(const FString& Body)
 	else
 	{
 		return MakeErrorJson(FString::Printf(
-			TEXT("Unsupported nodeType '%s'. Supported: SequencePlayer, BlendSpacePlayer, StateMachine"),
+			TEXT("Unsupported nodeType '%s'. Supported: SequencePlayer, BlendSpacePlayer, StateMachine, Slot, PoseBlender"),
 			*NodeType));
 	}
 
@@ -782,15 +907,21 @@ FString FBlueprintMCPServer::HandleAddAnimNode(const FString& Body)
 	NewNode->SetFlags(RF_Transactional);
 
 	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(AnimBP);
+	TArray<FString> CompileErrors;
+	const bool bCompiledOk = CompileAnimBPChecked(AnimBP, CompileErrors);
 	bool bSaved = SaveBlueprintPackage(AnimBP);
 
 	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetBoolField(TEXT("success"), true);
+	SetCompileResult(Result, bCompiledOk, CompileErrors);
 	Result->SetStringField(TEXT("nodeType"), NodeType);
 	Result->SetStringField(TEXT("nodeId"), NewNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("graph"), GraphName);
 	Result->SetBoolField(TEXT("saved"), bSaved);
+	if (UAnimGraphNode_Slot* SlotNode = Cast<UAnimGraphNode_Slot>(NewNode))
+	{
+		Result->SetStringField(TEXT("slotName"), SlotNode->Node.SlotName.ToString());
+		Result->SetBoolField(TEXT("slotRegistered"), Json->HasField(TEXT("_slotRegistered")) && Json->GetBoolField(TEXT("_slotRegistered")));
+	}
 
 	// For StateMachine, report the sub-graph name
 	if (NodeType == TEXT("StateMachine"))
@@ -940,11 +1071,12 @@ FString FBlueprintMCPServer::HandleSetStateAnimation(const FString& Body)
 	SeqNode->SetAnimationAsset(AnimSeq);
 
 	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(AnimBP);
+	TArray<FString> CompileErrors;
+	const bool bCompiledOk = CompileAnimBPChecked(AnimBP, CompileErrors);
 	bool bSaved = SaveBlueprintPackage(AnimBP);
 
 	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetBoolField(TEXT("success"), true);
+	SetCompileResult(Result, bCompiledOk, CompileErrors);
 	Result->SetStringField(TEXT("stateName"), StateName);
 	Result->SetStringField(TEXT("animationAsset"), AnimSeq->GetName());
 	Result->SetBoolField(TEXT("createdNewNode"), bCreatedNew);
@@ -1606,11 +1738,12 @@ FString FBlueprintMCPServer::HandleSetStateBlendSpace(const FString& Body)
 	WireVariable(YVariable, TEXT("Y"));
 
 	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(AnimBP);
+	TArray<FString> CompileErrors;
+	const bool bCompiledOk = CompileAnimBPChecked(AnimBP, CompileErrors);
 	bool bSaved = SaveBlueprintPackage(AnimBP);
 
 	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetBoolField(TEXT("success"), true);
+	SetCompileResult(Result, bCompiledOk, CompileErrors);
 	Result->SetStringField(TEXT("stateName"), StateName);
 	Result->SetStringField(TEXT("blendSpace"), BlendSpaceAsset->GetName());
 	Result->SetStringField(TEXT("nodeId"), BSNode->NodeGuid.ToString());

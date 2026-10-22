@@ -207,20 +207,24 @@ export function registerAnimationTools(baseServer: McpServer): void {
 
   server.tool(
     "add_anim_node",
-    "Add an animation node (sequence player, blend space, state machine) to an AnimGraph.",
+    "Add an animation node to an AnimGraph: SequencePlayer, BlendSpacePlayer, StateMachine, Slot (montages play " +
+      "through it; slotName default DefaultSlot, registered on the skeleton if missing) or PoseBlender (a PoseAsset's " +
+      "poses weighted by curves).",
     {
       blueprint: z.string().describe("Animation Blueprint name or path"),
       graph: z.string().optional().describe("Target graph name (default: AnimGraph)"),
-      nodeType: z.enum(["SequencePlayer", "BlendSpacePlayer", "StateMachine"]).describe("Type of anim node to add"),
-      animationAsset: z.string().optional().describe("Animation/blend space asset name to assign"),
+      nodeType: z.enum(["SequencePlayer", "BlendSpacePlayer", "StateMachine", "Slot", "PoseBlender"]).describe("Type of anim node to add"),
+      animationAsset: z.string().optional().describe("Asset to assign: AnimSequence / BlendSpace / PoseAsset (PoseBlender)"),
+      slotName: z.string().optional().describe("Slot node: slot name (default DefaultSlot)."),
       posX: z.number().optional().describe("X position in graph"),
       posY: z.number().optional().describe("Y position in graph"),
     },
-    async ({ blueprint, graph, nodeType, animationAsset, posX, posY }) => {
+    async ({ blueprint, graph, nodeType, animationAsset, slotName, posX, posY }) => {
       const err = await ensureUE();
       if (err) return { content: [{ type: "text" as const, text: err }] };
 
       const body: Record<string, any> = { blueprint, nodeType };
+      if (slotName) body.slotName = slotName;
       if (graph) body.graph = graph;
       if (animationAsset) body.animationAsset = animationAsset;
       if (posX !== undefined) body.posX = posX;
@@ -233,6 +237,7 @@ export function registerAnimationTools(baseServer: McpServer): void {
       lines.push(`Added ${data.nodeType || nodeType} node to ${data.graph || graph || "AnimGraph"}`);
       lines.push(`Node ID: ${data.nodeId}`);
       if (data.stateMachineGraph) lines.push(`State machine sub-graph: ${data.stateMachineGraph}`);
+      if (data.slotName) lines.push(`Slot: ${data.slotName}${data.slotRegistered ? " (registered on the skeleton)" : ""}`);
       if (data.saved !== undefined) lines.push(`Saved: ${data.saved}`);
 
       if (nodeType === "StateMachine") {
