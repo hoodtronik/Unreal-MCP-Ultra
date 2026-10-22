@@ -315,3 +315,19 @@ read back wiped the aim keys (mount re-run reset rotation) - fixed: rotation onl
 Eyes vs numbers: the first stitch (no offsets) popped 438 cm back at every cut; with offsets the position was seamless
 but the walk -> jog cut snapped the pose in one frame (seen in the render) - added the cross-fade. A jog -> jog cut
 measured 38.6 cm (section shorter than the clip) - offsets now taken at the section end.
+
+## 21. Pick-up (2026-10-22, `/Game/_MCPLab/Seq/SEQ_Build21`, grab on the move + control passes)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `anim_stitch` Walker at [0,9000,0]: walk x3, blend 0 | offsets 0 / 450 / 900 cm, no pops; hand_r at f27 (-35.2, 9332, 88.6) read with bone_world |
+| 2 | `prop_key` Table cube [60,60,83.6] at [-60,9332,41.8] (top = cup base); Cup cylinder [8,8,10] at the f27 hand | worst 0 cm from keys |
+| 3 | `seq_constrain` Cup -> Walker.hand_r, keys [f27 on] | drift 0.000 cm on 9 sampled frames |
+| 4 | `shot_camera` Cam 35 mm exposure 3; `seq_constrain` Cam look_at Walker.head | aim error 0.00 deg over 19 frames |
+| 5 | `shot_camera` CamSide 28 mm exposure 3, cut 107-108 (stills only) | created |
+| 6 | `shot_stills` frames 10/27/40/70 | 2 cameras x 4 frames, cameras differ 47-55 luma |
+| 7 | `shot_render_graph` beauty + clean plate | 108 + 108 frames, background shift <= 0.92 luma |
+| 8 | `shot_object_ids` Walker, Cup, Table | 108 frames palette-exact; MP4 beauty | IDs |
+
+Eyes vs numbers: all checks passed and the frames read right (cup on the table, in hand from f27, head centred). The
+clean plate also removed the table - a sequence-owned prop is "spawned"; scenery that must stay belongs in the level.
