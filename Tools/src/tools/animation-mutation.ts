@@ -3,6 +3,35 @@ import { z } from "zod";
 import { ensureUE, uePost } from "../ue-bridge.js";
 import { withAnimGuards } from "./anim-guard.js";
 
+
+// CLAUDE-NOTE (2026-10-22, live): a node property that is ALSO an exposed input pin (TwoBoneIK EffectorLocation, Alpha...)
+// is compiled from the PIN's default, not the property - writing Node.EffectorLocation alone left the pin at (0,0,0) and
+// the hand reached for the floor (hand_r at 88 cm instead of the 140 cm target). After a property write, mirror each
+// written value onto the same-named visible input pin (UE text "(X=1,Y=2,Z=3)" -> pin text "1,2,3").
+export function pinDefaultFromText(v: string): string {
+  const t = v.trim();
+  if (/^true$/i.test(t) || /^false$/i.test(t)) return t.toLowerCase();
+  const m = /^\((.*)\)$/.exec(t);
+  if (m && /^[A-Za-z]+=/.test(m[1])) {
+    const vals = m[1].split(",").map((kv) => kv.split("=")[1]);
+    if (vals.every((x) => x !== undefined && /^-?[0-9.eE+-]+$/.test(x))) return vals.map((x) => String(Number(x))).join(",");
+  }
+  return t;
+}
+
+async function syncPins(blueprint: string, nodeId: string, props: Record<string, string> | undefined, pins: any[] | undefined): Promise<string[]> {
+  if (!props || !pins) return [];
+  const inPins = new Set(pins.filter((p) => p.dir === "in").map((p) => p.name));
+  const out: string[] = [];
+  for (const [path, val] of Object.entries(props)) {
+    const leaf = path.split(".").slice(1).join(".");
+    if (!leaf || leaf.includes(".") || !inPins.has(leaf)) continue;
+    const r = await uePost("/api/set-pin-default", { blueprint, nodeId, pinName: leaf, value: pinDefaultFromText(String(val)) });
+    out.push(r?.error ? `pin ${leaf}: ${r.error}` : `pin ${leaf} = ${pinDefaultFromText(String(val))}`);
+  }
+  return out;
+}
+
 export function registerAnimationTools(baseServer: McpServer): void {
   // CLAUDE-NOTE (2026-10-21): every ABP tool below goes through withAnimGuards (asset resolution + compile check).
   const server = withAnimGuards(baseServer);
@@ -213,18 +242,21 @@ export function registerAnimationTools(baseServer: McpServer): void {
     {
       blueprint: z.string().describe("Animation Blueprint name or path"),
       graph: z.string().optional().describe("Target graph name (default: AnimGraph)"),
-      nodeType: z.enum(["SequencePlayer", "BlendSpacePlayer", "StateMachine", "Slot", "PoseBlender"]).describe("Type of anim node to add"),
+      nodeType: z.string().describe("SequencePlayer | BlendSpacePlayer | StateMachine | Slot | PoseBlender, or ANY AnimGraph node class (e.g. AnimGraphNode_TwoBoneIK, LayeredBoneBlend, LookAt, ModifyBone, BlendListByBool, CopyPoseFromMesh, ApplyAdditive)."),
+      properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional()
+        .describe("Node property paths -> UE text values, read back, e.g. {'Node.IKBone.BoneName': 'hand_r', 'Node.EffectorLocation': '(X=10,Y=0,Z=150)'}."),
       animationAsset: z.string().optional().describe("Asset to assign: AnimSequence / BlendSpace / PoseAsset (PoseBlender)"),
       slotName: z.string().optional().describe("Slot node: slot name (default DefaultSlot)."),
       posX: z.number().optional().describe("X position in graph"),
       posY: z.number().optional().describe("Y position in graph"),
     },
-    async ({ blueprint, graph, nodeType, animationAsset, slotName, posX, posY }) => {
+    async ({ blueprint, graph, nodeType, animationAsset, slotName, properties, posX, posY }) => {
       const err = await ensureUE();
       if (err) return { content: [{ type: "text" as const, text: err }] };
 
       const body: Record<string, any> = { blueprint, nodeType };
       if (slotName) body.slotName = slotName;
+      if (properties) body.properties = properties;
       if (graph) body.graph = graph;
       if (animationAsset) body.animationAsset = animationAsset;
       if (posX !== undefined) body.posX = posX;
@@ -238,6 +270,10 @@ export function registerAnimationTools(baseServer: McpServer): void {
       lines.push(`Node ID: ${data.nodeId}`);
       if (data.stateMachineGraph) lines.push(`State machine sub-graph: ${data.stateMachineGraph}`);
       if (data.slotName) lines.push(`Slot: ${data.slotName}${data.slotRegistered ? " (registered on the skeleton)" : ""}`);
+      if (data.properties) lines.push(`Properties (read back): ${Object.entries(data.properties).map(([k, v]) => `${k} = ${v}`).join("; ")}`);
+      const synced = await syncPins(blueprint, data.nodeId, data.properties, data.pins);
+      if (synced.length) lines.push(`Exposed pins set to match: ${synced.join("; ")}`);
+      if (data.pins) lines.push(`Pins: ${data.pins.map((p: any) => `${p.name} (${p.dir}, ${p.type})`).join(", ")}`);
       if (data.saved !== undefined) lines.push(`Saved: ${data.saved}`);
 
       if (nodeType === "StateMachine") {
@@ -246,6 +282,37 @@ export function registerAnimationTools(baseServer: McpServer): void {
         lines.push(`  2. Use add_anim_transition to connect states`);
       }
 
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // anim_node_set
+  // ---------------------------------------------------------------------------
+
+  // CLAUDE-NOTE (2026-10-22): generic property writes on an existing AnimGraph node (C++ /api/set-anim-node-properties):
+  // dotted paths into the node (Node.IKBone.BoneName, Node.Alpha, Node.LayerSetup...), UE text values, each read back
+  // after import, then the ABP is recompiled (compile errors -> isError).
+  server.tool(
+    "anim_node_set",
+    "Set properties on an existing Anim Blueprint graph node by its node ID (from add_anim_node / get_blueprint_graph): " +
+      "dotted paths into the node with UE text values, e.g. {'Node.IKBone.BoneName': 'hand_r', 'Node.bAllowStretching': true, " +
+      "'Node.LayerSetup': '((BranchFilters=((BoneName=\"spine_01\",BlendDepth=0))))'}. Each value is read back; the ABP is recompiled.",
+    {
+      blueprint: z.string(),
+      nodeId: z.string(),
+      properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+    },
+    async ({ blueprint, nodeId, properties }) => {
+      const err = await ensureUE();
+      if (err) return { content: [{ type: "text" as const, text: err }] };
+      const data = await uePost("/api/set-anim-node-properties", { blueprint, nodeId, properties });
+      if (data.error && !data.properties) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }], isError: true };
+      const lines = [`${data.nodeClass}: ${Object.entries(data.properties ?? {}).map(([k, v]) => `${k} = ${v}`).join("; ")}`];
+      const synced = await syncPins(blueprint, nodeId, data.properties, data.pins);
+      if (synced.length) lines.push(`Exposed pins set to match: ${synced.join("; ")}`);
+      if (data.pins) lines.push(`Pins: ${data.pins.map((p: any) => p.name).join(", ")}`);
+      lines.push(`Saved: ${data.saved}`);
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     }
   );

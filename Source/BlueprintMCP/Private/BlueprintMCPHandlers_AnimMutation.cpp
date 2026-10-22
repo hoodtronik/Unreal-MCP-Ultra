@@ -104,6 +104,82 @@ namespace
 		return Asset;
 	}
 
+	// Walk a dotted property path from an object (descending into struct properties) and import a text value
+	// (UE property text, e.g. hand_r, (X=1,Y=2,Z=3), True); returns the exported value read back.
+	bool SetPropertyByPath(UObject* Obj, const FString& Path, const FString& Value, FString& OutReadback, FString& OutError)
+	{
+		TArray<FString> Parts;
+		Path.ParseIntoArray(Parts, TEXT("."));
+		UStruct* Struct = Obj->GetClass();
+		void* Container = Obj;
+		for (int32 i = 0; i < Parts.Num(); ++i)
+		{
+			FProperty* Prop = FindFProperty<FProperty>(Struct, FName(*Parts[i]));
+			if (!Prop)
+			{
+				OutError = FString::Printf(TEXT("'%s': no property '%s' on %s"), *Path, *Parts[i], *Struct->GetName());
+				return false;
+			}
+			void* Ptr = Prop->ContainerPtrToValuePtr<void>(Container);
+			if (i + 1 < Parts.Num())
+			{
+				FStructProperty* SP = CastField<FStructProperty>(Prop);
+				if (!SP)
+				{
+					OutError = FString::Printf(TEXT("'%s': '%s' is not a struct"), *Path, *Parts[i]);
+					return false;
+				}
+				Struct = SP->Struct;
+				Container = Ptr;
+				continue;
+			}
+			if (!Prop->ImportText_Direct(*Value, Ptr, Obj, PPF_None))
+			{
+				OutError = FString::Printf(TEXT("'%s': could not import '%s' into a %s"), *Path, *Value, *Prop->GetCPPType());
+				return false;
+			}
+			OutReadback.Reset();
+			Prop->ExportTextItem_Direct(OutReadback, Ptr, nullptr, Obj, PPF_None);
+		}
+		return true;
+	}
+
+	bool ApplyNodeProperties(UObject* Node, const TSharedPtr<FJsonObject>& Props, const TSharedRef<FJsonObject>& OutReadbacks, FString& OutError)
+	{
+		Node->Modify();
+		for (const auto& KV : Props->Values)
+		{
+			FString Value;
+			if (!KV.Value->TryGetString(Value))
+			{
+				double D;
+				bool B;
+				if (KV.Value->TryGetNumber(D)) Value = FString::SanitizeFloat(D);
+				else if (KV.Value->TryGetBool(B)) Value = B ? TEXT("True") : TEXT("False");
+				else { OutError = KV.Key + TEXT(": value must be a string, number or bool"); return false; }
+			}
+			FString Back;
+			if (!SetPropertyByPath(Node, KV.Key, Value, Back, OutError)) return false;
+			OutReadbacks->SetStringField(KV.Key, Back);
+		}
+		return true;
+	}
+
+	TArray<TSharedPtr<FJsonValue>> PinsJson(UEdGraphNode* Node)
+	{
+		TArray<TSharedPtr<FJsonValue>> Out;
+		for (UEdGraphPin* Pin : Node->Pins)
+		{
+			if (!Pin || Pin->bHidden) continue;
+			TSharedRef<FJsonObject> P = MakeShared<FJsonObject>();
+			P->SetStringField(TEXT("name"), Pin->PinName.ToString());
+			P->SetStringField(TEXT("dir"), Pin->Direction == EGPD_Input ? TEXT("in") : TEXT("out"));
+			P->SetStringField(TEXT("type"), Pin->PinType.PinCategory.ToString());
+			Out.Add(MakeShared<FJsonValueObject>(P));
+		}
+		return Out;
+	}
+
 	bool CompileAnimBPChecked(UBlueprint* BP, TArray<FString>& OutErrors)
 	{
 		FCompilerResultsLog Log;
@@ -891,9 +967,35 @@ FString FBlueprintMCPServer::HandleAddAnimNode(const FString& Body)
 	}
 	else
 	{
-		return MakeErrorJson(FString::Printf(
-			TEXT("Unsupported nodeType '%s'. Supported: SequencePlayer, BlendSpacePlayer, StateMachine, Slot, PoseBlender"),
-			*NodeType));
+		// CLAUDE-NOTE (2026-10-22): any other AnimGraph node by class name (e.g. AnimGraphNode_TwoBoneIK,
+		// AnimGraphNode_LayeredBoneBlend, AnimGraphNode_LookAt, AnimGraphNode_ModifyBone, AnimGraphNode_BlendListByBool,
+		// AnimGraphNode_CopyPoseFromMesh). Configure it with `properties` (paths into the node, e.g. Node.IKBone.BoneName).
+		FString ClassName = NodeType.StartsWith(TEXT("AnimGraphNode_")) ? NodeType : TEXT("AnimGraphNode_") + NodeType;
+		UClass* NodeClass = FindFirstObject<UClass>(*ClassName, EFindFirstObjectOptions::NativeFirst);
+		if (!NodeClass || !NodeClass->IsChildOf(UAnimGraphNode_Base::StaticClass()) || NodeClass->HasAnyClassFlags(CLASS_Abstract))
+		{
+			return MakeErrorJson(FString::Printf(
+				TEXT("Unknown nodeType '%s' (named: SequencePlayer, BlendSpacePlayer, StateMachine, Slot, PoseBlender, or any AnimGraphNode_* class)"),
+				*NodeType));
+		}
+		UAnimGraphNode_Base* Generic = NewObject<UAnimGraphNode_Base>(TargetGraph, NodeClass);
+		Generic->CreateNewGuid();
+		Generic->PostPlacedNewNode();
+		Generic->AllocateDefaultPins();
+		NewNode = Generic;
+	}
+
+	// Optional property writes (any node type), applied before the node is added and compiled.
+	TSharedRef<FJsonObject> PropResult = MakeShared<FJsonObject>();
+	const TSharedPtr<FJsonObject>* PropsObj = nullptr;
+	if (Json->TryGetObjectField(TEXT("properties"), PropsObj) && PropsObj && (*PropsObj)->Values.Num() > 0)
+	{
+		FString PropError;
+		if (!ApplyNodeProperties(NewNode, *PropsObj, PropResult, PropError))
+		{
+			return MakeErrorJson(PropError + TEXT(" (node not added)"));
+		}
+		NewNode->ReconstructNode();
 	}
 
 	if (!NewNode)
@@ -917,6 +1019,8 @@ FString FBlueprintMCPServer::HandleAddAnimNode(const FString& Body)
 	Result->SetStringField(TEXT("nodeId"), NewNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("graph"), GraphName);
 	Result->SetBoolField(TEXT("saved"), bSaved);
+	if (PropResult->Values.Num() > 0) Result->SetObjectField(TEXT("properties"), PropResult);
+	Result->SetArrayField(TEXT("pins"), PinsJson(NewNode));
 	if (UAnimGraphNode_Slot* SlotNode = Cast<UAnimGraphNode_Slot>(NewNode))
 	{
 		Result->SetStringField(TEXT("slotName"), SlotNode->Node.SlotName.ToString());
@@ -1750,3 +1854,54 @@ FString FBlueprintMCPServer::HandleSetStateBlendSpace(const FString& Body)
 	Result->SetBoolField(TEXT("saved"), bSaved);
 	return JsonToString(Result);
 }
+
+// ============================================================
+// HandleSetAnimNodeProperties - write property paths on an existing AnimGraph node (by GUID), recompile, read back
+// ============================================================
+
+FString FBlueprintMCPServer::HandleSetAnimNodeProperties(const FString& Body)
+{
+	TSharedPtr<FJsonObject> Json = ParseBodyJson(Body);
+	if (!Json.IsValid()) return MakeErrorJson(TEXT("Invalid JSON body"));
+	FString BlueprintName = Json->GetStringField(TEXT("blueprint"));
+	FString NodeId = Json->GetStringField(TEXT("nodeId"));
+	const TSharedPtr<FJsonObject>* PropsObj = nullptr;
+	if (BlueprintName.IsEmpty() || NodeId.IsEmpty() || !Json->TryGetObjectField(TEXT("properties"), PropsObj) || !PropsObj)
+	{
+		return MakeErrorJson(TEXT("Missing required fields: blueprint, nodeId, properties"));
+	}
+	FString LoadError;
+	UBlueprint* BP = LoadBlueprintByName(BlueprintName, LoadError);
+	if (!BP) return MakeErrorJson(LoadError);
+	UAnimBlueprint* AnimBP = Cast<UAnimBlueprint>(BP);
+	if (!AnimBP) return MakeErrorJson(TEXT("Not an Animation Blueprint"));
+	FGuid Guid;
+	FGuid::Parse(NodeId, Guid);
+	UEdGraphNode* Found = nullptr;
+	TArray<UEdGraph*> AllGraphs;
+	BP->GetAllGraphs(AllGraphs);
+	for (UEdGraph* G : AllGraphs)
+	{
+		for (UEdGraphNode* Nd : G->Nodes)
+		{
+			if (Nd && Nd->NodeGuid == Guid) { Found = Nd; break; }
+		}
+		if (Found) break;
+	}
+	if (!Found) return MakeErrorJson(FString::Printf(TEXT("Node %s not found"), *NodeId));
+	TSharedRef<FJsonObject> Back = MakeShared<FJsonObject>();
+	FString Err;
+	if (!ApplyNodeProperties(Found, *PropsObj, Back, Err)) return MakeErrorJson(Err);
+	Found->ReconstructNode();
+	TArray<FString> CompileErrors;
+	const bool bCompiledOk = CompileAnimBPChecked(AnimBP, CompileErrors);
+	const bool bSaved = SaveBlueprintPackage(AnimBP);
+	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	SetCompileResult(Result, bCompiledOk, CompileErrors);
+	Result->SetObjectField(TEXT("properties"), Back);
+	Result->SetArrayField(TEXT("pins"), PinsJson(Found));
+	Result->SetStringField(TEXT("nodeClass"), Found->GetClass()->GetName());
+	Result->SetBoolField(TEXT("saved"), bSaved);
+	return JsonToString(Result);
+}
+

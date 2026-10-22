@@ -884,6 +884,8 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 		QueuedHandler(TEXT("addAnimTransition")));
 	Router->BindRoute(FHttpPath(TEXT("/api/set-transition-rule")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("setTransitionRule")));
+	Router->BindRoute(FHttpPath(TEXT("/api/set-anim-node-properties")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("setAnimNodeProperties")));
 	Router->BindRoute(FHttpPath(TEXT("/api/add-anim-node")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("addAnimNode")));
 	Router->BindRoute(FHttpPath(TEXT("/api/add-state-machine")), EHttpServerRequestVerbs::VERB_POST,
@@ -1480,6 +1482,7 @@ void FBlueprintMCPServer::RegisterHandlers()
 		TEXT("addAnimTransition"),
 		TEXT("setTransitionRule"),
 		TEXT("addAnimNode"),
+		TEXT("setAnimNodeProperties"),
 		TEXT("addStateMachine"),
 		TEXT("setStateAnimation"),
 		TEXT("setMirrorTableRows"),
@@ -1674,6 +1677,7 @@ void FBlueprintMCPServer::RegisterHandlers()
 	HandlerMap.Add(TEXT("addAnimTransition"),       [this](const TMap<FString, FString>&, const FString& B) { return HandleAddAnimTransition(B); });
 	HandlerMap.Add(TEXT("setTransitionRule"),       [this](const TMap<FString, FString>&, const FString& B) { return HandleSetTransitionRule(B); });
 	HandlerMap.Add(TEXT("addAnimNode"),             [this](const TMap<FString, FString>&, const FString& B) { return HandleAddAnimNode(B); });
+	HandlerMap.Add(TEXT("setAnimNodeProperties"),   [this](const TMap<FString, FString>&, const FString& B) { return HandleSetAnimNodeProperties(B); });
 	HandlerMap.Add(TEXT("addStateMachine"),         [this](const TMap<FString, FString>&, const FString& B) { return HandleAddStateMachine(B); });
 	HandlerMap.Add(TEXT("setStateAnimation"),       [this](const TMap<FString, FString>&, const FString& B) { return HandleSetStateAnimation(B); });
 	HandlerMap.Add(TEXT("listMirrorTableRows"),     [this](const TMap<FString, FString>&, const FString& B) { return HandleListMirrorTableRows(B); });

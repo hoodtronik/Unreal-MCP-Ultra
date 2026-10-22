@@ -446,6 +446,7 @@ private:
 	FString HandleAddAnimTransition(const FString& Body);
 	FString HandleSetTransitionRule(const FString& Body);
 	FString HandleAddAnimNode(const FString& Body);
+	FString HandleSetAnimNodeProperties(const FString& Body);
 	FString HandleAddStateMachine(const FString& Body);
 	FString HandleSetStateAnimation(const FString& Body);
 	FString HandleListMirrorTableRows(const FString& Body);

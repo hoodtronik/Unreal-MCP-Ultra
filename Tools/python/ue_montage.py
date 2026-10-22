@@ -108,3 +108,26 @@ def montage_jump(label, montage, section, pie=False):
 def montage_stop(label, pie=False):
     _ai(label, pie).montage_stop(0.0)
     return {"ok": True}
+
+
+def subset_match(label, clip, bones, fps=60.0, pie=False):
+    """Best frame of `clip` for a SUBSET of bones (root-relative component space): worst-bone cm at that frame."""
+    act = _find_actor(label, _world(pie))
+    sk = act.get_component_by_class(unreal.SkeletalMeshComponent)
+    root = sk.get_bone_name(0)
+    r0 = sk.get_socket_transform(root, unreal.RelativeTransformSpace.RTS_COMPONENT).translation
+    now = {b: sk.get_socket_transform(b, unreal.RelativeTransformSpace.RTS_COMPONENT).translation - r0 for b in bones}
+    anim = unreal.load_asset(clip)
+    opts = unreal.AnimPoseEvaluationOptions()
+    opts.set_editor_property("optional_skeletal_mesh", sk.get_skeletal_mesh_asset())
+    best, bt = 1e9, 0.0
+    n = max(1, int(anim.get_play_length() * fps))
+    for i in range(n + 1):
+        t = min(anim.get_play_length(), i / fps)
+        pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(anim, t, opts)
+        q0 = unreal.AnimPoseExtensions.get_bone_pose(pose, root, unreal.AnimPoseSpaces.WORLD).translation
+        w = max((p - (unreal.AnimPoseExtensions.get_bone_pose(pose, b, unreal.AnimPoseSpaces.WORLD).translation - q0)).length()
+                for b, p in now.items())
+        if w < best:
+            best, bt = w, t
+    return {"ok": True, "cm": round(best, 3), "at": round(bt, 3)}

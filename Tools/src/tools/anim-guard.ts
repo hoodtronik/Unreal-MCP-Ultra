@@ -37,7 +37,7 @@ const ASSET_ARGS: Record<string, { arg: string; kinds: (a: any) => string[] }> =
     kinds: (a) => (a.nodeType === "BlendSpacePlayer" ? ["BlendSpace"] : a.nodeType === "PoseBlender" ? ["PoseAsset"] : ["AnimSequence"]),
   },
 };
-const COMPILE_AFTER = new Set(["add_anim_state", "remove_anim_state", "add_anim_transition", "set_transition_rule", "add_anim_node",
+const COMPILE_AFTER = new Set(["add_anim_state", "remove_anim_state", "add_anim_transition", "set_transition_rule", "add_anim_node", "anim_node_set",
   "add_state_machine", "set_state_animation", "set_state_blend_space"]);
 
 // CLAUDE-NOTE (2026-10-21, live): an ABP built with add_state_machine + add_anim_state compiled with only WARNINGS
@@ -77,7 +77,8 @@ function expectedFor(name: string, a: any, body: string): RegExp[] {
   if (name === "add_anim_state" && !a.animationAsset) return [new RegExp(`^\\[${esc(a.stateName)}\\] Output Animation Pose`, "i")];
   // CLAUDE-NOTE (2026-10-22, live): a new Slot / Pose Blender node has a Source input that the next step wires
   // (a state machine or pose into it) - reported as pending, not an error.
-  if (name === "add_anim_node" && (a.nodeType === "Slot" || a.nodeType === "PoseBlender")) return [/Source(\s+Pose)?\s+was\s+visible\s+but\s+ignored/i];
+  // Generic nodes (IK, layered blend, look-at...) also leave their pose inputs for the next step to wire.
+  if (name === "add_anim_node" && !["SequencePlayer", "BlendSpacePlayer", "StateMachine"].includes(a.nodeType)) return [/was\s+visible\s+but\s+ignored/i];
   return [];
 }
 
