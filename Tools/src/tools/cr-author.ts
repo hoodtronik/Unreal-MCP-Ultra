@@ -104,4 +104,61 @@ export function registerCrAuthorTools(server: McpServer): void {
       return text([bad ? "CONTROL RIG CHECK FAILED:" : "Control Rig built and verified:", ...lines].join("\n"), bad > 0);
     },
   );
+
+  // CLAUDE-NOTE (2026-10-22, live 5.6.1): MODULAR Control Rig from Epic's Control Rig Modules (Root, Spine, Neck,
+  // Shoulder/Arm/Leg left + mirrored right) for the UE5 mannequin skeleton - 56 controls, rest pose 0 cm from the
+  // reference (spine_03 0.14), FK arm keyed through the section channels moved the hand 44 cm with the other hand
+  // still. Modules come up in FK; IK switching (module config) is not mapped yet.
+  server.tool(
+    "cr_build_modular",
+    "Build a MODULAR Control Rig (Epic's Control Rig Modules: Root, Spine, Neck, shoulders, arms, legs; right side " +
+      "mirrored) for a UE5-mannequin-skeleton mesh. Controls are named Module/control (e.g. Arm_r/upperarm_r_fk_ctrl, " +
+      "Spine/hips_ctrl); pose them with pose_set_controls in LOCAL values (world writes are not supported on modular " +
+      "controls). VERIFIED in a scratch sequence: control count, rest pose vs the reference, and an FK arm write moving the hand.",
+    {
+      path: z.string(),
+      mesh: z.string().optional(),
+      overwrite: z.boolean().optional(),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const mesh = a.mesh ?? "/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple";
+      const r = await run("cr_build_modular(P['p'], P['m'], P['o'])", { p: a.path, m: mesh, o: a.overwrite ?? false });
+      if (!r.ok) return text(`Error: ${r.error}`, true);
+      const conn = r.connected as Record<string, boolean>;
+      const failed = Object.entries(conn).filter(([, v]) => !v).map(([k]) => k);
+      const ctrls = r.controls as string[];
+      const lines = [`Built ${r.path}: ${ctrls.length} controls; ${Object.keys(conn).length} connectors set${failed.length ? ` (FAILED: ${failed.join(", ")})` : ""}; mirrored ${(r.mirrored as string[]).join(", ")}.`];
+      let bad = failed.length ? 1 : 0;
+      const seq = a.path.replace(/\/[^/]+$/, "") + "/SEQ_" + a.path.split("/").pop() + "_Check";
+      try {
+        const s = await run("setup_character(P['s'], 'Check', P['m'], P['p'], (0, 0, 0), None, 24, 24)", { s: seq, m: mesh, p: a.path });
+        if (!s.ok) throw new Error(s.error);
+        if (s.controls !== ctrls.length) { bad++; lines.push(`Live rig has ${s.controls} controls, built ${ctrls.length}  <- MISMATCH`); }
+        const scrub = async () => { await run("scrub(P['s'], 1)", { s: seq }); await run("scrub(P['s'], 0)", { s: seq }); };
+        await scrub();
+        const rest = await run("rest_vs_ref(P['s'], 'Check')", { s: seq });
+        if (!rest.ok || !Object.keys(rest.cm as object).length) throw new Error(rest.error ?? "rest check measured nothing");
+        const rv = Math.max(...Object.values(rest.cm as Record<string, number>));
+        if (rv > 1) bad++;
+        lines.push(`Rest pose vs reference: worst ${rv} cm${rv > 1 ? "  <- FAIL" : ""}`);
+        const p0 = await run("read_pose(P['s'], 'Check', 0, ['hand_r', 'hand_l'])", { s: seq });
+        const w = await run("set_controls(P['s'], 'Check', 0, [{'control': 'Arm_r/upperarm_r_fk_ctrl', 'rotation': [60, 0, 0]}])", { s: seq });
+        if (!w.ok) throw new Error(w.error);
+        await scrub();
+        const p1 = await run("read_pose(P['s'], 'Check', 0, ['hand_r', 'hand_l'])", { s: seq });
+        const b0 = p0.bones as Record<string, number[]>, b1 = p1.bones as Record<string, number[]>;
+        const moved = dist(b0.hand_r, b1.hand_r), other = dist(b0.hand_l, b1.hand_l);
+        if (moved < 10 || other > 0.5) bad++;
+        lines.push(`FK write Arm_r/upperarm_r_fk_ctrl pitch 60: hand_r moved ${moved.toFixed(1)} cm, hand_l ${other.toFixed(2)} cm${moved < 10 || other > 0.5 ? "  <- FAIL" : ""}`);
+      } catch (e) {
+        bad++;
+        lines.push(`Check error: ${(e as Error).message}`);
+      } finally {
+        await run("drop_sequence(P['s'])", { s: seq });
+      }
+      return text([bad ? "MODULAR RIG CHECK FAILED:" : "Modular Control Rig built and verified:", ...lines].join("\n"), bad > 0);
+    },
+  );
 }

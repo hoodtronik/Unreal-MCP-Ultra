@@ -186,3 +186,96 @@ def drop_sequence(seq_path):
     if unreal.LevelSequenceEditorBlueprintLibrary.get_current_level_sequence():
         unreal.LevelSequenceEditorBlueprintLibrary.close_level_sequence()
     return {"ok": True, "deleted": unreal.EditorAssetLibrary.delete_asset(seq_path)}
+
+
+# ------------------------------------------------------------------ modular rigs (Control Rig Modules plugin content)
+#
+# CLAUDE-NOTE (2026-10-22, live 5.6.1): a modular rig's sockets and controls only exist in a CONSTRUCTED instance - the
+# blueprint hierarchy has none, so connect_connector_to_element(..., check_valid_connection=True) refused every target
+# (and get_connectors_for_module returns names with the spaces stripped: "Spine/SpinePrimary" for the real
+# "Spine/Spine Primary"). Connections are therefore made with validation OFF, from a fixed map for the UE5 mannequin
+# skeleton, and verified afterwards on a constructed instance and live in Sequencer (12 controls after Root + Spine).
+
+MOD = "/ControlRigModules/Modules56/"
+K, RT = unreal.RigElementKey, unreal.RigElementType
+
+# module name, module asset, parent module, {connector: (type, target)} - left side; right side by mirroring _l -> _r
+BIPED = [
+    ("Spine", "Spine", "Root", {"Spine Primary": ("SOCKET", "Root/spine_01_socket"), "Pelvis Bone": ("BONE", "pelvis"),
+                                "Spine Start Bone": ("BONE", "spine_01"), "Spine End Bone": ("BONE", "spine_05"),
+                                "Parent Control": ("CONTROL", "Root/body_offset_ctrl")}),
+    ("Neck", "Neck", "Spine", {"Neck Primary": ("SOCKET", "Spine/neck_socket"), "Neck Start Bone": ("BONE", "neck_01"),
+                               "Head Bone": ("BONE", "head"), "Parent Control": ("CONTROL", "Spine/chest_ctrl")}),
+    ("Shoulder_l", "Shoulder", "Spine", {"Shoulder Primary": ("SOCKET", "Spine/shoulder_l"), "Chest Bone": ("BONE", "spine_05"),
+                                         "Parent Control": ("CONTROL", "Spine/chest_ctrl")}),
+    ("Leg_l", "Leg", "Spine", {"Leg Primary": ("SOCKET", "Spine/thigh_l_socket"), "Thigh Bone": ("BONE", "thigh_l"),
+                               "Knee Bone": ("BONE", "calf_l"), "Foot Bone": ("BONE", "foot_l"), "Pelvis Bone": ("BONE", "pelvis"),
+                               "Parent Control": ("CONTROL", "Spine/hips_ctrl")}),
+]
+ARM = ("Arm_l", "Arm", "Shoulder_l", {"Shoulder Bone": ("BONE", "upperarm_l"), "Elbow Bone": ("BONE", "lowerarm_l"),
+                                      "Hand Bone": ("BONE", "hand_l")})
+
+
+def _constructed(bp):
+    inst = unreal.new_object(bp.generated_class())
+    inst.request_construction()
+    inst.execute("Construction")
+    return inst.get_hierarchy()
+
+
+def _connect(mc, module, conns):
+    res = {}
+    for cn, (t, n) in conns.items():
+        res[module + "/" + cn] = mc.connect_connector_to_element(K(RT.CONNECTOR, module + "/" + cn), K(getattr(RT, t), n), True, False, False)
+    return res
+
+
+def cr_build_modular(path, mesh_path, overwrite=False):
+    if unreal.EditorAssetLibrary.does_asset_exist(path):
+        if not overwrite:
+            raise ValueError("%s exists (pass overwrite)" % path)
+        unreal.EditorAssetLibrary.delete_asset(path)
+    mesh = unreal.load_asset(mesh_path)
+    bp = unreal.ControlRigBlueprintFactory.create_new_control_rig_asset(path, True)
+    bp.set_preview_mesh(mesh, True)
+    # import_bones_from_skeletal_mesh on a MODULAR rig left 62 of 89 bones (hand_l, thigh_r... missing, live);
+    # import_preview_skeletal_mesh is the modular-rig path
+    bp.get_hierarchy_controller().import_preview_skeletal_mesh(mesh, True, True, False, False)
+    bones = set(str(k.name) for k in bp.hierarchy.get_bones())
+    need = {n for _, _, _, c in BIPED + [ARM] for t, n in c.values() if t == "BONE"}
+    missing = sorted(need - bones)
+    if missing:
+        raise ValueError("not a UE5-mannequin skeleton (missing %s) - the modular biped map is for that naming" % ", ".join(missing))
+    mc = bp.get_modular_rig_controller()
+    mc.connect_connector_to_element(K(RT.CONNECTOR, "Root/Root"), K(RT.BONE, "root"), True, False, False)
+    made = {}
+    for name, asset, parent, conns in BIPED:
+        mc.add_module(name, unreal.load_asset(MOD + asset).generated_class(), parent)
+        made.update(_connect(mc, name, conns))
+    bp.recompile_modular_rig()
+    # the arm hangs off the shoulder's own socket / control, which exist only once the shoulder is constructed
+    h = _constructed(bp)
+    socks = [str(k.name) for k in h.get_all_keys(True) if k.type == RT.SOCKET and str(k.name).startswith("Shoulder_l/")]
+    ctrls = [str(k.name) for k in h.get_all_keys(True) if k.type == RT.CONTROL and str(k.name).startswith("Shoulder_l/")]
+    name, asset, parent, conns = ARM
+    mc.add_module(name, unreal.load_asset(MOD + asset).generated_class(), parent)
+    conns = dict(conns)
+    if socks:
+        conns["Arm Primary"] = ("SOCKET", socks[0])
+    if ctrls:
+        conns["Parent Control"] = ("CONTROL", ctrls[0])
+    made.update(_connect(mc, name, conns))
+    bp.recompile_modular_rig()
+    mirrored = []
+    ms = unreal.RigVMMirrorSettings()
+    ms.set_editor_property("search_string", "_l")
+    ms.set_editor_property("replace_string", "_r")
+    for m in ("Shoulder_l", "Leg_l", "Arm_l"):
+        mirrored.append(str(mc.mirror_module(m, ms)))
+    bp.recompile_modular_rig()
+    unreal.EditorAssetLibrary.save_loaded_asset(bp, False)
+    h = _constructed(bp)
+    ctl = [str(k.name) for k in h.get_all_keys(True) if k.type == RT.CONTROL]
+    return {"ok": True, "path": path, "connected": made, "arm_socket": socks[:1], "arm_parent": ctrls[:1], "mirrored": mirrored,
+            "modules": [str(x) for x in bp.get_editor_property("modular_rig_model").export_text().split("Name=\"")[1:] if "Class" in x][:0] or None,
+            "controls": ctl}

@@ -296,7 +296,85 @@ def list_controls(seq_path, binding_name, contains=None, kind=None, limit=400):
     return {"ok": True, "count": len(out), "controls": out[:int(limit)], "truncated": len(out) > int(limit)}
 
 
+
+# CLAUDE-NOTE (2026-10-22, live 5.6.1): on a MODULAR Control Rig (controls named "Module/control", e.g.
+# "Arm_r/upperarm_r_fk_ctrl") every ControlRigSequencerLibrary get/set_local_control_rig_* and world call silently
+# no-ops (set "succeeded", readback stayed at the default, bones did not move), while keying the section's channels
+# ("Arm_r/upperarm_r_fk_ctrl.Rotation.Y") drives the rig (hand z 104 -> 132). Such controls go through the channels:
+# local values only (Location.XYZ, Rotation.X roll / Y pitch / Z yaw, Scale.XYZ).
+def _is_modular_name(name):
+    return "/" in name
+
+
+def _chan_map(rig_track):
+    return {str(c.channel_name): c for c in rig_track.get_sections()[0].get_all_channels()}
+
+
+def _chan_value(seq, ch, frame):
+    """Channel value at a display frame from its keys (exact on a key; linear between keys - readback is done on
+    keyed frames); evaluate_keys returned nothing on these channels (live)."""
+    t = FN(int(frame)).value
+    ks = sorted(((k.get_time().frame_number.value, float(k.get_value())) for k in ch.get_keys()), key=lambda x: x[0])
+    if not ks:
+        return float(ch.get_default()) if ch.has_default() else 0.0
+    if t <= ks[0][0]:
+        return ks[0][1]
+    for (t0, v0), (t1, v1) in zip(ks, ks[1:]):
+        if t <= t1:
+            return v0 + (v1 - v0) * (t - t0) / float(max(t1 - t0, 1))
+    return ks[-1][1]
+
+
+def _chan_key(ch, frame, v):
+    for k in list(ch.get_keys()):
+        if k.get_time().frame_number.value == int(frame):
+            ch.remove_key(k)
+    ch.add_key(FN(int(frame)), float(v))
+
+
+def _modular_get(seq, rig, name, frame):
+    ch = _chan_map(_rig_track_of(seq, rig))
+    g = lambda k: round(_chan_value(seq, ch[name + "." + k], frame), 4) if name + "." + k in ch else None
+    if name + ".Location.X" in ch:
+        return {"type": "EULER_TRANSFORM", "location": [g("Location.X"), g("Location.Y"), g("Location.Z")],
+                "rotation": [g("Rotation.Y"), g("Rotation.Z"), g("Rotation.X")], "scale": [g("Scale.X"), g("Scale.Y"), g("Scale.Z")]}
+    if name in ch:
+        return {"type": "FLOAT", "value": round(_chan_value(seq, ch[name], frame), 5)}
+    raise ValueError("No channels for control '%s'" % name)
+
+
+def _modular_set(seq, rig, c, frame):
+    name = c["control"]
+    if c.get("world"):
+        raise ValueError("%s: world-space writes are not supported on modular-rig controls - give a local value" % name)
+    ch = _chan_map(_rig_track_of(seq, rig))
+    loc, rot, scl, val = c.get("location"), c.get("rotation"), c.get("scale"), c.get("value")
+    if val is not None and name in ch:
+        _chan_key(ch[name], frame, float(val))
+        return "FLOAT"
+    for vals, keys in ((loc, ("Location.X", "Location.Y", "Location.Z")), (rot, ("Rotation.Y", "Rotation.Z", "Rotation.X")),
+                       (scl, ("Scale.X", "Scale.Y", "Scale.Z"))):
+        if vals is None:
+            continue
+        for v, k in zip(vals, keys):
+            if name + "." + k not in ch:
+                raise ValueError("no channel %s.%s" % (name, k))
+            _chan_key(ch[name + "." + k], frame, v)
+    return "EULER_TRANSFORM"
+
+
+def _rig_track_of(seq, rig):
+    for pr in L.get_control_rigs(seq):
+        if pr.control_rig == rig:
+            return pr.track
+    raise ValueError("rig not found in the sequence")
+
+
 def get_control_value(seq, rig, name, frame, world=False):
+    if _is_modular_name(name) and control_type(rig, name) is not None:
+        if world:
+            raise ValueError("%s: world-space reads are not supported on modular-rig controls" % name)
+        return _modular_get(seq, rig, name, frame)
     t = control_type(rig, name)
     f = FN(int(frame))
     if t is None:
@@ -335,6 +413,8 @@ def _set_one(seq, rig, c, frame, key=True):
     f = FN(int(frame))
     if t is None:
         raise ValueError("No control named '%s'" % name)
+    if _is_modular_name(name):
+        return _modular_set(seq, rig, c, frame)
     loc, rot, scl, val = c.get("location"), c.get("rotation"), c.get("scale"), c.get("value")
     if c.get("world"):
         cur = L.get_control_rig_world_transform(seq, rig, name, f, DR)
