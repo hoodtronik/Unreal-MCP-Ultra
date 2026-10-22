@@ -84,6 +84,7 @@ tick and `isError` is set from that readback:
 | `viewport_pilot` | PILOT a sequence camera or level camera in the viewport (look through it), `moveTo` keys a sequence camera / moves a level camera, `eject`; verifies the viewport equals the camera | 0.00 cm / 0.00 deg after pilot, keyed move and level move; eject frees the view |
 | `skel_fbx` | SKELETAL MESH FBX: export a mesh, import a character .fbx onto an existing skeleton (its clips play directly) or a new one; checks vertices / bounds / bones and, with `clip`, poses both meshes at the same time | Manny/Quinn round trips: bounds 0.00, clip pose 0.000 cm; Quinn +1 vertex (seam split, tolerated); vs another mesh fails |
 | `pose_statue` | freeze a character's current pose (level actor or binding at a frame) into a PoseableMesh 'statue' at a location, with additive bone edits; no rig or animation needed | copy 0 cm root-relative, frozen when the source moves; edits 40.0 / 70.0 deg for 40 / 70 |
+| `seq_tracks` | FADE track keys (renderCheck renders the cut and checks brightness), MARKED FRAMES, and per-binding track mute (section inactive) / lock / rename / colour | fade 0->1: luma 148 -> 22 -> black; marks read back; muted cup transform: 262 cm -> 0 movement |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -303,6 +304,7 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 114 | Moving the view while piloting does nothing | Piloting syncs camera -> viewport only; set_level_viewport_camera_info snaps back next tick, and a sequence camera is re-posed from its keys every tick. Move the camera (key it) and let the view follow - viewport_pilot moveTo. |
 | 115 | Imported character has extra/missing bones or plays wrong | Import ONTO the existing Skeleton to share its clips (the mannequin skeleton has 161 bones; a new skeleton from SKM_Manny_Simple gets only its 89). Materials are off by default (grey mesh) - pass materials:true. Vertex counts can differ by a seam split. |
 | 116 | Statue stands metres away / bone edit flips the bone | A copied locomotion pose keeps root motion in the root bone - zero the root translation (pose_statue does). set_bone_rotation_by_name REPLACES the component rotation - compose the delta onto the current one. Poseable poses are runtime state, not saved with the level. |
+| 117 | Fade doesn't show in stills / can't mute a track | Fades apply through the player camera: the camera-cut render shows them, multi-camera stills (render_all_cameras) do not. Tracks have no scriptable mute - set their sections inactive (seq_tracks mute); a muted transform also drops the actor's default location (it sits at the origin). |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 
