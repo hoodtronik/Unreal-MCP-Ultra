@@ -47,6 +47,7 @@ tick and `isError` is set from that readback:
 | `pose_space_switch` | key a Control Rig space switch (control follows another control/null, e.g. body_ctrl, or 'world') at a frame; verifies no pop + the offset held in the new space on sampled frames; reports the effector bone gap | hand_l_ik_ctrl -> body_ctrl: pop 0 cm, body moved 14.4 cm, drift 0 cm |
 | `pose_constrain` | Sequencer animation constraint (parent/translation/rotation) of a control to a prop, binding, another rig's control or a bone; verifies follow; `bake` turns it into keys; `remove` | hand_r_ik_ctrl -> sliding Tray: moved 16.8 cm, drift 0; bake keyed 0-48, worst 0 cm |
 | `prop_key` | free (unattached) prop keyed in WORLD space - a moving parent for constraints, set dressing | Tray keys 0/48 read back 0 cm |
+| `pose_tween` | breakdown / in-between pose with the Control Rig Tween tool (-1 prev .. 1 next) for every control keyed on both sides (or a list); verifies each control vs prev + (next-prev)*(v+1)/2 and its key | SEQ_ShelfReach f8 -0.4 / f16 0.5: worst 0.0006, hand at 30% / 75% exactly |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -214,6 +215,9 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 62 | Reach / palm on a constrained control misses (palm 35 deg off) | The constraint overrides later edits. Pose first, then `pose_constrain`; to re-pose: `remove`, edit, constrain again. |
 | 63 | Constraint added twice / 'remove' removed nothing | `get_constraints_for_handle` with a new handle returns [] (identity compare). `pose_constrain` matches the constraints' child handles by rig + control name instead. |
 | 64 | Constrained control follows but the hand bone doesn't | Out of reach (arm at full stretch: bone 3-4 cm short) or limb in FK. The tools report the bone gap separately - move the parent's path closer or crouch the body. |
+| 65 | In-between frames hold the previous pose | Clip-held poses (`pose_setup_character clip`) and pose keys step (constant). That is blocking: add breakdowns with `pose_tween`, or `pose_set_interpolation smooth` for a spline. |
+| 66 | Tween of a big wrist turn flings the wrist mid-way | The Tween tool blends each Euler channel; a ~100 deg palm turn passes odd orientations. Key the palm at the breakdown too (`pose_palm` at that frame) or turn the wrist less. |
+| 67 | Camera from +Y at the origin shows the Loco_* row of build 7/8 | Those actors stand at x 0, y -160..-820. Aim from -Y/front (azimuth 0..30) or check every capture by eye; nothing in the numbers flags a stranger in frame. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

@@ -154,3 +154,18 @@ Eyes vs numbers: the first camera sat behind the counter and cut the head; the s
 the foreground. The first constraint was added before the palm was set and the palm call silently could not turn
 the hand (reported 35 deg) - pose first, constrain last. The first tray path ran past arm's reach: the control
 followed perfectly while the hand bone stopped 3-4 cm short, which is why the bone gap is its own line.
+
+## 10. Blocking + breakdowns: reach to a shelf (2026-10-21, `/Game/_MCPLab/Seq/SEQ_ShelfReach`, Tween tool)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Manny facing 0, MM_Idle f10, end 24 | facing 0.0 |
+| 2 | `prop_key` Shelf [34,80,4] at [55,20,138], Post, Box [14] at [48,26,147] | 0 cm |
+| 3 | `pose_reach` hand_r f0 [8,26,92]; f24 [37,26,148]; `pose_palm` r -> box, fingers up; `pose_look_at` box f24 | miss 0; palm 0.03 deg; gaze 0.03 deg |
+| 4 | `pose_tween` f8 value -0.4; f16 value 0.5 | worst 0.0006; hand_r [16.7,26,108.8] (30%) / [31.9,26,138.2] (75% of 8->24) |
+| 5 | `shot_camera` 35 mm aim spine_03, 470 cm, azimuth 28, rise 20; captures 0/8/16/24 | clean frame |
+
+Eyes vs numbers: the first layout put the shelf at head height (looked like it sat on his head) with the box out of
+frame and the hand apparently touching his forehead; a camera from +Y had Loco_Wave (build 8) standing behind the
+shelf. The tween numbers were exact every time - only the captures showed the scene was wrong. The first tween call
+reported failure because Unreal keys only controls whose neighbours differ; the check now counts changing controls.
