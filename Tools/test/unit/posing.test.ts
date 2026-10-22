@@ -47,5 +47,8 @@ describe("retarget verdict (thresholds calibrated live 2026-10-21)", () => {
     expect(retargetVerdict({ ok: true, mean_motion_err_deg: 3.39, pelvis_height_max_diff: 1.185 }).ok).toBe(false);
     expect(retargetVerdict({ ok: true, mean_motion_err_deg: 11.77, pelvis_height_max_diff: 0.0 }).ok).toBe(false);
     expect(retargetVerdict({ ok: false, error: "x" }).reasons).toEqual(["x"]);
+    // Aligned retarget pose: motion error (vs each skeleton's own ref pose) rises while absolute angles match.
+    expect(retargetVerdict({ ok: true, mean_motion_err_deg: 7.5, mean_abs_angle_deg: 0.82, pelvis_height_max_diff: 0 }).ok).toBe(true);
+    expect(retargetVerdict({ ok: true, mean_motion_err_deg: 11.77, mean_abs_angle_deg: 20, pelvis_height_max_diff: 0 }).ok).toBe(false);
   });
 });

@@ -154,6 +154,45 @@ def ik_status(retargeter):
     return {"ok": True, "ik_active": active, "goals": goals, "ik_chains": ik_chains, "solvers": k.get_num_solvers(), "ops": ops}
 
 
+# CLAUDE-NOTE (2026-10-21, live 5.6.1): the girl's reference pose holds the arms 14 deg off Manny's, and the retarget
+# carried that through every frame (abs arm angle 14 deg, feet 3.6 cm). A new target retarget pose + auto_align_all_bones
+# (CHAIN_TO_CHAIN) brought abs angles to ~1 deg and feet to 2.1 cm. retarget_align_pose keeps it only if a check clip
+# measures better.
+def retarget_pose_state(retargeter, side="target"):
+    c = RTC.get_controller(_load(retargeter, unreal.IKRetargeter))
+    sd = S.TARGET if side == "target" else S.SOURCE
+    return {"ok": True, "current": str(c.get_current_retarget_pose_name(sd)), "poses": [str(x) for x in c.get_retarget_poses(sd)]}
+
+
+def align_retarget_pose(retargeter, side="target", name="MCP Aligned", method="chain_to_chain"):
+    c = RTC.get_controller(_load(retargeter, unreal.IKRetargeter))
+    sd = S.TARGET if side == "target" else S.SOURCE
+    prev = str(c.get_current_retarget_pose_name(sd))
+    names = [str(x) for x in c.get_retarget_poses(sd)]
+    if name in names:
+        c.set_current_retarget_pose(name, sd)
+        c.reset_retarget_pose(name, [], sd)
+    else:
+        name = str(c.create_retarget_pose(name, sd))
+    m = {"chain_to_chain": unreal.RetargetAutoAlignMethod.CHAIN_TO_CHAIN,
+         "mesh_to_mesh": unreal.RetargetAutoAlignMethod.MESH_TO_MESH}[method]
+    c.auto_align_all_bones(sd, m)
+    EAL.save_asset(retargeter)
+    return {"ok": True, "previous": prev, "current": str(c.get_current_retarget_pose_name(sd))}
+
+
+def set_retarget_pose(retargeter, side, name):
+    c = RTC.get_controller(_load(retargeter, unreal.IKRetargeter))
+    sd = S.TARGET if side == "target" else S.SOURCE
+    c.set_current_retarget_pose(name, sd)
+    EAL.save_asset(retargeter)
+    return {"ok": str(c.get_current_retarget_pose_name(sd)) == name, "current": str(c.get_current_retarget_pose_name(sd))}
+
+
+def delete_assets(paths):
+    return {"ok": True, "deleted": [p for p in paths if EAL.does_asset_exist(p) and EAL.delete_asset(p)]}
+
+
 def create_retargeter(path, source_rig, target_rig, source_mesh=None, target_mesh=None):
     rtg, created = _create(path, unreal.IKRetargeter, unreal.IKRetargetFactory())
     c = RTC.get_controller(rtg)
@@ -309,6 +348,7 @@ def compare(source_anim, target_anim, source_mesh, target_mesh, samples=5):
     m, a_ = avg(motion), avg(absang)
     return {"ok": True, "samples": int(samples), "ref_offset_deg": ref_off, "motion_err_deg": m,
             "mean_motion_err_deg": round(sum(m.values()) / len(m), 2), "abs_angle_deg": a_,
+            "mean_abs_angle_deg": round(sum(a_.values()) / len(a_), 2),
             "pelvis_height_rel": [[round(x, 3), round(y, 3)] for x, y in heights],
             "pelvis_height_max_diff": round(max(abs(x - y) for x, y in heights), 3)}
 

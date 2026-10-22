@@ -48,6 +48,7 @@ tick and `isError` is set from that readback:
 | `pose_constrain` | Sequencer animation constraint (parent/translation/rotation) of a control to a prop, binding, another rig's control or a bone; verifies follow; `bake` turns it into keys; `remove` | hand_r_ik_ctrl -> sliding Tray: moved 16.8 cm, drift 0; bake keyed 0-48, worst 0 cm |
 | `prop_key` | free (unattached) prop keyed in WORLD space - a moving parent for constraints, set dressing | Tray keys 0/48 read back 0 cm |
 | `pose_tween` | breakdown / in-between pose with the Control Rig Tween tool (-1 prev .. 1 next) for every control keyed on both sides (or a list); verifies each control vs prev + (next-prev)*(v+1)/2 and its key | SEQ_ShelfReach f8 -0.4 / f16 0.5: worst 0.0006, hand at 30% / 75% exactly |
+| `retarget_align_pose` | auto-aligned retarget pose (A vs T pose etc.) on an IK Retargeter, A/B-checked on a clip (absolute limb angle + feet); kept only if better, else restored | Manny->Fab girl walk: 7.8 -> 0.82 deg, feet 3.6 -> 2 cm (kept); mesh_to_mesh 14.2 deg / 13 cm (restored) |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -220,6 +221,7 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 67 | Camera from +Y at the origin shows the Loco_* row of build 7/8 | Those actors stand at x 0, y -160..-820. Aim from -Y/front (azimuth 0..30) or check every capture by eye; nothing in the numbers flags a stranger in frame. |
 | 68 | Retargeted custom-skeleton character's feet don't match the source | Name-mapped IK Rigs (Fab/custom skeletons) get chains but no goals or solver, so the IK ops do nothing: legs are FK only. `retarget_animations` now prints 'Leg IK OFF' and the feet error (Manny -> Fab girl: 3.6 cm). Copying Manny's goals + FBIK onto the girl made it worse (spine 18-26 deg, legs 11-27 deg) - don't. Epic skeletons (Manny -> Quinn) get IK: feet 1.55 -> 1.01 cm. |
 | 69 | Viewport capture shows only sky after a Sequencer build | The viewport is still locked to the sequence's camera cut. Close the sequence (`LevelSequenceEditorBlueprintLibrary.close_level_sequence()`) before `set_viewport_camera`. |
+| 70 | Retargeted arms held ~14 deg off the source all clip long | Different rest poses (A vs T). Run `retarget_align_pose` (chain_to_chain); mesh_to_mesh was far worse here. After aligning, judge by ABSOLUTE limb angle - 'motion error' is measured from each skeleton's own rest pose and rises (the verdict takes the better of the two). |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

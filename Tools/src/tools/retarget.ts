@@ -26,8 +26,12 @@ async function run(call: string, params: Record<string, unknown>): Promise<PoseR
 export function retargetVerdict(c: PoseResult): { ok: boolean; reasons: string[] } {
   if (!c.ok) return { ok: false, reasons: [c.error ?? "compare failed"] };
   const reasons: string[] = [];
-  if (c.mean_motion_err_deg > MAX_MOTION_ERR_DEG)
-    reasons.push(`limbs move differently from the source (mean ${c.mean_motion_err_deg} deg > ${MAX_MOTION_ERR_DEG})`);
+  // CLAUDE-NOTE (2026-10-21, live): motion error is measured from each skeleton's OWN reference pose, so an aligned
+  // retarget pose (which deliberately overrides the target's A/T pose) raised it 1.6 -> 4.5 deg while the limbs
+  // actually matched far better (abs angle 14 -> 1 deg). Either measure close enough is a pass.
+  const err = Math.min(c.mean_motion_err_deg, c.mean_abs_angle_deg ?? Infinity);
+  if (err > MAX_MOTION_ERR_DEG)
+    reasons.push(`limbs move differently from the source (motion ${c.mean_motion_err_deg} / absolute ${c.mean_abs_angle_deg} deg, both > ${MAX_MOTION_ERR_DEG})`);
   if (c.pelvis_height_max_diff > MAX_HEIGHT_DIFF)
     reasons.push(`pelvis height off by ${(c.pelvis_height_max_diff * 100).toFixed(0)}% of leg height (sunk/floating - scaled root or wrong retarget root?)`);
   return { ok: reasons.length === 0, reasons };
@@ -124,7 +128,7 @@ export function registerRetargetTools(server: McpServer): void {
         if (!v.ok) bad++;
         // CLAUDE-NOTE: feet relative to the pelvis vs the height-scaled source - what leg IK goals fix (informational).
         const f = await run("foot_fidelity(P['s'], P['t'], P['sm'], P['tm'])", { s: a.anims[i], t: out, sm: a.sourceMesh, tm: a.targetMesh });
-        lines.push(`${v.ok ? "ok" : "BAD"}  ${out}  motion err ${c.mean_motion_err_deg ?? "?"} deg, pelvis height diff ${c.pelvis_height_max_diff ?? "?"}` +
+        lines.push(`${v.ok ? "ok" : "BAD"}  ${out}  motion err ${c.mean_motion_err_deg ?? "?"} deg (absolute ${c.mean_abs_angle_deg ?? "?"}), pelvis height diff ${c.pelvis_height_max_diff ?? "?"}` +
           (f.ok ? `, feet ${f.foot_err_mean} cm mean / ${f.foot_err_max} max from the scaled source` : "") +
           (v.reasons.length ? `  - ${v.reasons.join("; ")}` : ""));
       }
@@ -134,6 +138,58 @@ export function registerRetargetTools(server: McpServer): void {
         ? `Leg/arm IK active: goals ${ik.goals.join(", ")} on chains ${ik.ik_chains.join(", ")}.`
         : `Leg IK OFF: the target IK Rig has ${ik.goals.length} goal(s) and ${ik.solvers} solver(s) - limbs are FK only (custom skeletons get no goals; see the feet error).`);
       return text(lines.join("\n"), bad > 0);
+    },
+  );
+
+  server.tool(
+    "retarget_align_pose",
+    "Fix A-pose vs T-pose (and other rest-pose) differences: make an auto-aligned RETARGET POSE on the target (or " +
+      "source) of an IK Retargeter, then A/B it on a check clip - retarget before and after, compare absolute limb " +
+      "angles and feet vs the source - and keep it only if it measures better (else the previous pose is restored).",
+    {
+      retargeter: z.string(),
+      checkAnim: z.string().describe("Source clip used for the A/B check (e.g. a walk)."),
+      sourceMesh: z.string(),
+      targetMesh: z.string(),
+      side: z.enum(["target", "source"]).optional().describe("Which side's pose to align (default target)."),
+      name: z.string().optional().describe("Retarget pose name (default 'MCP Aligned'; reset and re-aligned if it exists)."),
+      method: z.enum(["chain_to_chain", "mesh_to_mesh"]).optional(),
+    },
+    async (a) => {
+      const err = await ensureUE();
+      if (err) return text(err, true);
+      const side = a.side ?? "target";
+      const folder = a.retargeter.replace(/\/[^/]+$/, "") + "/_AlignCheck";
+      const measure = async (suffix: string) => {
+        const r = await run("retarget(P['anims'], P['sm'], P['tm'], P['rtg'], P['out'], P['suffix'])",
+          { anims: [a.checkAnim], sm: a.sourceMesh, tm: a.targetMesh, rtg: a.retargeter, out: folder, suffix });
+        if (!r.ok) return { ok: false as const, error: r.error, out: undefined as string | undefined };
+        const out = r.outputs[0] as string;
+        const c = await run("compare(P['s'], P['t'], P['sm'], P['tm'], 5)", { s: a.checkAnim, t: out, sm: a.sourceMesh, tm: a.targetMesh });
+        const f = await run("foot_fidelity(P['s'], P['t'], P['sm'], P['tm'])", { s: a.checkAnim, t: out, sm: a.sourceMesh, tm: a.targetMesh });
+        return { ok: c.ok && f.ok, error: c.error ?? f.error, out, abs: c.mean_abs_angle_deg as number, absBy: c.abs_angle_deg, feet: f.foot_err_mean as number };
+      };
+      const before = await measure("_Before");
+      if (!before.ok) return text(`Error measuring the current pose: ${before.error}`, true);
+      const al = await run("align_retarget_pose(P['rtg'], P['side'], P['name'], P['m'])",
+        { rtg: a.retargeter, side, name: a.name ?? "MCP Aligned", m: a.method ?? "chain_to_chain" });
+      if (!al.ok) return text(`Error: ${al.error}`, true);
+      const after = await measure("_After");
+      await run("delete_assets(P['p'])", { p: [before.out, after.out].filter(Boolean) });
+      if (!after.ok) return text(`Error measuring the aligned pose: ${after.error}`, true);
+      const better = after.abs < before.abs && after.feet <= before.feet + 0.5;
+      const lines = [
+        `Before ('${al.previous}'): absolute limb angle ${before.abs} deg, feet ${before.feet} cm.`,
+        `After  ('${al.current}', ${a.method ?? "chain_to_chain"}): absolute limb angle ${after.abs} deg, feet ${after.feet} cm.`,
+        `Per limb after: ${JSON.stringify(after.absBy)}.`,
+      ];
+      if (better) {
+        lines.push(`Kept '${al.current}' as the current ${side} retarget pose.`);
+        return text(lines.join("\n"));
+      }
+      const back = await run("set_retarget_pose(P['rtg'], P['side'], P['name'])", { rtg: a.retargeter, side, name: al.previous });
+      lines.push(`NOT better - restored '${al.previous}'${back.ok ? "" : ` (restore FAILED: current ${back.current})`}.`);
+      return text(lines.join("\n"), !back.ok);
     },
   );
 
