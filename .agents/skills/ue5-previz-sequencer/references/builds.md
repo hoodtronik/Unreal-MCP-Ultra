@@ -250,3 +250,16 @@ smile (jaw 4 deg) bared the teeth like a snarl - jaw 1.5, corners wider.
 Eyes vs numbers: the first playback check failed at 0.6 s with the hand 42 cm off - the montage was still blending in
 (slot weight 0.36); the tool now waits for full weight. Negative control: ABP_Locomotion (no Slot) -> 80 cm, weight 0.
 The montage editor (sections, segments) has no Python access - added /api/montage-read|edit to the plugin.
+
+## 16. Master edit of three scenes (2026-10-22, `/Game/_MCPLab/Seq/SEQ_Master`, shots track + audio)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `seq_master build` sh010 SEQ_Toast, sh020 SEQ_WalkWave (offset 6, length 40), sh030 SEQ_GirlFK | 3 sections [0-48) [48-88) [88-136), trim 6000 ticks |
+| 2 | `seq_audio` Music VR_WorldMoveLoop_01 f0 vol 0.6; SFX 1kSineTonePing f24 | 119 / 7 frames from the sound durations |
+| 3 | `seq_master check` f10/40/50/100/130 | viewport == Cam/CU/Cam/Cam/CU of each shot, 0.00 cm |
+| 4 | `shot_render` SEQ_Master | 136/136 frames + MP4 |
+
+Eyes vs numbers: the camera check passed, but the first render had the three montage-check mannequins (round 19,
+placed in the level) standing behind the toast and the walk - level actors appear in every sequence. Deleted and
+re-rendered. The trim was checked with the walker's position (master 60 = local 18, y -75 cm).
