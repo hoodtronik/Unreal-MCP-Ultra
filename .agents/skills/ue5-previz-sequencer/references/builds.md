@@ -331,3 +331,19 @@ measured 38.6 cm (section shorter than the clip) - offsets now taken at the sect
 
 Eyes vs numbers: all checks passed and the frames read right (cup on the table, in hand from f27, head centred). The
 clean plate also removed the table - a sequence-owned prop is "spawned"; scenery that must stay belongs in the level.
+
+## 22. Reach (2026-10-22, `/Game/_MCPLab/Seq/SEQ_Build22`, authored FBIK rig + statues + fades)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Hero rig `/Game/_MCPLab/CR/CR_MannyFBIK2` (made by `cr_build`), facing 0 | 6 controls, rest pose |
+| 2 | `prop_key` Table [40,40,95] top 95 cm; Cup on it at [35,12035,100] | 0 cm |
+| 3 | `pose_set_controls` pelvis_ctrl world z 81 at f24 / 95.9 at f48; `pose_reach` hand_r to the cup f24, to [30,12030,135] f48 | 0.038 / 0.021 cm, budget 49 / 46 of 55 cm |
+| 4 | `seq_constrain` Cup -> hand_r on at f24 | drift 0.000 cm |
+| 5 | `shot_camera` Cam exposure 3 + `seq_constrain` look_at spine_05; `seq_tracks` fade 0-8 in / 62-71 out + marks | 0.00 deg; keys read back |
+| 6 | `pose_statue` x2 from build 21's walker (f10, f30) behind the hero | 0 cm |
+| 7 | `shot_render_passes` lit 72 frames + MP4 | statues keep their poses in the PIE render |
+
+Eyes vs numbers: everything passed and read right; the shot showed statue A standing right behind the hero (overlap) -
+place background figures with a sightline check. The first constraint check flagged a pop right after the reach keys
+(stale pose) and passed on re-run.

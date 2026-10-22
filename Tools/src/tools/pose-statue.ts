@@ -40,14 +40,22 @@ export function registerPoseStatueTools(server: McpServer): void {
       if (err) return text(err, true);
       // CLAUDE-NOTE (2026-10-22): the statue Blueprint is created on first use (create-blueprint + add-component
       // endpoints) so the tool works in any project, not only where it was first built.
-      const bp = a.statueBlueprint ?? "/Game/MCP/BP_MCPPoseable";
+      let bp = a.statueBlueprint ?? "/Game/MCP/BP_MCPPoseable";
       const ex = await run("{'ok': True, 'e': unreal.EditorAssetLibrary.does_asset_exist(P['b'])}", { b: bp });
       if (ex.ok && !ex.e) {
         const folder = bp.replace(/\/[^/]+$/, ""), name = bp.split("/").pop();
         const c1 = await uePost("/api/create-blueprint", { blueprintName: name, packagePath: folder, parentClass: "Actor", blueprintType: "Normal" });
-        if (c1.error) return text(`Could not create ${bp}: ${c1.error}`, true);
-        const c2 = await uePost("/api/add-component", { blueprint: bp, componentClass: "PoseableMeshComponent", name: "Pose" });
-        if (c2.error) return text(`Could not add the PoseableMeshComponent: ${c2.error}`, true);
+        if (c1.error && /already exists/i.test(c1.error)) {
+          // CLAUDE-NOTE (live): create-blueprint refuses a NAME used anywhere in the project - reuse that asset if it is a statue
+          const f = await run("{'ok': True, 'p': [str(a.package_name) for a in unreal.AssetRegistryHelpers.get_asset_registry().get_assets_by_class(unreal.TopLevelAssetPath('/Script/Engine', 'Blueprint')) if str(a.asset_name) == P['n']]}", { n: name });
+          const found = (f.p as string[] | undefined)?.[0];
+          if (!found) return text(`Could not create ${bp}: ${c1.error}`, true);
+          bp = found;
+        } else {
+          if (c1.error) return text(`Could not create ${bp}: ${c1.error}`, true);
+          const c2 = await uePost("/api/add-component", { blueprint: bp, componentClass: "PoseableMeshComponent", name: "Pose" });
+          if (c2.error) return text(`Could not add the PoseableMeshComponent: ${c2.error}`, true);
+        }
       }
       if (a.sequence && a.frame !== undefined) {
         await run("scrub(P['s'], P['f'])", { s: a.sequence, f: a.frame });
