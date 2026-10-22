@@ -218,6 +218,8 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 65 | In-between frames hold the previous pose | Clip-held poses (`pose_setup_character clip`) and pose keys step (constant). That is blocking: add breakdowns with `pose_tween`, or `pose_set_interpolation smooth` for a spline. |
 | 66 | Tween of a big wrist turn flings the wrist mid-way | The Tween tool blends each Euler channel; a ~100 deg palm turn passes odd orientations. Key the palm at the breakdown too (`pose_palm` at that frame) or turn the wrist less. |
 | 67 | Camera from +Y at the origin shows the Loco_* row of build 7/8 | Those actors stand at x 0, y -160..-820. Aim from -Y/front (azimuth 0..30) or check every capture by eye; nothing in the numbers flags a stranger in frame. |
+| 68 | Retargeted custom-skeleton character's feet don't match the source | Name-mapped IK Rigs (Fab/custom skeletons) get chains but no goals or solver, so the IK ops do nothing: legs are FK only. `retarget_animations` now prints 'Leg IK OFF' and the feet error (Manny -> Fab girl: 3.6 cm). Copying Manny's goals + FBIK onto the girl made it worse (spine 18-26 deg, legs 11-27 deg) - don't. Epic skeletons (Manny -> Quinn) get IK: feet 1.55 -> 1.01 cm. |
+| 69 | Viewport capture shows only sky after a Sequencer build | The viewport is still locked to the sequence's camera cut. Close the sequence (`LevelSequenceEditorBlueprintLibrary.close_level_sequence()`) before `set_viewport_camera`. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

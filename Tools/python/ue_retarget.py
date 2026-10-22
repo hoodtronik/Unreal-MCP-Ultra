@@ -138,6 +138,22 @@ def _map_by_name(c, mesh, tc, prefix):
             _LAST_UNMAPPED.append(str(ch.chain_name))
 
 
+# CLAUDE-NOTE (2026-10-21, live 5.6.1): IK Rigs auto-generated for Epic skeletons get foot/hand goals + an FBIK
+# solver; name-mapped custom skeletons get chains only, so the retargeter's "Retarget IK Goals" / "Run IK Rig" ops
+# do nothing and legs retarget FK-only. Copying the template's goals + FBIK onto the Fab girl (root scale 0.0093)
+# made it WORSE in every variant tried (spine bent 18-26 deg, legs swung 11-27 deg), so the tools report the IK
+# state instead of silently adding goals.
+def ik_status(retargeter):
+    c = RTC.get_controller(_load(retargeter, unreal.IKRetargeter))
+    k = RC.get_controller(c.get_ik_rig(S.TARGET))
+    ops = {str(c.get_op_name(i)): bool(c.get_retarget_op_enabled(i)) for i in range(c.get_num_retarget_ops())}
+    goals = [str(g.goal_name) for g in k.get_all_goals()]
+    ik_chains = [x["chain"] for x in chains_of(k) if x["goal"] not in ("None", "")]
+    on = lambda name: any(v for n, v in ops.items() if n.replace(" ", "").lower() == name)
+    active = bool(goals) and bool(ik_chains) and k.get_num_solvers() > 0 and on("retargetikgoals") and on("runikrig")
+    return {"ok": True, "ik_active": active, "goals": goals, "ik_chains": ik_chains, "solvers": k.get_num_solvers(), "ops": ops}
+
+
 def create_retargeter(path, source_rig, target_rig, source_mesh=None, target_mesh=None):
     rtg, created = _create(path, unreal.IKRetargeter, unreal.IKRetargetFactory())
     c = RTC.get_controller(rtg)
@@ -295,6 +311,47 @@ def compare(source_anim, target_anim, source_mesh, target_mesh, samples=5):
             "mean_motion_err_deg": round(sum(m.values()) / len(m), 2), "abs_angle_deg": a_,
             "pelvis_height_rel": [[round(x, 3), round(y, 3)] for x, y in heights],
             "pelvis_height_max_diff": round(max(abs(x - y) for x, y in heights), 3)}
+
+
+def foot_fidelity(source_anim, target_anim, source_mesh, target_mesh, fps=30):
+    """Where the target's FEET land vs the source's feet scaled by the height ratio (what IK goals are for).
+    Rendered space (AnimPose z * root scale, see compare). err = |(foot - pelvis) target - h * (foot - pelvis) source|;
+    floor = lowest foot z of each clip (target vs h * source).
+    CLAUDE-NOTE (2026-10-21): added for the IK-goals A/B (FK-only retarget vs IK Goals + FBIK)."""
+    sa, ta = _load(source_anim, unreal.AnimSequence), _load(target_anim, unreal.AnimSequence)
+    sm, tm = _load(source_mesh, unreal.SkeletalMesh), _load(target_mesh, unreal.SkeletalMesh)
+    sr, tr = _role_map(bone_names(sm)), _role_map(bone_names(tm))
+    # CLAUDE-NOTE (calibration): the IK goals sit on the BALL bones; measuring the foot (ankle) bone mixed in the two
+    # skeletons' different foot lengths, so use the balls when both rigs have them.
+    for side in ("l", "r"):
+        for rm, names in ((sr, bone_names(sm)), (tr, bone_names(tm))):
+            st = {stem(b): b for b in names}
+            if "ball_" + side in st:
+                rm["ball_" + side] = st["ball_" + side]
+    feet = ["ball_l", "ball_r"] if all(k in sr and k in tr for k in ("ball_l", "ball_r")) else ["foot_l", "foot_r"]
+    if any(r not in sr or r not in tr for r in feet + ["pelvis"]):
+        return {"ok": False, "error": "foot/pelvis roles not found"}
+    s_rs, t_rs = root_scale(sm), root_scale(tm)
+    ref_z = lambda mesh, bone: mesh.get_editor_property("skeleton").get_reference_pose().get_ref_bone_pose(
+        bone, unreal.AnimPoseSpaces.WORLD).translation.z
+    h = ref_z(tm, tr["pelvis"]) / ref_z(sm, sr["pelvis"])
+    length = min(sa.get_play_length(), ta.get_play_length())
+    n = max(2, int(length * fps))
+    errs, smin, tmin = [], 1e9, 1e9
+    for i in range(n + 1):
+        t = min(length, i / float(fps))
+        sp = _pts(_pose(sa, t), {f: sr[f] for f in feet + ["pelvis"]})
+        tp = _pts(_pose(ta, t), {f: tr[f] for f in feet + ["pelvis"]})
+        for f in feet:
+            a, b = sp[f] * (s_rs * h), tp[f] * t_rs
+            # CLAUDE-NOTE (calibration, live): measured relative to the PELVIS - in world space the retargeted root
+            # carried a ~7 cm offset (Root Motion op) that swamped the foot placement being measured.
+            errs.append(((a - sp["pelvis"] * (s_rs * h)) - (b - tp["pelvis"] * t_rs)).length())
+            smin, tmin = min(smin, a.z), min(tmin, b.z)
+    errs.sort()
+    return {"ok": True, "bones": feet, "frames": n + 1, "height_ratio": round(h, 4), "foot_err_mean": round(sum(errs) / len(errs), 2),
+            "foot_err_p90": round(errs[int(0.9 * (len(errs) - 1))], 2), "foot_err_max": round(errs[-1], 2),
+            "floor_source_scaled": round(smin, 2), "floor_target": round(tmin, 2)}
 
 
 # ------------------------------------------------------------------ pose assets

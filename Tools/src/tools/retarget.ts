@@ -122,10 +122,17 @@ export function registerRetargetTools(server: McpServer): void {
           { s: a.anims[i], t: out, sm: a.sourceMesh, tm: a.targetMesh, n: a.samples ?? 5 });
         const v = retargetVerdict(c);
         if (!v.ok) bad++;
+        // CLAUDE-NOTE: feet relative to the pelvis vs the height-scaled source - what leg IK goals fix (informational).
+        const f = await run("foot_fidelity(P['s'], P['t'], P['sm'], P['tm'])", { s: a.anims[i], t: out, sm: a.sourceMesh, tm: a.targetMesh });
         lines.push(`${v.ok ? "ok" : "BAD"}  ${out}  motion err ${c.mean_motion_err_deg ?? "?"} deg, pelvis height diff ${c.pelvis_height_max_diff ?? "?"}` +
+          (f.ok ? `, feet ${f.foot_err_mean} cm mean / ${f.foot_err_max} max from the scaled source` : "") +
           (v.reasons.length ? `  - ${v.reasons.join("; ")}` : ""));
       }
       lines.unshift(`Retargeted ${r.outputs.length}/${a.anims.length} clip(s); ${a.anims.length - bad} verified.`);
+      const ik = await run("ik_status(P['rtg'])", { rtg: a.retargeter });
+      if (ik.ok) lines.splice(1, 0, ik.ik_active
+        ? `Leg/arm IK active: goals ${ik.goals.join(", ")} on chains ${ik.ik_chains.join(", ")}.`
+        : `Leg IK OFF: the target IK Rig has ${ik.goals.length} goal(s) and ${ik.solvers} solver(s) - limbs are FK only (custom skeletons get no goals; see the feet error).`);
       return text(lines.join("\n"), bad > 0);
     },
   );
