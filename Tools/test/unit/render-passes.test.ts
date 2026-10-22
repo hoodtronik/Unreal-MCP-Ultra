@@ -72,3 +72,11 @@ describe("shot_look metrics", () => {
     expect(outsideSharpness(2, 4, [0, 0, 0.5, 1])).toBe(0);
   });
 });
+
+import { halves } from "../../src/tools/shot-light.js";
+
+describe("shot_light halves", () => {
+  it("splits a region into screen-left / screen-right", () => {
+    expect(halves([0.2, 0.1, 0.6, 0.9])).toEqual([[0.2, 0.1, 0.4, 0.9], [0.4, 0.1, 0.6, 0.9]]);
+  });
+});

@@ -11,7 +11,8 @@ import { runPose, type PoseResult } from "./posing.js";
 // MRQ (warm-up, no motion blur) and measuring the pixels: sharpness (Laplacian) on the subject vs the rest of the
 // frame, chroma, R/B balance, luma std, corner/centre falloff. Calibration and thresholds: see LOOK_CHECKS below.
 
-const LIBS = ["ue_posing.py", "ue_shot.py", "ue_stills.py", "ue_look.py"];
+export const LOOK_LIBS = ["ue_posing.py", "ue_shot.py", "ue_stills.py", "ue_look.py"];
+const LIBS = LOOK_LIBS;
 
 function text(t: string, isError = false) {
   return { content: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) };
@@ -45,7 +46,7 @@ function measure(img: Image, subj: Region | null): Measure {
   };
 }
 
-async function still(seq: string, frame: number, w: number, h: number, tag: string, timeoutSec: number): Promise<Image | string> {
+export async function still(seq: string, frame: number, w: number, h: number, tag: string, timeoutSec: number): Promise<Image | string> {
   const st = await run("look_render(P['s'], P['f'], P['w'], P['h'], P['t'])", { s: seq, f: frame, w, h, t: tag });
   if (!st.ok) return `render ${tag}: ${st.error}`;
   const deadline = Date.now() + timeoutSec * 1000;
