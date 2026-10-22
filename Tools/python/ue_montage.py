@@ -131,3 +131,22 @@ def subset_match(label, clip, bones, fps=60.0, pie=False):
         if w < best:
             best, bt = w, t
     return {"ok": True, "cm": round(best, 3), "at": round(bt, 3)}
+
+
+def dyn_play(label, clip, t, slot="DefaultSlot", blend=0.0, pie=False):
+    """Play a plain clip on a Slot as a DYNAMIC montage (no montage asset), paused at t s; pose shows next tick."""
+    ai = _ai(label, pie)
+    a = resolve_anim(clip, ("AnimSequence",))
+    m = ai.play_slot_animation_as_dynamic_montage(a, slot, float(blend), float(blend), 1.0, 1, -1.0, 0.0)
+    if m is None:
+        raise RuntimeError("play_slot_animation_as_dynamic_montage returned None (no '%s' Slot node?)" % slot)
+    ai.montage_pause(m)
+    ai.montage_set_position(m, float(t))
+    return {"ok": True, "montage": m.get_name(), "length": round(m.get_play_length(), 3)}
+
+
+def dyn_stop(label, pie=False):
+    # CLAUDE-NOTE (2026-10-22, live): stop_slot_animation left a PAUSED dynamic montage on screen (pose still 0.001 cm
+    # from the clip); montage_stop(0, None) ends it on the next tick (pose back to the base, 80 cm from the wave).
+    _ai(label, pie).montage_stop(0.0, None)
+    return {"ok": True}
