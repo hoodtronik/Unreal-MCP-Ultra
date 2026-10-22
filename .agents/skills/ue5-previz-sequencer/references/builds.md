@@ -276,3 +276,16 @@ re-rendered. The trim was checked with the walker's position (master 60 = local 
 
 Eyes vs numbers: the first pass verified (bone centred, focus exact) but the render cut his head off - centring the
 chest at 50 mm/4 m - and the truck camera bobbed with his walk. Added `screen` and the height lock; 24/28 mm lenses.
+
+## 18. A light comes up (2026-10-22, `/Game/_MCPLab/Seq/SEQ_Lights`, light + property tracks + manual exposure)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Manny [900,-500,0] facing 180, MM_Idle f10 | facing measured |
+| 2 | `seq_light` Key point light; `seq_property` Key.LightComponent0 Intensity 300 -> 3000 (f0/24/47, linear), LightColor (0.4,0.6,1) -> (1,0.75,0.5) | live values at keys and midpoints exact (4250 / sRGB 218,214,225 at f12 in the first pass) |
+| 3 | `shot_camera` Cam 35 mm spine_05 420 cm az 25, `exposure` -2 | AEM_MANUAL, -2 EV |
+| 4 | `shot_capture` f0/12/24 | figure mean 127 -> 167, 2.9% clipped |
+
+Eyes vs numbers: the first keys (500 -> 8000, light 1.3 m away) all verified but the figure was pure white in every
+frame with the head cut off: auto exposure against the black void. Light moved back, max 3000, manual exposure added
+to shot_camera and calibrated by measuring clipped pixels (+11 EV 99%, +4 52%, 0 34%, -2 2.9%).

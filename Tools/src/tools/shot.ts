@@ -59,6 +59,7 @@ export function registerShotTools(server: McpServer): void {
         frame: z.number().int().optional().describe("Frame whose bone position to aim at (default the cut's first frame)."),
       }).strict().optional(),
       depthOfField: z.boolean().optional().describe("Keep the camera's focus/DoF (default false = sharp)."),
+      exposure: z.number().optional().describe("Manual exposure: EV bias with auto exposure OFF (e.g. 0..12; higher = brighter). Use when a lit subject blows out against a dark set."),
     },
     async (a) => {
       const err = await ensureUE();
@@ -69,6 +70,13 @@ export function registerShotTools(server: McpServer): void {
       });
       if (!c.ok) return text(`Error: ${c.error}`, true);
       const lines = [`${c.created ? "Created" : "Updated"} '${a.name}': ${c.focal_length} mm, sensor ${c.sensor.join("x")} mm, focus ${c.focus}, cut ${c.cut[0]}-${c.cut[1]}.`];
+      if (a.exposure !== undefined) {
+        const ex = await run("camera_exposure(P['seq'], P['name'], P['b'])", { seq: a.sequence, name: a.name, b: a.exposure });
+        if (!ex.ok) return text(`Error setting exposure: ${ex.error}`, true);
+        const okEx = ex.method === "AEM_MANUAL" && Math.abs(ex.bias - a.exposure) < 1e-3;
+        lines.push(`${okEx ? "Exposure" : "EXPOSURE NOT APPLIED:"} ${ex.method}, bias ${ex.bias} EV (template + live).`);
+        if (!okEx) return text(lines.join("\n"), true);
+      }
       if (c.orphan_cuts_removed) lines.push(`Removed ${c.orphan_cuts_removed} camera cut(s) whose camera no longer exists.`);
       if (c.overlapping_cuts?.length) lines.push(`WARNING: this cut overlaps other camera cuts ${JSON.stringify(c.overlapping_cuts)} - the later section wins; trim them with shot_camera cut.`);
       let subject = a.aim?.subject;

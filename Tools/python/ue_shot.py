@@ -338,3 +338,27 @@ def render_status(out_dir, prefix):
     files = sorted(f for f in os.listdir(out_dir) if f.startswith(prefix + ".") and f.endswith(".png")) if os.path.isdir(out_dir) else []
     return {"ok": True, "rendering": unreal.get_editor_subsystem(unreal.MoviePipelineQueueSubsystem).is_rendering(),
             "frames": len(files), "first": files[0] if files else None, "last": files[-1] if files else None}
+
+
+def camera_exposure(seq_path, cam_name, bias):
+    """Manual exposure on a sequence camera (template + live): auto exposure off, fixed EV bias.
+    CLAUDE-NOTE (2026-10-22, live): a lit white figure against the lab's black void was blown out at every light level
+    - auto exposure metered the dark background. Manual exposure (no physical-camera exposure) makes light keys read
+    as intended."""
+    seq = load_sequence(seq_path)
+    b = find_binding(seq, cam_name)
+    live = bound_actor(seq, b)
+    comps = [c for c in (_cine_comp(b), live.get_cine_camera_component() if live else None) if c]
+    for cc in comps:
+        pp = cc.get_editor_property("post_process_settings")
+        pp.set_editor_property("override_auto_exposure_method", True)
+        pp.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
+        pp.set_editor_property("override_auto_exposure_apply_physical_camera_exposure", True)
+        pp.set_editor_property("auto_exposure_apply_physical_camera_exposure", False)
+        pp.set_editor_property("override_auto_exposure_bias", True)
+        pp.set_editor_property("auto_exposure_bias", float(bias))
+        cc.set_editor_property("post_process_settings", pp)
+        cc.set_editor_property("post_process_blend_weight", 1.0)
+    back = comps[-1].get_editor_property("post_process_settings")
+    return {"ok": True, "method": str(back.auto_exposure_method).split(".")[-1].split(":")[0],
+            "bias": round(back.auto_exposure_bias, 3), "components": len(comps)}
