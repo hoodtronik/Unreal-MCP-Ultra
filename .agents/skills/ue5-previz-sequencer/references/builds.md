@@ -223,3 +223,17 @@ close-up cut shows the grips.
 Eyes vs numbers: the first `add` reported the knees 1.4 cm off the clip (pass-through keys dropped in the creating call -
 fixed by keying in a second call); a side camera put the glance at 90 deg (camera moved ahead of him); the 28 mm lens
 lost him off the edge at the end (24 mm).
+
+## 14. A custom-skeleton character waves and smiles (2026-10-22, `/Game/_MCPLab/Seq/SEQ_GirlFK`, auto FK Control Rig)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | Girl (Fab handpaint girl, own skeleton, no Control Rig) spawnable at [900,600,0]; `pose_fk add` | FKControlRig, 99 bone controls, REPLACE |
+| 2 | `pose_fk aim` f0 upperarm/lowerarm l+r down at the sides | 119/46/36/32 -> <= 0.001 deg, 1 step each |
+| 3 | `pose_fk set` f0 face zero; f20 jaw roll 1.5, lip corners [+-0.55,0.75,0.3] cm, brows/cheeks up | worst 0.000 deg; corners moved 0.98 cm |
+| 4 | `pose_fk aim` f24 upperarm_r out at shoulder height, lowerarm_r up; f32/40/48 lowerarm_r side to side | 0.000 deg each |
+| 5 | `shot_camera` Cam 40 mm spine_03 380 cm az 10 rise 25 cut 0-36; CU 85 mm head 130 cm cut 36-49 | hand in frame |
+
+Eyes vs numbers: raw rotation offsets twisted the arm instead of raising it (-> `aim`); the background had the Loco
+mannequins (character moved to x 900); the first wave went straight up out of frame (read as hailing) and the first
+smile (jaw 4 deg) bared the teeth like a snarl - jaw 1.5, corners wider.
