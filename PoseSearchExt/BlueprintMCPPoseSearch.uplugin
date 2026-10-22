@@ -1,0 +1,29 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "Blueprint MCP - Pose Search",
+	"Description": "Optional Pose Search (Motion Matching) endpoints for BlueprintMCP: build schema + database from clips, offline nearest-pose queries. Requires the PoseSearch plugin. Install as a SIBLING of BlueprintMCP (Plugins/BlueprintMCPPoseSearch).",
+	"Category": "Editor",
+	"CreatedBy": "",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "BlueprintMCPPoseSearch",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "BlueprintMCP",
+			"Enabled": true
+		},
+		{
+			"Name": "PoseSearch",
+			"Enabled": true
+		}
+	]
+}
