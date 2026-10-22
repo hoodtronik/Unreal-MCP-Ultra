@@ -910,6 +910,8 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 		QueuedHandler(TEXT("setMirrorTableRows")));
 	Router->BindRoute(FHttpPath(TEXT("/api/remove-mirror-table-rows")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("removeMirrorTableRows")));
+	Router->BindRoute(FHttpPath(TEXT("/api/create-mirror-table")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("createMirrorTable")));
 
 	// Groom Binding asset tools
 	Router->BindRoute(FHttpPath(TEXT("/api/list-groom-bindings")), EHttpServerRequestVerbs::VERB_GET,
@@ -1487,6 +1489,7 @@ void FBlueprintMCPServer::RegisterHandlers()
 		TEXT("setStateAnimation"),
 		TEXT("setMirrorTableRows"),
 		TEXT("removeMirrorTableRows"),
+		TEXT("createMirrorTable"),
 		TEXT("duplicateGroomBinding"),
 		TEXT("setGroomBindingTargetMesh"),
 		TEXT("addSkeletonSocket"),
@@ -1682,6 +1685,7 @@ void FBlueprintMCPServer::RegisterHandlers()
 	HandlerMap.Add(TEXT("setStateAnimation"),       [this](const TMap<FString, FString>&, const FString& B) { return HandleSetStateAnimation(B); });
 	HandlerMap.Add(TEXT("listMirrorTableRows"),     [this](const TMap<FString, FString>&, const FString& B) { return HandleListMirrorTableRows(B); });
 	HandlerMap.Add(TEXT("setMirrorTableRows"),      [this](const TMap<FString, FString>&, const FString& B) { return HandleSetMirrorTableRows(B); });
+	HandlerMap.Add(TEXT("createMirrorTable"),       [this](const TMap<FString, FString>&, const FString& B) { return HandleCreateMirrorTable(B); });
 	HandlerMap.Add(TEXT("removeMirrorTableRows"),   [this](const TMap<FString, FString>&, const FString& B) { return HandleRemoveMirrorTableRows(B); });
 	HandlerMap.Add(TEXT("listAnimSlots"),           [this](const TMap<FString, FString>&, const FString& B) { return HandleListAnimSlots(B); });
 	HandlerMap.Add(TEXT("listSyncGroups"),          [this](const TMap<FString, FString>&, const FString& B) { return HandleListSyncGroups(B); });

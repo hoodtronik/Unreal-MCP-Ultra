@@ -99,4 +99,33 @@ export function registerMirrorTableTools(server: McpServer): void {
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     }
   );
+
+  // ------------------------------------------------------------------
+  // create_mirror_table
+  // ------------------------------------------------------------------
+  // CLAUDE-NOTE (2026-10-22): Python cannot make a usable MirrorDataTable (factory fields not public; a factory-less
+  // table has no row struct) - C++ /api/create-mirror-table sets them by reflection and fills the rows from the
+  // default _l/_r find-replace expressions.
+  server.tool(
+    "create_mirror_table",
+    "Create a Mirror Data Table for a skeleton (rows filled automatically from left/right naming such as _l/_r), " +
+      "for the Mirror animation node and mirrored playback. Verified by reading the rows back.",
+    {
+      path: z.string().describe("New asset path, e.g. /Game/Animation/MDT_Mannequin."),
+      skeleton: z.string().describe("Skeleton asset path."),
+      axis: z.enum(["X", "Y", "Z"]).optional().describe("Mirror axis (default X)."),
+    },
+    async ({ path, skeleton, axis }) => {
+      const err = await ensureUE();
+      if (err) return { content: [{ type: "text" as const, text: err }], isError: true };
+      const data = await uePost("/api/create-mirror-table", { path, skeleton, axis: axis ?? "X" });
+      if (data.error) return { content: [{ type: "text" as const, text: `Error: ${data.error}` }], isError: true };
+      const back = await uePost("/api/list-mirror-table-rows", { table: data.table });
+      const n = back.rowCount ?? 0;
+      const bad = !n || data.rowStruct !== "MirrorTableRow";
+      const sample = (back.rows ?? []).slice(0, 4).map((r: any) => `${r.name} -> ${r.mirroredName}`).join(", ");
+      return { content: [{ type: "text" as const, text: `${bad ? "MIRROR TABLE CHECK FAILED:" : "Mirror table created and verified:"}
+${data.table}: ${n} row(s) read back (row struct ${data.rowStruct}, axis ${back.mirrorAxis}, saved ${data.saved}); e.g. ${sample}` }], ...(bad ? { isError: true } : {}) };
+    }
+  );
 }

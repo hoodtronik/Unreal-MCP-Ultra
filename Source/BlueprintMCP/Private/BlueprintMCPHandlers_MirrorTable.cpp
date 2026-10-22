@@ -5,6 +5,10 @@
 #include "BlueprintMCPServer.h"
 
 #include "Animation/MirrorDataTable.h"
+#include "Animation/Skeleton.h"
+#include "AssetToolsModule.h"
+#include "Factories/MirrorDataTableFactory.h"
+#include "IAssetTools.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -210,6 +214,51 @@ FString FBlueprintMCPServer::HandleRemoveMirrorTableRows(const FString& Body)
 	Result->SetStringField(TEXT("table"), Table->GetPathName());
 	Result->SetNumberField(TEXT("removed"), NumRemoved);
 	Result->SetNumberField(TEXT("totalRows"), Table->GetRowMap().Num());
+	Result->SetBoolField(TEXT("saved"), bSaved);
+	return JsonToString(Result);
+}
+
+
+// CLAUDE-NOTE (2026-10-22, live 5.6.1): Python cannot create a usable MirrorDataTable - the factory's Skeleton / Struct /
+// MirrorFindReplaceExpressions are not public (set_editor_property refuses), and a table created without the factory
+// has RowStruct None. Here they are set through reflection and the factory runs without its picker dialog
+// (ConfigureProperties); FactoryCreateNew fills the rows with FindReplaceMirroredNames (default _l/_r expressions).
+FString FBlueprintMCPServer::HandleCreateMirrorTable(const FString& Body)
+{
+	TSharedPtr<FJsonObject> Json = ParseBodyJson(Body);
+	if (!Json.IsValid()) { return MakeErrorJson(TEXT("Invalid JSON body")); }
+	FString Path, SkeletonPath, Axis = TEXT("X");
+	if (!Json->TryGetStringField(TEXT("path"), Path)) { return MakeErrorJson(TEXT("Missing 'path' (e.g. /Game/Anim/MDT_Hero)")); }
+	if (!Json->TryGetStringField(TEXT("skeleton"), SkeletonPath)) { return MakeErrorJson(TEXT("Missing 'skeleton'")); }
+	Json->TryGetStringField(TEXT("axis"), Axis);
+
+	USkeleton* Skel = LoadObject<USkeleton>(nullptr, *SkeletonPath);
+	if (!Skel) { return MakeErrorJson(FString::Printf(TEXT("Skeleton not found: %s"), *SkeletonPath)); }
+	if (LoadMirrorTableByName(Path)) { return MakeErrorJson(FString::Printf(TEXT("%s already exists"), *Path)); }
+
+	UMirrorDataTableFactory* Factory = NewObject<UMirrorDataTableFactory>();
+	UClass* FC = UMirrorDataTableFactory::StaticClass();
+	FObjectPropertyBase* PSkel = FindFProperty<FObjectPropertyBase>(FC, TEXT("Skeleton"));
+	FObjectPropertyBase* PStruct = FindFProperty<FObjectPropertyBase>(FC, TEXT("Struct"));
+	FObjectPropertyBase* PExpr = FindFProperty<FObjectPropertyBase>(FC, TEXT("MirrorFindReplaceExpressions"));
+	if (!PSkel || !PStruct || !PExpr) { return MakeErrorJson(TEXT("MirrorDataTableFactory layout changed (Skeleton/Struct/MirrorFindReplaceExpressions not found)")); }
+	PSkel->SetObjectPropertyValue_InContainer(Factory, Skel);
+	PStruct->SetObjectPropertyValue_InContainer(Factory, FMirrorTableRow::StaticStruct());
+	PExpr->SetObjectPropertyValue_InContainer(Factory, NewObject<UMirrorTableFindReplaceExpressions>(Factory));
+
+	const FString PackagePath = FPackageName::GetLongPackagePath(Path);
+	const FString AssetName = FPackageName::GetShortName(Path);
+	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
+	UMirrorDataTable* Table = Cast<UMirrorDataTable>(AssetTools.CreateAsset(AssetName, PackagePath, UMirrorDataTable::StaticClass(), Factory));
+	if (!Table) { return MakeErrorJson(TEXT("CreateAsset returned no MirrorDataTable")); }
+	Table->MirrorAxis = Axis.Equals(TEXT("Y"), ESearchCase::IgnoreCase) ? EAxis::Y : Axis.Equals(TEXT("Z"), ESearchCase::IgnoreCase) ? EAxis::Z : EAxis::X;
+	const bool bSaved = SaveMirrorTablePackage(Table);
+
+	TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("table"), Table->GetPathName());
+	Result->SetNumberField(TEXT("rowCount"), Table->GetRowMap().Num());
+	Result->SetStringField(TEXT("skeleton"), Skel->GetPathName());
+	Result->SetStringField(TEXT("rowStruct"), Table->RowStruct ? Table->RowStruct->GetName() : TEXT("None"));
 	Result->SetBoolField(TEXT("saved"), bSaved);
 	return JsonToString(Result);
 }
