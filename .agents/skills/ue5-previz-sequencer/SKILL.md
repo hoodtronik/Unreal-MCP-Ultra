@@ -60,6 +60,7 @@ tick and `isError` is set from that readback:
 | `shot_camera_follow` | keyed tracking camera: 'pan' (fixed position, turns) or 'truck' (travels at bone + offset, height locked) aimed at a bone with a `screen` target (headroom / lead room), focus distance keyed (+ aperture); verified on in-between frames through the live camera | SEQ_Follow: pan + truck on a walker, bone within 0.05 of its screen target, focus within 0.8% |
 | `seq_light` / `seq_property` | spawnable light + keyed property tracks on an actor or component (float / bool / colour / vector; auto, linear, constant), verified on the live object at keys and between keys (colours compared in 8-bit sRGB) | SEQ_Lights: light 300 -> 3000 and cool -> warm, f12 midpoints exact |
 | `shot_camera exposure` | manual exposure (auto exposure off, EV bias) on a sequence camera, template + live | lab void: -2 EV, figure mean 127 -> 167 across the light-up, <= 2.9% clipped (auto exposure: 50-99% clipped) |
+| `shot_rig` | rail dolly / crane: spawnable rig, camera attached to its mount component, position / pitch / yaw / arm keyed, `aim` keeps the camera on a subject's bone (mount-relative rotation keys); verified camera on mount, mount on spline, keys between keys, aim between keys | SEQ_Rail: 3 m dolly, camera on the spline 0 cm, Manny pinned at (0, -0.15); SEQ_Crane: pitch 0 -> 35, yaw -20 -> 20 with aim |
 | `pose_set_interpolation` | smooth / linear / constant on a character's CR keys (clip bakes are constant -> later keys snap) | constant -> pops at f14, f20; smooth -> none |
 | `pose_motion_report` | scrub frame by frame, per-bone path, max step, POPS = spikes vs neighbouring steps | elbow flip 13.8 cm caught; fixed with a keyed pole vector |
 | `shot_render` | Movie Render Queue (PIE) PNG sequence -> MP4 via ffmpeg, poster inline; warns editor-hidden actors render | 60 frames 960x540 |
@@ -256,6 +257,7 @@ One track per layer (Dialogue / Music / SFX), sections positioned in master fram
 | 91 | `camera_pose` / framing numbers do not match an animated camera | They read the camera's first key / default. Follow checks read the LIVE spawned camera at the current frame. The camera's own look-at tracking cannot target a spawnable - key the aim instead. |
 | 92 | Light keys "do nothing" or the character is pure white | Auto exposure meters the lab's black void and blows out a lit figure at any intensity. Set `shot_camera exposure` (manual EV; here -2) and keep a point light a few metres away. Light colour is an 8-bit sRGB FColor on the component: linear 0.4 reads back as 170. |
 | 93 | `add_possessable` on a spawned actor's component makes a duplicate binding | Sequencer already created a child binding for it (LightComponent0). `seq_property` reuses the existing child and removes duplicates. |
+| 94 | Dolly shot loses the subject at both ends | A camera locked to the rail's heading lets the subject cross out of frame. Use `shot_rig aim` (keys the camera's rotation RELATIVE to the mount). Once attached, a camera's transform channels are relative to the mount - world-space aim values are wrong there. |
 
 ## MetaHuman-skeleton dummies (decided 2026-09-23)
 

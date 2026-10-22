@@ -289,3 +289,17 @@ chest at 50 mm/4 m - and the truck camera bobbed with his walk. Added `screen` a
 Eyes vs numbers: the first keys (500 -> 8000, light 1.3 m away) all verified but the figure was pure white in every
 frame with the head cut off: auto exposure against the black void. Light moved back, max 3000, manual exposure added
 to shot_camera and calibrated by measuring clipped pixels (+11 EV 99%, +4 52%, 0 34%, -2 2.9%).
+
+## 19. Dolly and crane (2026-10-22, `/Game/_MCPLab/Seq/SEQ_Rail`, `SEQ_Crane`, camera rigs)
+
+| Step | Call | Readback |
+|---|---|---|
+| 1 | `pose_setup_character` Manny [1200,600,0] facing 180 (both sequences) | facing measured |
+| 2 | `shot_camera` RailCam 35 mm / CraneCam 28 mm | created |
+| 3 | `shot_rig` rail Dolly at [900,450,150] yaw 90, points 0-300 cm, position 0 -> 1 (f0-47), aim Manny.spine_03 screen [0,-0.15] | camera on mount 0 cm, mount on spline 0 cm; aim on 12 in-between frames u <= 0.026, v -0.15 |
+| 4 | `shot_rig` crane (base [450,600,0], arm 300) pitch 0 -> 35, yaw -20 -> 20, aim screen [0,-0.1] every 6 | camera on mount, pitch/yaw follow keys |
+| 5 | `shot_capture` f0/24/47 each | judged |
+
+Eyes vs numbers: the first rail move verified (camera exactly on the spline) but Manny was out of frame at both ends
+(fixed heading) - aim added. The crane opened on bare floor (pitch -5, camera tilted down). A second shot_rig call to
+read back wiped the aim keys (mount re-run reset rotation) - fixed: rotation only rewritten when given.
