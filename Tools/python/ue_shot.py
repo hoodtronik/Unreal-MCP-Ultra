@@ -373,7 +373,7 @@ PP_MATERIALS = {"depth": "/MovieRenderPipeline/Materials/MovieRenderQueue_WorldD
 
 
 def render_passes_start(seq_path, passes, out_dir=None, width=960, height=540, start=None, end=None, fmt="png",
-                        spatial=None, temporal=None, warmup=None, audio=False):
+                        spatial=None, temporal=None, warmup=None, audio=False, cvars=None):
     """One MRQ job with several passes (lit/unlit/detail_lighting/lighting_only/reflections/path_tracer + post-process
     material passes depth/normal/motion on the lit pass), optional AA sample counts and WAV audio. File names
     {sequence_name}.{render_pass}.{frame_number}.{ext}."""
@@ -436,6 +436,11 @@ def render_passes_start(seq_path, passes, out_dir=None, width=960, height=540, s
     cfg.find_or_add_setting_by_class(cls)
     if audio:
         cfg.find_or_add_setting_by_class(unreal.MoviePipelineWaveOutput)
+    if cvars:
+        # scoped to this render (the job's console-variable setting), never the project's settings
+        cv = cfg.find_or_add_setting_by_class(unreal.MoviePipelineConsoleVariableSetting)
+        for k, v in cvars.items():
+            cv.add_or_update_console_variable(k, float(v))
     subsys.render_queue_with_executor(unreal.MoviePipelinePIEExecutor)
     fps = seq.get_display_rate()
     return {"ok": True, "out_dir": od, "prefix": name, "fps": [fps.numerator, fps.denominator], "passes": base_passes + pp,
