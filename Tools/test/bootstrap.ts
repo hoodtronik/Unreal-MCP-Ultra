@@ -193,6 +193,12 @@ export async function spawnCommandlet(projectDir: string): Promise<void> {
       "-unattended",
       "-nopause",
       "-nullrhi",
+      // CLAUDE-NOTE (2026-10-25): -noxgecontroller keeps shader compiles local. On a machine with
+      // Incredibuild installed but unlicensed, the first asset save that compiles shaders (the
+      // Niagara suite) handed jobs to XGE, which never returned ("XGEControlWorker.exe is not
+      // recognized"); the commandlet's game thread wedged and every later test failed with
+      // ECONNREFUSED. Seen on UE 5.8.2, but the controller is engine-wide, not version-specific.
+      "-noxgecontroller",
       `-LOG=${logPath}`,
     ],
     { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
