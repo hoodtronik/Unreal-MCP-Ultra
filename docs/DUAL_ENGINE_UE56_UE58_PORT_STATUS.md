@@ -80,12 +80,47 @@ source problem. `rm -rf Intermediate` and the same build succeeded in 23 s.
 | MCP server starts and binds 9847 | **PASS** — up ~85 s after launch (cold host) | **PASS** — up 15 s after launch |
 | Blueprint read/mutation smoke | **PASS** — `create_blueprint` → `add_variable` → `validate_blueprint` clean, saved | **PASS** — same sequence |
 | Material validation smoke | **PASS** — `WorldGridMaterial` Valid: Yes (a real resource check, not the vacuous path) | **PASS** |
+| DataAsset/UserDefinedStruct smoke | not recorded | **PASS** (5.8.2, 2026-10-25) — `create_struct` → `create_data_table` on that struct → `create_data_asset` (InputAction), all saved; suite `user-types` 10/10 |
+| Animation mutation smoke | not recorded | **PASS** (5.8.2, 2026-10-25) — on engine mannequin content: `get_skeleton` SK_Mannequin (161 bones), `add_skeleton_socket`, `create_anim_blueprint`, `add_state_machine`, 2× `add_anim_state` (MM_Idle), `set_state_animation`, `add_anim_transition`, `create_blend_space`, then `validate_blueprint` clean; suites `animation-mutation` 18/18, `animation-read` 3/3, `mirror-table` 6/6 |
+| PIE/runtime tool smoke | not recorded | **PASS** (5.8.2, 2026-10-25) — `start_pie` → `is_pie_running` Running → `stop_pie`; suites `pie-lifecycle` 6/6, `pie-runtime` 5/5 against a live editor |
 | Vision/capture smoke | **PASS** — `viewport_capture` 512×240 in 23 ms; `vision_mode` frames attach | **PASS** — same |
 | Previz skill `selfcheck()` | PASS (main, MyLab_5_6) | **PASS** — MyLab_5_8, one deprecation now feature-detected in the lib |
 | Riot Crowd | out of scope | out of scope |
 
 Note the installed 5.8 is **5.8.3** (`5.8.3-58210709`), not the 5.8.1 the July fork was built against;
 every gate above was run on 5.8.3.
+
+### Independent re-run on UE 5.8.2 (second machine, 2026-10-25, MEASURED)
+
+Branch tip `20421f1`, engine `5.8.2-56702186` (`D:\PROGRAM_FILES\UE_5.8`). Scratch host project
+`G:\_AI_Agents\_scratch\BPMCP58Test`: a C++ stub module, a copy of the plugin, and the engine's mannequin
+template content. The repo's `Binaries/` was not touched.
+
+- UBT compile + link: PASS, 0 warnings. The DLL's BuildId (55116800) matches the engine.
+- Real editor: `Mounting Project plugin BlueprintMCP`, `InternalLoadLibrary: 'BlueprintMCP'`,
+  `Editor subsystem started — MCP server on port 9847`. Quit cleanly through `run_python` → `quit_editor()`
+  (`LogExit: Exiting.`). Commandlet mode binds 9847 after about 60 s cold, and `/api/shutdown` exits 0.
+- Real MCP stdio client: 270 tools, none missing against `tool-baseline.json` (269). The one extra is
+  `get_task_status`, which is TypeScript-only and engine-independent.
+- Commandlet suite: **701 pass / 2 fail / 68 skip** (771). Both failures are `search_by_type` 30 s timeouts
+  for a type that matches nothing. With no match, the handler loads every BP and map (about 290 BPs and 28
+  maps here), so this is content size and machine speed, not API drift.
+- Editor-only suites against the live editor: **92 pass / 3 fail** (95). Not judged as 5.8 drift (ASSUMED,
+  because there is no 5.6 run on this machine to compare):
+  - The `undo` "nothing to undo" case got `success:false` because one non-undoable transaction was left over from earlier suites.
+  - `set_realtime_rendering(true)` returns `realtime:false`, most likely a viewport realtime override in a
+    remote or unfocused session.
+  - The `vision` digest-suppression case flaked because the live viewport changed between two captures.
+- Machine gotchas: UAT `BuildPlugin` fails here with C1076/C3859, PCH virtual-memory exhaustion from 32-way
+  XGE. UBT with `-NoXGE -MaxParallelActions=8` builds clean. An installed but unlicensed Incredibuild also
+  wedges commandlet shader compiles. The test harness now passes `-noxgecontroller`. The production
+  `ue-bridge.ts` commandlet spawn does not pass it yet, so standalone-mode shader compiles can hang the same
+  way on this machine (ASSUMED, same mechanism).
+- Video-mocap retargeting: there are no IK Rig, IK Retargeter or AnimSequence-inspection MCP tools.
+  `run_python` works on 5.8 and exposes `unreal.IKRigController`, `unreal.IKRetargeterController` and
+  `unreal.IKRetargetBatchOperation`, so retargeting can be driven through Python today.
+- Bug found (engine-independent): `add_state_machine` ignores `name`. See
+  `docs/KNOWN-ISSUE-add-state-machine-name-ignored.md`.
 
 A compile-only pass is insufficient; the Mass port showed failures that appear only at link, and the
 `validate_material` bug showed one that appears only in a real editor.
