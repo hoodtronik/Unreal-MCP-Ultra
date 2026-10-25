@@ -189,6 +189,10 @@ export async function spawnAndWait(): Promise<string | null> {
     "-unattended",
     "-nopause",
     "-nullrhi",
+    // CLAUDE-NOTE (2026-10-25): keep shader compiles local. With Incredibuild installed but
+    // unlicensed, XGE takes the jobs and never returns, wedging the commandlet. Same flag and
+    // reason as Tools/test/bootstrap.ts.
+    "-noxgecontroller",
     `-LOG=${logPath}`,
   ], {
     stdio: ["ignore", "pipe", "pipe"],
