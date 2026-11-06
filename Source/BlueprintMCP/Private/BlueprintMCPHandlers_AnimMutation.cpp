@@ -149,6 +149,9 @@ namespace
 		Node->Modify();
 		for (const auto& KV : Props->Values)
 		{
+			// CLAUDE-NOTE: on 5.8 FJsonObject keys are UE::FSharedString, on 5.6 FString; operator* gives a TCHAR* on both,
+			// so one copy into an FString needs no version gate (same idiom as HandlersSnapshot).
+			const FString Key(*KV.Key);
 			FString Value;
 			if (!KV.Value->TryGetString(Value))
 			{
@@ -156,11 +159,11 @@ namespace
 				bool B;
 				if (KV.Value->TryGetNumber(D)) Value = FString::SanitizeFloat(D);
 				else if (KV.Value->TryGetBool(B)) Value = B ? TEXT("True") : TEXT("False");
-				else { OutError = KV.Key + TEXT(": value must be a string, number or bool"); return false; }
+				else { OutError = Key + TEXT(": value must be a string, number or bool"); return false; }
 			}
 			FString Back;
-			if (!SetPropertyByPath(Node, KV.Key, Value, Back, OutError)) return false;
-			OutReadbacks->SetStringField(KV.Key, Back);
+			if (!SetPropertyByPath(Node, Key, Value, Back, OutError)) return false;
+			OutReadbacks->SetStringField(Key, Back);
 		}
 		return true;
 	}
