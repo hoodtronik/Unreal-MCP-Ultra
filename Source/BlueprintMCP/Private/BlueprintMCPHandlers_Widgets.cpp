@@ -510,6 +510,11 @@ FString FBlueprintMCPServer::HandleAddWidget(const FString& Body)
 		Tree->RootWidget = NewWidget;
 	}
 
+	// CLAUDE-NOTE: the UMG compiler ensures every widget has an entry in WidgetVariableNameToGuidMap.
+	// Without this registration each add_widget stalled the editor ~20 s per ensure report (dropping the
+	// HTTP response) and the ensures repeated on every later compile of the asset.
+	WidgetBP->OnVariableAdded(NewWidget->GetFName());
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBP);
 	bool bSaved = SaveBlueprintPackage(WidgetBP);
 
