@@ -39,6 +39,7 @@ import { registerLevelTools } from "./tools/level.js";
 import { registerNiagaraTools } from "./tools/niagara.js";
 import { registerRunPythonTools } from "./tools/run-python.js";
 import { registerDiscoverPythonTools } from "./tools/discover-python.js";
+import { registerEpicBridgeTools } from "./tools/epic-bridge.js";
 import { registerGroomTools } from "./tools/groom.js";
 import { registerMirrorTableTools } from "./tools/mirror-table.js";
 import { registerPcgTools } from "./tools/pcg.js";
@@ -149,6 +150,7 @@ export const TOOL_REGISTRATIONS: ToolRegistration[] = [
   { register: registerNiagaraTools, category: "Niagara" },
   { register: registerRunPythonTools, category: "Python Bridge" },
   { register: registerDiscoverPythonTools, category: "Python API Discovery" },
+  { register: registerEpicBridgeTools, category: "Epic Native MCP Bridge" },
   { register: registerGroomTools, category: "Groom" },
   { register: registerMirrorTableTools, category: "Mirror Data Tables" },
   { register: registerPcgTools, category: "PCG" },
