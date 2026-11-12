@@ -98,6 +98,14 @@ templates ignore setter functions (write properties); keep test content in /Game
 >   saved result. Its image tools return base64 JSON; use `vision_mode` here for eyes.
 > Setup for a new 5.8 project: `blueprintmcp-install` skill, Step 6.
 
+> **CLAUDE-NOTE (2026-11-12): Epic's tools through this server.** `epic_toolsets`, `epic_describe` and
+> `epic_call` proxy Epic's server (default `http://127.0.0.1:8000/mcp`, override with `UE_EPIC_MCP_URL`), so
+> its toolsets stay usable when the client's own `unreal-mcp` connection is down, which is common: a client
+> started before the editor marks it failed. `epic_describe(toolset, tools=[...])` returns schemas for only
+> the tools named, avoiding the overflow above. They are TypeScript-only (no C++ route) and work on any
+> build of this server, but need a **5.8+ editor with Epic's server running**; Epic's plugin does not exist
+> for 5.6, so in a 5.6-only session they return a clear "could not reach" error.
+
 ### Topic docs — read before working in these areas
 
 > **CLAUDE-NOTE (2026-08-04): LED wall background content.** If working on the 11Weeks project / Wonderwall LED stage backgrounds, read `docs/led-wall-background-content.md` first — it documents the stage pixel map, where the 21:9 / 4K background plates live, and how to import them (Virtual Textures, BC7, sharp-vs-standard model choice).

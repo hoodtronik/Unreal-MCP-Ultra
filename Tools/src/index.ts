@@ -28,7 +28,8 @@ const server = new McpServer(
       "matching one before a complex task. IF EPIC'S NATIVE MCP (unreal-mcp, UE 5.8+) IS ALSO CONNECTED: " +
       "use it for breadth (GAS, StateTree, UMG, plugin scaffolding, Blueprint graph DSL) and this server " +
       "for run_python, previz/Sequencer, graph snapshot/diff/restore, material expressions, vision_mode, " +
-      "headless runs and anything on UE 5.6. Both drive the same editor.",
+      "headless runs and anything on UE 5.6. Both drive the same editor. NOT CONNECTED TO IT? " +
+      "epic_toolsets / epic_describe / epic_call reach Epic's server (port 8000) through this one.",
   },
 );
 

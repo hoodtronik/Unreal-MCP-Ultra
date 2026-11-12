@@ -120,6 +120,9 @@ and has native Sequencer/Control Rig/GAS/StateTree/UMG tools plus a Blueprint gr
    ServerUrlPath=/mcp
    bEnableToolSearch=True
    ```
+   <!-- CLAUDE-NOTE (2026-11-12): measured on the 5.9.0 Preview. -->
+   On **UE 5.9** the section was renamed to `[/Script/ModelContextProtocol.ModelContextProtocolSettings]`
+   (no `Engine` suffix); the 5.8 section name is silently ignored there. Auto-start is still off by default.
 3. Client side — Epic's server is HTTP, ours is stdio; they coexist in the same `.mcp.json`:
    ```json
    "unreal-mcp": { "type": "http", "url": "http://127.0.0.1:8000/mcp" }
@@ -128,6 +131,12 @@ and has native Sequencer/Control Rig/GAS/StateTree/UMG tools plus a Blueprint gr
    just means no 5.8 editor with the plugin is running yet — `/mcp` reconnects once it is.)
 4. Verify: `server_status` (ours, 9847) and Epic's `list_toolsets` (8000). Cross-check by spawning an actor
    with Epic's `SceneTools.add_to_scene_from_asset` and finding it with our `find_actors_by_class`.
+
+<!-- CLAUDE-NOTE (2026-11-12): the bridge exists because the client-side unreal-mcp entry is often dead. -->
+No client entry for Epic's server, or it shows "failed to connect"? Use ours as the way in:
+`epic_toolsets` (optional `filter`), `epic_describe(toolset, tools=[...])` and
+`epic_call(toolset, tool, arguments)` reach the same server through BlueprintMCP. Set `UE_EPIC_MCP_URL`
+in the server's `env` if Epic's server is not on `http://127.0.0.1:8000/mcp`.
 
 Working against Epic's server, three things cost time the first day:
 - With tool search on, the client sees only `list_toolsets` / `describe_toolset` / `call_tool`; real tools

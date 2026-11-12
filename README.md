@@ -272,6 +272,12 @@ The MCP server exposes **242 tools**, grouped by area below. Every mutation tool
 - `start_pie` · `stop_pie` · `pie_pause` · `is_pie_running`
 - `pie_get_player_transform` · `pie_teleport_player` · `pie_query_actors`
 
+**Epic's native MCP bridge (UE 5.8+)**
+- `epic_toolsets` · `epic_describe` · `epic_call` — list, describe and call the tools of Epic's own
+  in-editor MCP server (port 8000) through this server, so they stay reachable when the client has no
+  working connection to it. `epic_describe` returns schemas only for the tools you name. Needs a 5.8+
+  editor with Epic's server running; `UE_EPIC_MCP_URL` overrides the address.
+
 ## Credits
 
 Forked from [mirno-ehf/ue5-mcp](https://github.com/mirno-ehf/ue5-mcp). This is an
