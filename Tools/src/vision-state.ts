@@ -60,6 +60,8 @@ const NEVER_ATTACH = new Set([
   "viewport_capture", "vision_mode", "scene_digest",
   "take_screenshot", "take_high_res_screenshot", "screenshot_graph",
   "server_status", "shutdown_server",
+  // Discovery calls on Epic's MCP bridge; only epic_call can change the editor.
+  "epic_toolsets", "epic_describe",
 ]);
 
 export function shouldAttach(toolName: string): boolean {
