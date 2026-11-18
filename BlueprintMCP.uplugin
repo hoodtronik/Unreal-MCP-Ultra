@@ -6,7 +6,7 @@
 	"Description": "MCP server for inspecting and modifying UE5 Blueprint assets from AI coding assistants",
 	"Category": "Editor",
 	"CreatedBy": "",
-	"CanContainContent": false,
+	"CanContainContent": true,
 	"IsBetaVersion": false,
 	"Installed": false,
 	"Modules": [

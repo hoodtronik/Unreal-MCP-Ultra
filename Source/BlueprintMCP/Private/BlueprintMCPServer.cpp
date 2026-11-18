@@ -1521,8 +1521,9 @@ void FBlueprintMCPServer::RegisterHandlers()
 		TEXT("setCVar"),
 		TEXT("clearOutputLog"),
 		TEXT("startPIE"),
-		TEXT("undo"),
-		TEXT("redo"),
+		// CLAUDE-NOTE (2026-11-18): undo/redo must NOT be mutation endpoints. ExecuteEndpoint wraps
+		// mutations in BeginTransaction/EndTransaction, so HandleUndo undid its own empty wrapper
+		// ("Undone: BlueprintMCP: undo") and the user's last action stayed put (seen live in LevelUp).
 		TEXT("addWidget"),
 		TEXT("removeWidget"),
 		TEXT("setWidgetProperty"),
