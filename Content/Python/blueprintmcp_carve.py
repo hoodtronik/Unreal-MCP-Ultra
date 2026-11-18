@@ -302,7 +302,7 @@ def _spline_samples(actor, step=200.0):
 
 def carve(target, depth=450.0, inset=0.0, landscape="", layer="", settle=True, clear_intrusions=True,
           dry_run=False, work_dir="", settle_baseline="", cut_half_width=270.0,
-          floor_margin=-20.0, small_size=250.0):
+          floor_margin=-20.0, small_size=250.0, ground_snap=150.0):
     """settle_baseline: optional .r16 of the terrain as it was BEFORE earlier edits (e.g. a heightmap
     backup); props are then settled by the total drop since that baseline, not just this carve's."""
     if LIB is None:
@@ -389,12 +389,22 @@ def carve(target, depth=450.0, inset=0.0, landscape="", layer="", settle=True, c
         j = int(round((y - oy) / sy))
         return znew[j, i] if (0 <= i < W and 0 <= j < H) else -1e9
 
+    zbase = to_z(base)
+
+    def gz_old(x, y):
+        i = int(round((x - ox) / sx))
+        j = int(round((y - oy) / sy))
+        return zbase[j, i] if (0 <= i < W and 0 <= j < H) else 1e9
+
     def still_floating(x, y, z, d):
         # CLAUDE-NOTE (2026-11-18): only settle what is still up in the air. Re-running carve (or using
         # settle_baseline) must not drop things a second time: a first version sank a tree and three
         # rocks that an earlier pass had already lowered. "Floating" = more than half the drop above
         # the new ground; things already settled sit within their usual small offset of it.
-        return z - gz_at(x, y) > 0.5 * abs(d)
+        # It must also have STOOD on the ground before the carve (within ground_snap of it): carving stair
+        # pieces one by one dropped their neighbours - pieces built hundreds of units up - by the drop under
+        # them, breaking every flight (LevelUp labyrinth).
+        return z - gz_at(x, y) > 0.5 * abs(d) and z - gz_old(x, y) < ground_snap
 
     # ---- 2. settle what stood on lowered ground ----------------------------------------------
     settled_actors, settled_instances = [], 0
