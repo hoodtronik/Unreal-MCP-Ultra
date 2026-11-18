@@ -43,7 +43,7 @@ export function registerLandscapeTools(server: McpServer): void {
     {
       actor: z.string().describe("Actor label, name or path, e.g. 'SFM_RampartCorridor'."),
       depth: z.number().optional().describe("Trough depth below each piece's underside (default 450)."),
-      inset: z.number().optional().describe("Shrink each piece's footprint by this much so the trough hides under the walls (default 20)."),
+      inset: z.number().optional().describe("Shrink the actor's whole footprint by this much before lowering terrain (default 0). Above 0, a landscape vertex lying on the wall line stays up and grass grows inside the walls."),
       cutHalfWidth: z.number().optional().describe("Half-width of the cut envelope around the spline, walls included (default 300)."),
       settle: z.boolean().optional().describe("Drop props standing on lowered ground (default true)."),
       clearIntrusions: z.boolean().optional().describe("Ray-scan along the spline and clear intruders (default true)."),

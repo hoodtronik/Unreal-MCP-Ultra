@@ -5,7 +5,7 @@ LevelUp project: grass grew through the floor, hills and rocks blocked the inter
 left props floating. carve() automates that pass for any actor and is re-runnable after edits:
 
   1. Trough: lower the landscape (edit layer, via UBlueprintMCPLandscapeLibrary) under the actor's real
-     footprint - every mesh/instance box, shrunk by `inset` so the trough hides under the walls - to
+     footprint - the union of every mesh/instance box, optionally shrunk by `inset` - to
      `depth` below each piece's underside. Only lowers; never raises.
   2. Settle: everything else standing on ground that was lowered (other actors and instances; not
      landscape grass, which regenerates) drops by the same amount. Anything that was inside the
@@ -63,16 +63,6 @@ def _oriented_boxes(actor):
             pts = pts[np.argsort(np.arctan2(pts[:, 1] - cen[1], pts[:, 0] - cen[0]))]
             boxes.append((pts, min(zs)))
     return boxes
-
-
-def _shrink(poly, inset):
-    cen = poly.mean(axis=0)
-    out = []
-    for p in poly:
-        d = p - cen
-        n = np.linalg.norm(d)
-        out.append(p - d / n * min(inset, n * 0.5) if n > 0 else p)
-    return np.array(out)
 
 
 def _inside(poly, X, Y):
@@ -310,7 +300,7 @@ def _spline_samples(actor, step=200.0):
     return out
 
 
-def carve(target, depth=450.0, inset=20.0, landscape="", layer="", settle=True, clear_intrusions=True,
+def carve(target, depth=450.0, inset=0.0, landscape="", layer="", settle=True, clear_intrusions=True,
           dry_run=False, work_dir="", settle_baseline="", cut_half_width=270.0,
           floor_margin=-20.0, small_size=250.0):
     """settle_baseline: optional .r16 of the terrain as it was BEFORE earlier edits (e.g. a heightmap
@@ -340,20 +330,34 @@ def carve(target, depth=450.0, inset=20.0, landscape="", layer="", settle=True, 
     to_z = lambda v: oz + (v - 32768) / 128.0 * sz
     to_v = lambda z: np.clip(np.round(32768 + (z - oz) * 128.0 / sz), 0, 65535).astype(np.int64)
 
+    # CLAUDE-NOTE (2026-11-18): the inset shrinks the UNION footprint, not each box. Shrinking every mesh box
+    # on its own left a 2*inset gap on every seam between neighbouring pieces; with 200-wide junction floor
+    # panels and a 100-unit landscape grid every seam sits on a vertex row, so every other row stayed uncarved
+    # (striped trough, grass through the floor - LevelUp street maze). A vertex is now carved when it and the
+    # four points `inset` away from it each lie inside SOME box; its depth comes from the boxes over it.
+    # Default inset is 0: with a 100-unit landscape grid the wall line itself is a vertex row, and any inset
+    # left it up, so the terrain ramped back up inside the walls and grass showed along both wall bases.
     boxes = _oriented_boxes(actor)
+    offs = [(0.0, 0.0), (inset, 0.0), (-inset, 0.0), (0.0, inset), (0.0, -inset)]
+    cover = [np.zeros((H, W), bool) for _ in offs]
+    target = np.full((H, W), np.iinfo(np.int64).max, np.int64)
     for poly, bottom in boxes:
-        poly = _shrink(poly, inset)
-        i0 = max(0, int(math.floor((poly[:, 0].min() - ox) / sx)))
-        i1 = min(W - 1, int(math.ceil((poly[:, 0].max() - ox) / sx)))
-        j0 = max(0, int(math.floor((poly[:, 1].min() - oy) / sy)))
-        j1 = min(H - 1, int(math.ceil((poly[:, 1].max() - oy) / sy)))
+        i0 = max(0, int(math.floor((poly[:, 0].min() - inset - ox) / sx)))
+        i1 = min(W - 1, int(math.ceil((poly[:, 0].max() + inset - ox) / sx)))
+        j0 = max(0, int(math.floor((poly[:, 1].min() - inset - oy) / sy)))
+        j1 = min(H - 1, int(math.ceil((poly[:, 1].max() + inset - oy) / sy)))
         if i1 < i0 or j1 < j0:
             continue
         X, Y = np.meshgrid(ox + np.arange(i0, i1 + 1) * sx, oy + np.arange(j0, j1 + 1) * sy)
-        m = _inside(poly, X, Y)
-        if m.any():
-            sub = new[j0:j1 + 1, i0:i1 + 1]
-            sub[m] = np.minimum(sub[m], to_v(bottom - depth))
+        for k, (dx, dy) in enumerate(offs):
+            m = _inside(poly, X + dx, Y + dy)
+            if m.any():
+                cover[k][j0:j1 + 1, i0:i1 + 1] |= m
+                if k == 0:
+                    t = target[j0:j1 + 1, i0:i1 + 1]
+                    t[m] = np.minimum(t[m], to_v(bottom - depth))
+    keep = np.logical_and.reduce(cover)
+    new[keep] = np.minimum(new[keep], target[keep])
     changed = int((new != old).sum())
     report.update(pieces=len(boxes), troughVerts=changed)
     base = old

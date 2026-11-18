@@ -187,9 +187,27 @@ export function registerMutationTools(server: McpServer): void {
         return { content: [{ type: "text" as const, text: "Error: provide either all single-mode fields (blueprint, sourceNodeId, sourcePinName, targetNodeId, targetPinName) or 'batch'." }] };
       }
 
-      const body: Record<string, any> = batch
-        ? { batch }
-        : { blueprint, sourceNodeId, sourcePinName, targetNodeId, targetPinName };
+      // CLAUDE-NOTE (2026-11-18): the C++ /api/connect-pins handler only takes ONE link; a {batch} body came back
+      // "Missing required fields" for every call. Batch mode is done here instead: one request per link, in order,
+      // reported in the same shape the batch branch below expects.
+      if (batch) {
+        const results: any[] = [];
+        let saved: boolean | undefined;
+        for (const b of batch) {
+          const r = await uePost("/api/connect-pins", b);
+          results.push(r.error && !r.success
+            ? { error: `${b.sourcePinName} → ${b.targetPinName}: ${r.error}` }
+            : { sourcePinName: b.sourcePinName, targetPinName: b.targetPinName });
+          if (r.saved !== undefined) saved = r.saved;
+        }
+        const ok = results.filter((r) => !r.error).length;
+        const lines = [`Batch connect: ${ok}/${results.length} succeeded`];
+        for (const r of results) lines.push(r.error ? `  FAILED: ${r.error}` : `  OK: ${r.sourcePinName} → ${r.targetPinName}`);
+        if (saved !== undefined) lines.push(`Saved: ${saved}`);
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      }
+
+      const body: Record<string, any> = { blueprint, sourceNodeId, sourcePinName, targetNodeId, targetPinName };
 
       const data = await uePost("/api/connect-pins", body);
 
