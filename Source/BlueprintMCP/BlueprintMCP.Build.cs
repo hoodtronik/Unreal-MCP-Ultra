@@ -69,7 +69,12 @@ public class BlueprintMCP : ModuleRules
 			// wrap themselves in GIsRunningUnattendedScript, which is what makes them safe to call
 			// from an MCP request — the raw FEditorFileUtils path can raise a modal save dialog and
 			// deadlock the game thread the handler runs on.
-			"LevelEditor"
+			"LevelEditor",
+			// CLAUDE-NOTE (2026-11-18): landscape_import_heightmap / landscape_export_heightmap
+			// (BlueprintMCPHandlers_Landscape.cpp) use FLandscapeEditDataInterface +
+			// FScopedSetLandscapeEditingLayer. Python's landscape_import_heightmap_from_render_target
+			// refuses landscapes with Edit Layers, which is most real projects.
+			"Landscape"
 		});
 	}
 }

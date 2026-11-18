@@ -29,6 +29,7 @@ import { registerEditorUtilityTools } from "./tools/editor-utils.js";
 import { registerSelectionTools } from "./tools/selection.js";
 import { registerEditorUITools } from "./tools/editor-ui.js";
 import { registerCVarTools } from "./tools/cvars.js";
+import { registerLandscapeTools } from "./tools/landscape.js";
 import { registerOutputLogTools } from "./tools/output-log.js";
 import { registerScreenshotTools } from "./tools/screenshot.js";
 import { registerPIELifecycleTools } from "./tools/pie-lifecycle.js";
@@ -140,6 +141,7 @@ export const TOOL_REGISTRATIONS: ToolRegistration[] = [
   { register: registerSelectionTools, category: "Editor Selection" },
   { register: registerEditorUITools, category: "Editor UI" },
   { register: registerCVarTools, category: "Console Variables" },
+  { register: registerLandscapeTools, category: "Landscape" },
   { register: registerOutputLogTools, category: "Output Log" },
   { register: registerScreenshotTools, category: "Screenshots" },
   { register: registerPIELifecycleTools, category: "PIE Lifecycle" },

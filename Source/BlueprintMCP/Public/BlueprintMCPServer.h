@@ -567,6 +567,9 @@ private:
 	// ----- Console variables -----
 	FString HandleGetCVar(const FString& Body);
 	FString HandleSetCVar(const FString& Body);
+	// Landscape heightmap import/export through edit layers (BlueprintMCPHandlers_Landscape.cpp)
+	FString HandleLandscapeImportHeightmap(const FString& Body);
+	FString HandleLandscapeExportHeightmap(const FString& Body);
 	FString HandleListCVars(const FString& Body);
 
 	// ----- Sublevels -----

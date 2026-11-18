@@ -1110,6 +1110,10 @@ bool FBlueprintMCPServer::Start(int32 InPort, bool bEditorMode)
 		QueuedHandler(TEXT("setActorVisibility")));
 	Router->BindRoute(FHttpPath(TEXT("/api/set-cvar")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("setCvar")));
+	Router->BindRoute(FHttpPath(TEXT("/api/landscape-import-heightmap")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("landscapeImportHeightmap")));
+	Router->BindRoute(FHttpPath(TEXT("/api/landscape-export-heightmap")), EHttpServerRequestVerbs::VERB_POST,
+		QueuedHandler(TEXT("landscapeExportHeightmap")));
 	Router->BindRoute(FHttpPath(TEXT("/api/set-editor-selection")), EHttpServerRequestVerbs::VERB_POST,
 		QueuedHandler(TEXT("setEditorSelection")));
 	Router->BindRoute(FHttpPath(TEXT("/api/set-game-view")), EHttpServerRequestVerbs::VERB_POST,
@@ -1430,6 +1434,7 @@ void FBlueprintMCPServer::RegisterHandlers()
 {
 	// Mutation endpoints — wrapped in undo transactions by ProcessOneRequest()
 	MutationEndpoints = {
+		TEXT("landscapeImportHeightmap"),
 		TEXT("replaceFunctionCalls"),
 		TEXT("changeVariableType"),
 		TEXT("changeFunctionParamType"),
@@ -1795,6 +1800,8 @@ void FBlueprintMCPServer::RegisterHandlers()
 	HandlerMap.Add(TEXT("setActorTransform"), [this](const TMap<FString, FString>& P, const FString& B) { return HandleSetActorTransform(P, B); });
 	HandlerMap.Add(TEXT("setActorVisibility"), [this](const TMap<FString, FString>&, const FString& B) { return HandleSetActorVisibility(B); });
 	HandlerMap.Add(TEXT("setCvar"), [this](const TMap<FString, FString>&, const FString& B) { return HandleSetCVar(B); });
+	HandlerMap.Add(TEXT("landscapeImportHeightmap"), [this](const TMap<FString, FString>&, const FString& B) { return HandleLandscapeImportHeightmap(B); });
+	HandlerMap.Add(TEXT("landscapeExportHeightmap"), [this](const TMap<FString, FString>&, const FString& B) { return HandleLandscapeExportHeightmap(B); });
 	HandlerMap.Add(TEXT("setEditorSelection"), [this](const TMap<FString, FString>&, const FString& B) { return HandleSetEditorSelection(B); });
 	HandlerMap.Add(TEXT("setGameView"), [this](const TMap<FString, FString>&, const FString& B) { return HandleSetGameView(B); });
 	HandlerMap.Add(TEXT("setRealtimeRendering"), [this](const TMap<FString, FString>&, const FString& B) { return HandleSetRealtimeRendering(B); });
